@@ -1,0 +1,63 @@
+{
+ "actions": [],
+ "creation": "2026-11-11 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company_options",
+  "department_options",
+  "status_options",
+  "execution_region_options"
+ ],
+ "fields": [
+  {
+   "description": "Defaults to system Company records plus values already in the ledger.",
+   "fieldname": "company_options",
+   "fieldtype": "Table",
+   "label": "Company Options",
+   "options": "Budget Filter Option"
+  },
+  {
+   "description": "Each row pairs a department with its company. Leave empty to derive from system Department records and the ledger.",
+   "fieldname": "department_options",
+   "fieldtype": "Table",
+   "label": "Department Options by Company",
+   "options": "Budget Department Option"
+  },
+  {
+   "fieldname": "status_options",
+   "fieldtype": "Table",
+   "label": "Status Options",
+   "options": "Budget Filter Option"
+  },
+  {
+   "fieldname": "execution_region_options",
+   "fieldtype": "Table",
+   "label": "Execution Region Options",
+   "options": "Budget Filter Option"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-11-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Budget",
+ "name": "Budget Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

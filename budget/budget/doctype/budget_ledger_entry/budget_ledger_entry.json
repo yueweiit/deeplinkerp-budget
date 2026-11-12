@@ -1,0 +1,145 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:form_no",
+ "creation": "2026-11-11 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "form_no",
+  "process_instance_id",
+  "company",
+  "department",
+  "department_id",
+  "budget_kind",
+  "application_date",
+  "budget_month",
+  "execution_region",
+  "status",
+  "amount",
+  "synced_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "form_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Form No",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1,
+   "length": 140
+  },
+  {
+   "fieldname": "process_instance_id",
+   "fieldtype": "Data",
+   "label": "Process Instance ID",
+   "length": 140
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company",
+   "length": 140
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Department",
+   "length": 255
+  },
+  {
+   "fieldname": "department_id",
+   "fieldtype": "Data",
+   "label": "Department ID",
+   "search_index": 1,
+   "length": 64
+  },
+  {
+   "fieldname": "budget_kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Budget Kind",
+   "options": "production\nnon_production"
+  },
+  {
+   "fieldname": "application_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Application Date"
+  },
+  {
+   "fieldname": "budget_month",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Budget Month"
+  },
+  {
+   "fieldname": "execution_region",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Execution Region",
+   "length": 140
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Status",
+   "length": 64
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Budget Amount",
+   "options": "CNY"
+  },
+  {
+   "fieldname": "synced_at",
+   "fieldtype": "Datetime",
+   "label": "Synced At"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-11 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Budget",
+ "name": "Budget Ledger Entry",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 0,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 0
+  }
+ ],
+ "sort_field": "application_date",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "form_no",
+ "track_changes": 0
+}

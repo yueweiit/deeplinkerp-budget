@@ -1,0 +1,80 @@
+All,Todos
+All Months,Todos los meses
+Application Date,Fecha de solicitud
+Budget,Presupuesto
+Budget Amount,Monto del presupuesto
+Budget Category,Categoría del presupuesto
+Budget Department Option,Opción de departamento de presupuesto
+Budget Execution,Ejecución presupuestaria
+Budget Filter Option,Opción de filtro de presupuesto
+Budget Item,Concepto del presupuesto
+Budget Kind,Tipo de presupuesto
+Budget Ledger,Registro de presupuesto
+Budget Ledger Entry,Registro de presupuesto
+Budget Month,Mes del presupuesto
+Budget Ownership,Titularidad del presupuesto
+Budget Period,Periodo presupuestario
+Budget Settings,Configuración de presupuesto
+Budget Type,Tipo de presupuesto
+Calculation Basis,Base de cálculo
+Code / Expense Detail,Código / Detalle de gasto
+Company,Empresa
+Company Options,Opciones de empresa
+Currency,Moneda
+Defaults to system Company records plus values already in the ledger.,Por defecto usa los registros de Company del sistema más los valores ya presentes en el libro.
+Defaults to system Department records plus values already in the ledger.,Por defecto usa los registros de Department del sistema más los valores ya presentes en el libro.
+Department,Departamento
+Department ID,ID de departamento
+Department Options,Opciones de departamento
+Department Options by Company,Opciones de departamento por empresa
+Detail Amount,Importe detallado
+Detail Category,Categoría detallada
+Detail Item,Concepto detallado
+Each row pairs a department with its company. Leave empty to derive from system Department records and the ledger.,Cada fila vincula un departamento con su empresa. Si se deja vacío se usan los registros de Department del sistema y los valores del libro.
+Estimated Overtime Amount,Importe estimado de horas extra
+Execution Region,Región de ejecución
+Execution Region Options,Opciones de región de ejecución
+Execution Rows,Filas de ejecución
+Export XLSX,Exportar XLSX
+Exported At,Exportado el
+Figure,Valor
+Form No,N.º de formulario
+HR Budget,Presupuesto de RR. HH.
+Labor Budget,Presupuesto de mano de obra
+Material Budget,Presupuesto de materiales
+Metric,Indicador
+Month,Mes
+Monthly Budget Total,Total presupuestado mensual
+No.,N.º
+Non Production Budget,Presupuesto no productivo
+Non Production Budget Amount,Importe de presupuesto no productivo
+Non Production Budget Orders,Presupuestos no productivos
+Non Production Detail Rows,Filas de detalle no productivas
+Non Production Details,Detalle de presupuesto no productivo
+Office Budget,Presupuesto de oficina
+Operation Budget,Presupuesto de gestión
+Operator,Responsable
+Overtime Hours,Horas extra estimadas
+Overtime Rate,Tarifa de horas extra
+Own department budget,Presupuesto del propio departamento
+Previous Used,Utilizado anteriormente
+Process Instance ID,ID de instancia de aprobación
+Production Budget,Presupuesto de producción
+Production Budget Amount,Importe de presupuesto de producción
+Production Budget Orders,Presupuestos de producción
+Production Detail Rows,Filas de detalle de producción
+Production Details,Detalle de presupuesto de producción
+Purpose,Finalidad / Imputación
+Remark,Observaciones
+Requested Amount,Importe solicitado
+Requested Quantity,Cantidad solicitada
+Specification / Line / Position,Especificación / Línea / Puesto
+Status,Estado
+Status Options,Opciones de estado
+Summary,Resumen
+Synced At,Sincronizado el
+Total Budget,Presupuesto total
+Total Budget Amount,Importe total presupuestado
+Unit,Unidad
+Unit Price,Precio unitario
+Value,Valor

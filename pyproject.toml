@@ -1,0 +1,67 @@
+[project]
+name = "budget"
+authors = [
+    { name = "yuewei", email = "308642281@qq.com"},
+]
+description = "DingTalk OA approval integration for DeepLinkERP"
+requires-python = ">=3.14"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    # "frappe~=16.0.0" # Installed and managed by bench.
+    # "psycopg[binary]>=3.1" # 外部 OA 库只读直连，随 bench 环境提供。
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.bench.dev-dependencies]
+
+[deploy.dependencies.apt]
+packages = []
+
+[tool.ruff]
+line-length = 110
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "W",
+    "I",
+    "UP",
+    "B",
+    "RUF",
+]
+ignore = [
+    "B017",
+    "B018",
+    "B023",
+    "B904",
+    "E101",
+    "E402",
+    "E501",
+    "E741",
+    "F401",
+    "F403",
+    "F405",
+    "F722",
+    "W191",
+    "UP030",
+    "UP031",
+    "UP032",
+    "UP037",
+    "UP040",
+    # 中文注释/文档里全角标点属正常书写，不当成"歧义字符"
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+typing-modules = ["frappe.types.DF"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "tab"
+docstring-code-format = true

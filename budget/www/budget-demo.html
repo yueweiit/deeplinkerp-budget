@@ -1,0 +1,565 @@
+{% extends "templates/web.html" %}
+
+{% block title %}预算数据看板{% endblock %}
+{% block navbar %}{% endblock %}
+{% block footer %}{% endblock %}
+
+{% block page_content %}
+<style>
+	body { background: #fff; }
+	.page-content-wrapper { padding: 0 !important; }
+	main.container, main { max-width: 100% !important; width: 100%; padding: 0 !important; }
+
+	.bd-page {
+		--bd-border: #dce7f4;
+		--bd-head-bg: #edf5ff;
+		--bd-head-fg: #294f76;
+		--bd-hover: #f4f9ff;
+		display: flex;
+		flex-direction: column;
+		min-height: 100vh;
+		padding: 10px 14px 0;
+		box-sizing: border-box;
+		color: #22303e;
+		font-size: 13px;
+		background: #fff;
+	}
+
+	/* 顶部 */
+	.bd-crumb { font-size: 12px; color: #7b8794; margin-bottom: 4px; }
+	.bd-crumb a { color: #7b8794; text-decoration: none; }
+	.bd-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+	.bd-title { font-size: 19px; font-weight: 600; margin: 0; line-height: 1.3; }
+	.bd-actions { display: flex; gap: 8px; }
+
+	/* 筛选 */
+	.bd-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 6px; }
+	.bd-input, .bd-select {
+		height: 32px; border: 1px solid #d1d8dd; border-radius: 6px; background: #fff;
+		padding: 0 9px; font-size: 13px; color: #2c3a48; box-sizing: border-box;
+	}
+	.bd-input { width: 230px; }
+	.bd-input::placeholder { color: #a3adb8; }
+	.bd-input:focus, .bd-select:focus, .bd-month-trigger:focus {
+		outline: none; border-color: #2490ef; box-shadow: 0 0 0 3px rgba(36, 144, 239, 0.12);
+	}
+	.bd-select { min-width: 120px; }
+	.bd-btn {
+		height: 32px; padding: 0 14px; border-radius: 6px; border: 1px solid #d1d8dd;
+		background: #fff; color: #36414c; font-size: 13px; cursor: pointer; white-space: nowrap;
+	}
+	.bd-btn:hover { border-color: #2490ef; color: #1675cc; }
+	.bd-btn.primary { background: #2490ef; border-color: #2490ef; color: #fff; }
+	.bd-btn.primary:hover { background: #1a7fdb; }
+	.bd-btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
+
+	/* 月份选择器 */
+	.bd-month-field { position: relative; }
+	.bd-month-trigger {
+		display: inline-flex; align-items: center; justify-content: space-between; gap: 6px;
+		width: 150px; height: 32px; padding: 0 9px; background: #fff;
+		border: 1px solid #d1d8dd; border-radius: 6px; font-size: 13px; color: #2c3a48; cursor: pointer;
+	}
+	.bd-month-trigger:hover, .bd-month-trigger.open { border-color: #2490ef; }
+	.bd-month-icon { color: #8a949e; flex: 0 0 auto; }
+	.bd-month-pop {
+		position: absolute; top: calc(100% + 4px); left: 0; z-index: 60; width: 232px;
+		background: #fff; border: 1px solid #e3e8ee; border-radius: 8px; padding: 8px;
+		box-shadow: 0 8px 24px rgba(23, 43, 66, 0.14);
+	}
+	.bd-month-head { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 6px; }
+	.bd-month-head span { font-size: 13px; font-weight: 600; }
+	.bd-month-nav {
+		width: 24px; height: 24px; border: none; border-radius: 5px; background: #f4f5f7;
+		color: #4a5765; cursor: pointer; line-height: 1;
+	}
+	.bd-month-nav:hover { background: #eaf2ff; color: #1675cc; }
+	.bd-month-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
+	.bd-month-cell {
+		height: 28px; border: none; border-radius: 5px; background: #f7f8fa;
+		font-size: 12.5px; color: #3c4a58; cursor: pointer;
+	}
+	.bd-month-cell:hover { background: #eaf2ff; color: #1675cc; }
+	.bd-month-cell.selected { background: #2490ef; color: #fff; }
+	.bd-month-clear { width: 100%; margin-bottom: 6px; }
+
+	/* 提示 */
+	.bd-notice { font-size: 12px; color: #8d99a6; margin: 2px 0 6px; line-height: 1.6; }
+	.bd-notice strong { color: #c47f17; font-weight: 600; }
+
+	/* tabs */
+	.bd-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--bd-border); margin-bottom: 0; }
+	.bd-tab {
+		border: none; background: transparent; padding: 8px 14px; font-size: 13px;
+		color: #4a5765; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+	}
+	.bd-tab:hover { color: #1675cc; }
+	.bd-tab.active { color: #1675cc; border-bottom-color: #1675cc; font-weight: 600; }
+
+	/* 工具条 */
+	.bd-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+	.bd-toolbar .bd-spacer { flex: 1; }
+	.bd-toolbar .bd-hint { font-size: 12px; color: #8d99a6; }
+
+	/* 表格 */
+	.bd-grid-wrap { flex: 1 1 auto; min-height: 240px; overflow: auto; border: 1px solid var(--bd-border); border-radius: 6px; }
+	.bd-table { width: 100%; min-width: 1120px; border-collapse: separate; border-spacing: 0; }
+	.bd-table th {
+		position: sticky; top: 0; z-index: 2; background: var(--bd-head-bg); color: var(--bd-head-fg);
+		font-weight: 600; font-size: 12.5px; text-align: left; padding: 9px 12px;
+		border-bottom: 1px solid var(--bd-border); white-space: nowrap;
+	}
+	.bd-table td {
+		padding: 9px 12px; border-bottom: 1px solid #eef3f9; font-size: 12.5px;
+		white-space: nowrap; color: #2c3a48;
+	}
+	.bd-table.compact td { padding: 5px 12px; }
+	.bd-table.compact th { padding: 7px 12px; }
+	.bd-table tbody tr:hover td { background: var(--bd-hover); }
+	.bd-table td.num, .bd-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+	.bd-ellipsis { display: block; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.bd-form-no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #1a6fc4; }
+
+	.bd-badge { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; line-height: 18px; }
+	.bd-badge.pass { background: #e4f8ee; color: #138759; }
+	.bd-badge.pending { background: #fff3e0; color: #b26a00; }
+	.bd-badge.reject { background: #fdecea; color: #b42318; }
+	.bd-badge.other { background: #f0f2f5; color: #5b6774; }
+
+	/* 合计与分页 */
+	.bd-summary {
+		display: flex; flex-wrap: wrap; align-items: center; gap: 18px;
+		padding: 8px 10px; margin-top: 6px; font-size: 12.5px; color: #4a5765;
+		background: #f7fafd; border: 1px solid var(--bd-border); border-radius: 6px;
+	}
+	.bd-summary b { color: #22303e; font-weight: 600; }
+	.bd-pager { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 8px 0 12px; font-size: 12.5px; color: #6b7785; }
+
+	.bd-empty { padding: 48px 16px; text-align: center; color: #8d99a6; font-size: 13px; }
+	.bd-error { margin: 6px 0; padding: 8px 10px; background: #fdf1f0; border: 1px solid #f5d3d0; border-radius: 6px; color: #b42318; font-size: 12.5px; }
+	.bd-loading { opacity: 0.55; }
+
+	@media (max-width: 1100px) {
+		.bd-input { width: 180px; }
+	}
+</style>
+
+<div class="bd-page">
+	<div>
+		<div class="bd-crumb"><a href="/app">主页</a> / 预算数据看板</div>
+		<div class="bd-title-row">
+			<h1 class="bd-title">预算数据看板</h1>
+			<div class="bd-actions">
+				<a class="bd-btn" id="bd-back" href="/app">返回 ERP</a>
+				<button class="bd-btn" id="bd-refresh">刷新</button>
+			</div>
+		</div>
+
+		<div class="bd-filters">
+			<input class="bd-input" id="bd-keyword" placeholder="表单编号 / 部门 / 申请人" />
+			<select class="bd-select" id="bd-kind">
+				<option value="">预算类型</option>
+				<option value="production">生产预算</option>
+				<option value="non_production">非生产预算</option>
+			</select>
+			<div class="bd-month-field">
+				<button class="bd-month-trigger" id="bd-month-trigger" type="button">
+					<span id="bd-month-text">全部月份</span>
+					<svg class="bd-month-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+						<rect x="3" y="5" width="18" height="16" rx="2"></rect>
+						<path d="M16 3v4M8 3v4M3 11h18"></path>
+					</svg>
+				</button>
+				<div class="bd-month-pop" id="bd-month-pop" hidden>
+					<button class="bd-btn sm bd-month-clear" id="bd-month-clear" type="button">全部月份</button>
+					<div class="bd-month-head">
+						<button class="bd-month-nav" type="button" data-step="-1">‹</button>
+						<span id="bd-pop-year">2026 年</span>
+						<button class="bd-month-nav" type="button" data-step="1">›</button>
+					</div>
+					<div class="bd-month-grid" id="bd-month-grid"></div>
+				</div>
+			</div>
+			<select class="bd-select" id="bd-status">
+				<option value="">审批状态</option>
+			</select>
+			<button class="bd-btn primary" id="bd-search">查询</button>
+			<button class="bd-btn" id="bd-reset">清空筛选</button>
+		</div>
+
+		<p class="bd-notice">
+			数据来自 <b>budget_system</b>（只读）。同一部门同一预算月份只保留最新一单；
+			金额仅统计有效状态，作废/驳回不计入。
+			<strong id="bd-warn"></strong>
+		</p>
+
+		<nav class="bd-tabs">
+			<button class="bd-tab active" data-kind="">全部 <span data-count="all"></span></button>
+			<button class="bd-tab" data-kind="production">生产预算 <span data-count="production"></span></button>
+			<button class="bd-tab" data-kind="non_production">非生产预算 <span data-count="non_production"></span></button>
+		</nav>
+	</div>
+
+	<div class="bd-toolbar">
+		<button class="bd-btn sm" id="bd-density">紧凑</button>
+		<button class="bd-btn sm" id="bd-export">导出当前页</button>
+		<span class="bd-hint" id="bd-hint"></span>
+		<span class="bd-spacer"></span>
+	</div>
+
+	<div class="bd-grid-wrap">
+		<div id="bd-error"></div>
+		<table class="bd-table compact" id="bd-table">
+			<thead>
+				<tr>
+					<th style="width: 200px;">表单编号</th>
+					<th style="width: 170px;">子公司</th>
+					<th style="width: 260px;">部门</th>
+					<th style="width: 100px;">预算类型</th>
+					<th style="width: 108px;">申请日期</th>
+					<th style="width: 96px;">预算月份</th>
+					<th style="width: 120px;">执行地区</th>
+					<th style="width: 90px;">状态</th>
+					<th class="num" style="width: 140px;">预算金额</th>
+				</tr>
+			</thead>
+			<tbody id="bd-body">
+				<tr><td colspan="9" class="bd-empty">正在加载…</td></tr>
+			</tbody>
+		</table>
+	</div>
+
+	<div class="bd-summary">
+		<span>合计 <b id="bd-sum-count">0</b> 条</span>
+		<span>预算金额 <b id="bd-sum-amount">0.00</b></span>
+		<span>生产 <b id="bd-sum-prod">0</b></span>
+		<span>非生产 <b id="bd-sum-nonprod">0</b></span>
+		<span id="bd-sum-scope"></span>
+	</div>
+
+	<div class="bd-pager">
+		<span id="bd-page-info">—</span>
+		<button class="bd-btn sm" id="bd-prev">上一页</button>
+		<button class="bd-btn sm" id="bd-next">下一页</button>
+	</div>
+</div>
+
+<script>
+	(function () {
+		var state = {
+			kind: "",
+			month: "",
+			keyword: "",
+			status: "",
+			page: 1,
+			page_size: 20,
+			density: "compact",
+			rows: []
+		};
+
+		var body = document.getElementById("bd-body");
+		var table = document.getElementById("bd-table");
+		var hint = document.getElementById("bd-hint");
+		var errorBox = document.getElementById("bd-error");
+		var pageInfo = document.getElementById("bd-page-info");
+		var monthTrigger = document.getElementById("bd-month-trigger");
+		var monthText = document.getElementById("bd-month-text");
+		var monthPop = document.getElementById("bd-month-pop");
+		var monthGrid = document.getElementById("bd-month-grid");
+		var popYearLabel = document.getElementById("bd-pop-year");
+		var popYear = new Date().getFullYear();
+
+		if (window.self !== window.top) {
+			document.getElementById("bd-back").style.display = "none";
+		}
+
+		function currentMonth() {
+			var now = new Date();
+			return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+		}
+
+		function esc(value) {
+			return String(value === null || value === undefined ? "" : value)
+				.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+		}
+
+		function csrfToken() {
+			var token = (window.frappe && frappe.csrf_token) || "";
+			if (!token || token === "None") {
+				var match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+				token = match ? decodeURIComponent(match[1]) : "";
+			}
+			return token;
+		}
+
+		function call(method, args) {
+			return fetch("/api/method/" + method, {
+				method: "POST",
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json", "X-Frappe-CSRF-Token": csrfToken() },
+				body: JSON.stringify(args || {})
+			}).then(function (res) {
+				return res.json().then(function (data) {
+					if (!res.ok) throw new Error((data && data._error_message) || ("HTTP " + res.status));
+					return data.message;
+				});
+			});
+		}
+
+		function showError(message) {
+			errorBox.innerHTML = message ? '<div class="bd-error">' + esc(message) + "</div>" : "";
+		}
+
+		function money(value) {
+			return Number(value || 0).toLocaleString("zh-CN", {
+				minimumFractionDigits: 2, maximumFractionDigits: 2
+			});
+		}
+
+		function shortDate(value) {
+			return String(value || "").slice(0, 10) || "-";
+		}
+
+		function statusClass(status) {
+			var text = String(status || "");
+			if (text.indexOf("通过") >= 0) return "pass";
+			if (text.indexOf("审批") >= 0 || text.indexOf("待") >= 0 || text.indexOf("进行") >= 0) return "pending";
+			if (text.indexOf("拒绝") >= 0 || text.indexOf("驳回") >= 0 || text.indexOf("撤回") >= 0) return "reject";
+			return "other";
+		}
+
+		function kindLabel(kind) {
+			return kind === "production" ? "生产" : "非生产";
+		}
+
+		function renderRows(rows) {
+			state.rows = rows || [];
+			if (!state.rows.length) {
+				body.innerHTML = '<tr><td colspan="9" class="bd-empty">没有符合条件的预算单</td></tr>';
+				return;
+			}
+			body.innerHTML = state.rows.map(function (row) {
+				return "<tr>" +
+					'<td class="bd-form-no">' + esc(row.form_no) + "</td>" +
+					'<td><span class="bd-ellipsis" title="' + esc(row.company_display) + '">' + esc(row.company_display) + "</span></td>" +
+					'<td><span class="bd-ellipsis" title="' + esc(row.dept_name) + '">' + esc(row.department_display || "-") + "</span></td>" +
+					"<td>" + esc(kindLabel(row.budget_kind)) + "</td>" +
+					"<td>" + esc(shortDate(row.application_date)) + "</td>" +
+					"<td>" + esc(row.budget_month || row.declaration_month || "-") + "</td>" +
+					"<td>" + esc(row.execution_region || "-") + "</td>" +
+					'<td><span class="bd-badge ' + statusClass(row.status) + '">' + esc(row.status || "-") + "</span></td>" +
+					'<td class="num">' + money(row.total_amount || row.budget_amount) + "</td>" +
+				"</tr>";
+			}).join("");
+		}
+
+		function renderCounts(data) {
+			var counts = data.counts || {};
+			["all", "production", "non_production"].forEach(function (key) {
+				var el = document.querySelector('[data-count="' + key + '"]');
+				if (el) el.textContent = counts[key] === undefined ? "" : "(" + counts[key] + ")";
+			});
+			document.getElementById("bd-sum-count").textContent = data.total || 0;
+			document.getElementById("bd-sum-amount").textContent = money(data.total_amount);
+			document.getElementById("bd-sum-prod").textContent = counts.production || 0;
+			document.getElementById("bd-sum-nonprod").textContent = counts.non_production || 0;
+			document.getElementById("bd-sum-scope").textContent =
+				"范围：" + (state.kind === "production" ? "生产预算" : state.kind === "non_production" ? "非生产预算" : "全部") +
+				(state.month ? " · " + state.month : " · 全部月份") +
+				(state.keyword ? " · 关键字“" + state.keyword + "”" : "");
+		}
+
+		function load() {
+			showError("");
+			table.classList.add("bd-loading");
+			var args = { page: state.page, page_size: state.page_size };
+			if (state.kind) args.budget_type = state.kind;
+			if (state.month) { args.start_month = state.month; args.end_month = state.month; }
+			if (state.keyword) args.keyword = state.keyword;
+			if (state.status) args.status = state.status;
+
+			return call("budget.api.budget_ledger.list_budget_entries", args)
+				.then(function (data) {
+					renderRows(data.rows);
+					renderCounts(data);
+					var pages = Math.max(Math.ceil((data.total || 0) / state.page_size), 1);
+					pageInfo.textContent = "第 " + data.page + " / " + pages + " 页";
+					document.getElementById("bd-prev").disabled = data.page <= 1;
+					document.getElementById("bd-next").disabled = data.page >= pages;
+					hint.textContent = "共 " + (data.total || 0) + " 条，当前第 " + data.page + " 页";
+				})
+				.catch(function (error) {
+					var message = String((error && error.message) || error);
+					if (message.indexOf("403") >= 0 || message.toLowerCase().indexOf("permission") >= 0) {
+						showError("没有读取权限，请用 System Manager / Accounts Manager 角色登录。");
+					} else {
+						showError("查询失败：" + message);
+					}
+					body.innerHTML = '<tr><td colspan="9" class="bd-empty">加载失败</td></tr>';
+					renderCounts({ counts: {}, total: 0, total_amount: 0 });
+				})
+				.then(function () {
+					table.classList.remove("bd-loading");
+				});
+		}
+
+		// 月份选择器
+		function setMonth(value) {
+			state.month = /^\d{4}-\d{2}$/.test(String(value || "")) ? String(value) : "";
+			monthText.textContent = state.month || "全部月份";
+			if (state.month) popYear = Number(state.month.slice(0, 4));
+			renderMonthPop();
+		}
+
+		function renderMonthPop() {
+			popYearLabel.textContent = popYear + " 年";
+			var cells = [];
+			for (var month = 1; month <= 12; month++) {
+				var value = popYear + "-" + String(month).padStart(2, "0");
+				cells.push(
+					'<button class="bd-month-cell' + (value === state.month ? " selected" : "") +
+					'" type="button" data-month="' + value + '">' + month + " 月</button>"
+				);
+			}
+			monthGrid.innerHTML = cells.join("");
+		}
+
+		function openMonthPop() {
+			monthPop.hidden = false;
+			monthTrigger.classList.add("open");
+			renderMonthPop();
+		}
+
+		function closeMonthPop() {
+			monthPop.hidden = true;
+			monthTrigger.classList.remove("open");
+		}
+
+		monthTrigger.addEventListener("click", function (event) {
+			event.stopPropagation();
+			if (monthPop.hidden) openMonthPop(); else closeMonthPop();
+		});
+		monthPop.addEventListener("click", function (event) {
+			event.stopPropagation();
+			var nav = event.target.closest(".bd-month-nav");
+			if (nav) {
+				popYear += Number(nav.getAttribute("data-step"));
+				renderMonthPop();
+				return;
+			}
+			var cell = event.target.closest(".bd-month-cell");
+			if (cell) {
+				setMonth(cell.getAttribute("data-month"));
+				closeMonthPop();
+				return;
+			}
+		});
+		document.getElementById("bd-month-clear").addEventListener("click", function () {
+			setMonth("");
+			closeMonthPop();
+		});
+		document.addEventListener("click", closeMonthPop);
+
+		// 状态选项：从当前数据里收集，避免写死后端没有的枚举
+		function fillStatusOptions() {
+			var select = document.getElementById("bd-status");
+			call("budget.api.budget_ledger.list_budget_entries", { page: 1, page_size: 100 })
+				.then(function (data) {
+					var values = {};
+					(data.rows || []).forEach(function (row) {
+						if (row.status) values[row.status] = 1;
+					});
+					Object.keys(values).sort().forEach(function (value) {
+						var option = document.createElement("option");
+						option.value = value;
+						option.textContent = value;
+						select.appendChild(option);
+					});
+				})
+				.catch(function () { /* 状态选项失败不影响主流程 */ });
+		}
+
+		document.getElementById("bd-refresh").addEventListener("click", function () { load(); });
+		document.getElementById("bd-search").addEventListener("click", function () {
+			state.keyword = document.getElementById("bd-keyword").value.trim();
+			state.kind = document.getElementById("bd-kind").value;
+			state.status = document.getElementById("bd-status").value;
+			state.page = 1;
+			document.querySelectorAll(".bd-tab").forEach(function (tab) {
+				tab.classList.toggle("active", (tab.getAttribute("data-kind") || "") === state.kind);
+			});
+			load();
+		});
+		document.getElementById("bd-reset").addEventListener("click", function () {
+			state.kind = "";
+			state.keyword = "";
+			state.status = "";
+			state.page = 1;
+			document.getElementById("bd-keyword").value = "";
+			document.getElementById("bd-kind").value = "";
+			document.getElementById("bd-status").value = "";
+			setMonth("");
+			document.querySelectorAll(".bd-tab").forEach(function (tab) {
+				tab.classList.toggle("active", (tab.getAttribute("data-kind") || "") === "");
+			});
+			load();
+		});
+
+		document.querySelectorAll(".bd-tab").forEach(function (tab) {
+			tab.addEventListener("click", function () {
+				document.querySelectorAll(".bd-tab").forEach(function (item) { item.classList.remove("active"); });
+				tab.classList.add("active");
+				state.kind = tab.getAttribute("data-kind") || "";
+				document.getElementById("bd-kind").value = state.kind;
+				state.page = 1;
+				load();
+			});
+		});
+
+		document.getElementById("bd-density").addEventListener("click", function () {
+			state.density = state.density === "compact" ? "standard" : "compact";
+			table.classList.toggle("compact", state.density === "compact");
+			this.textContent = state.density === "compact" ? "紧凑" : "标准";
+		});
+
+		document.getElementById("bd-export").addEventListener("click", function () {
+			if (!state.rows.length) return;
+			var header = ["表单编号", "子公司", "部门", "预算类型", "申请日期", "预算月份", "执行地区", "状态", "预算金额"];
+			var lines = [header.join(",")];
+			state.rows.forEach(function (row) {
+				var cells = [
+					row.form_no, row.company_display, row.department_display || "",
+					kindLabel(row.budget_kind), shortDate(row.application_date),
+					row.budget_month || row.declaration_month || "", row.execution_region || "",
+					row.status || "", row.total_amount || row.budget_amount || 0
+				];
+				lines.push(cells.map(function (cell) {
+					return '"' + String(cell === null || cell === undefined ? "" : cell).replace(/"/g, '""') + '"';
+				}).join(","));
+			});
+			var blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+			var link = document.createElement("a");
+			link.href = URL.createObjectURL(blob);
+			link.download = "budget-" + (state.month || "all") + ".csv";
+			link.click();
+			URL.revokeObjectURL(link.href);
+		});
+
+		document.getElementById("bd-prev").addEventListener("click", function () {
+			if (state.page > 1) { state.page -= 1; load(); }
+		});
+		document.getElementById("bd-next").addEventListener("click", function () {
+			state.page += 1;
+			load();
+		});
+
+		function boot() {
+			setMonth("");
+			fillStatusOptions();
+			load();
+		}
+		if (document.readyState === "complete") boot();
+		else window.addEventListener("load", boot);
+	})();
+</script>
+{% endblock %}

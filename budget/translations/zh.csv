@@ -1,0 +1,80 @@
+All,全部
+All Months,全部月份
+Application Date,申请日期
+Budget,预算
+Budget Amount,预算金额
+Budget Category,预算类别
+Budget Department Option,预算部门候选值
+Budget Execution,预算执行情况
+Budget Filter Option,预算筛选候选值
+Budget Item,预算项目
+Budget Kind,预算类型
+Budget Ledger,预算台账
+Budget Ledger Entry,预算台账
+Budget Month,预算月份
+Budget Ownership,预算归属
+Budget Period,预算周期
+Budget Settings,预算设置
+Budget Type,预算类型
+Calculation Basis,计算依据
+Code / Expense Detail,编码/费用明细
+Company,子公司
+Company Options,子公司候选值
+Currency,币种
+Defaults to system Company records plus values already in the ledger.,留空时自动使用系统 Company 主数据 + 台账里已有的值。
+Defaults to system Department records plus values already in the ledger.,留空时自动使用系统 Department 主数据 + 台账里已有的值。
+Department,部门
+Department ID,部门 ID
+Department Options,部门候选值
+Department Options by Company,部门候选值（按子公司）
+Detail Amount,明细金额
+Detail Category,明细类别
+Detail Item,明细项目
+Each row pairs a department with its company. Leave empty to derive from system Department records and the ledger.,每行填「子公司 + 部门」。留空时自动取系统 Department.company 和台账里成对出现的值。
+Estimated Overtime Amount,预算加班费
+Execution Region,执行地区
+Execution Region Options,执行地区候选值
+Execution Rows,执行情况行数
+Export XLSX,导出 XLSX
+Exported At,导出时间
+Figure,数值
+Form No,表单编号
+HR Budget,人资预算
+Labor Budget,人工预算
+Material Budget,物料预算
+Metric,指标
+Month,月份
+Monthly Budget Total,月度预算总量
+No.,序号
+Non Production Budget,非生产预算
+Non Production Budget Amount,非生产预算金额
+Non Production Budget Orders,非生产预算单数
+Non Production Detail Rows,非生产预算明细行数
+Non Production Details,非生产预算明细
+Office Budget,办公场地预算
+Operation Budget,管理支出预算
+Operator,经办人
+Overtime Hours,预计加班时长
+Overtime Rate,加班单价
+Own department budget,本部门预算
+Previous Used,上期已用
+Process Instance ID,审批实例 ID
+Production Budget,生产预算
+Production Budget Amount,生产预算金额
+Production Budget Orders,生产预算单数
+Production Detail Rows,生产预算明细行数
+Production Details,生产预算明细
+Purpose,用途/费用归属
+Remark,备注
+Requested Amount,本次申请金额
+Requested Quantity,本次申请数量
+Specification / Line / Position,规格/产线/岗位
+Status,状态
+Status Options,状态候选值
+Summary,汇总
+Synced At,同步时间
+Total Budget,预算合计
+Total Budget Amount,预算合计金额
+Unit,单位
+Unit Price,单价
+Value,候选值
