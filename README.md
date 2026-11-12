@@ -97,29 +97,36 @@ budget/
 
 ## 配置
 
-OA 库连接（环境变量优先，其次 `frappe.conf`）：
+站点只配**一套** PostgreSQL 连接，三个只读数据源（OA / 预算台账 / 审批支出）共用
+`shared_db_config()`（环境变量优先，其次 `frappe.conf`）：
 
 ```
-BUDGET_OA_DB_HOST / BUDGET_OA_DB_PORT / BUDGET_OA_DB_NAME
-BUDGET_OA_DB_USER / BUDGET_OA_DB_PASSWORD
-BUDGET_OA_CORP_ID        # 本实例负责的企业，必填
+BUDGET_DB_HOST / BUDGET_DB_PORT / BUDGET_DB_NAME
+BUDGET_DB_USER / BUDGET_DB_PASSWORD
+BUDGET_CORP_ID           # 本实例负责的企业，必填
 ```
 
-`BUDGET_OA_CORP_ID` 是查询范围，不是可选优化：OA 库多企业共库，`ding_department_tree`
+`BUDGET_CORP_ID` 是查询范围，不是可选优化：OA 库多企业共库，`ding_department_tree`
 唯一键是 `(corp_id, dept_id)`，`businessId` 也可能跨企业重复。未配置时所有查询直接抛
 `OAApprovalSourceScopeError`，不会退化成读全库。
 
-兼容既有键名 `dingtalk_oa_db_*` 与更早的 `oa_mapping_pg_host/port/database/user/password`；
-企业范围兼容 `dingtalk_oa_corp_id` / `dingtalk_corp_id`。
+兼容既有键名 `budget_oa_db_*` / `dingtalk_oa_db_*` / `oa_mapping_pg_*`；
+企业范围兼容 `budget_oa_corp_id` / `dingtalk_oa_corp_id` / `dingtalk_corp_id`。
+老站点不用改配置即可运行。
 
-预算台账库（`budget_system`，与 OA 库可以是同一实例、不同 database）：
+库名按「数据源自己的键 → `BUDGET_DB_NAME` → 该数据源默认库名」解析：
 
-```
-BUDGET_LEDGER_DB_HOST / BUDGET_LEDGER_DB_PORT / BUDGET_LEDGER_DB_NAME
-BUDGET_LEDGER_DB_USER / BUDGET_LEDGER_DB_PASSWORD
-```
+| 数据源 | 库名键（可选） | 未配置时的默认 |
+| --- | --- | --- |
+| OA 审批 / 部门树 | —（直接用 `BUDGET_DB_NAME`） | `dingtalk_oa` |
+| 预算台账 | `BUDGET_LEDGER_DB_NAME`（旧：`budget_system_db_name`） | `budget_system` |
+| 审批支出 | `BUDGET_APPROVAL_DB_NAME`（旧：`dingtalk_approval_db_name`） | `dingtalk_approval` |
 
-兼容 `budget_system_db_*`。列表页 `/budget-demo` 的四个统计卡片与预算列表都读这个库。
+三个库合并成一个之后，把 `BUDGET_DB_NAME` 指向合并后的库、删掉表格里两个「数据源自己的键」即可，
+连接信息始终只有一处。
+
+> 注意：台账数据同步后落在**站点自己的 MariaDB**（`Budget Ledger Entry`），
+> 列表、筛选、排序、导出都不依赖上面这些外部连接；外部 PG 只在同步和审批查询时用。
 
 上游只读 API（走 HTTP 时必填）：
 

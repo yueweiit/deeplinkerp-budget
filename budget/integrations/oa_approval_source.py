@@ -23,6 +23,52 @@ class OAApprovalSourceScopeError(RuntimeError):
 	"""缺少企业范围（``corp_id``）时抛出：宁可报错，也不跨企业混读。"""
 
 
+# 站点只有一个 PostgreSQL 连接入口：``budget_db_*`` 为当前键名，
+# 其余是历年沿用下来的别名（``budget_oa_db_*`` / ``dingtalk_oa_db_*`` / ``oa_mapping_pg_*``），
+# 按顺序取第一个非空值，老站点不用改配置即可继续运行。
+_SHARED_DB_KEYS: dict[str, tuple[str, ...]] = {
+	"host": ("budget_db_host", "budget_oa_db_host", "dingtalk_oa_db_host", "oa_mapping_pg_host"),
+	"port": ("budget_db_port", "budget_oa_db_port", "dingtalk_oa_db_port", "oa_mapping_pg_port"),
+	"database": (
+		"budget_db_name",
+		"budget_oa_db_name",
+		"dingtalk_oa_db_name",
+		"oa_mapping_pg_database",
+	),
+	"user": ("budget_db_user", "budget_oa_db_user", "dingtalk_oa_db_user", "oa_mapping_pg_user"),
+	"password": (
+		"budget_db_password",
+		"budget_oa_db_password",
+		"dingtalk_oa_db_password",
+		"oa_mapping_pg_password",
+	),
+}
+
+
+def shared_db_config() -> dict[str, str]:
+	"""站点唯一的 PG 连接参数：预算台账、审批、费用三个数据源共用这一份。
+
+	返回 ``host / port / database / user / password``（均为字符串）。
+	需要连另一个库时，只在该数据源侧配 ``*_db_name`` 覆盖库名，连接信息不再重复配置。
+	"""
+	return {
+		"host": _runtime_config_value(*_SHARED_DB_KEYS["host"], default="localhost"),
+		"port": _runtime_config_value(*_SHARED_DB_KEYS["port"], default="5432"),
+		"database": _runtime_config_value(*_SHARED_DB_KEYS["database"], default=DEFAULT_DATABASE),
+		"user": _runtime_config_value(*_SHARED_DB_KEYS["user"], default="postgres"),
+		"password": _runtime_config_value(*_SHARED_DB_KEYS["password"]),
+	}
+
+
+def shared_database_name(*specific_keys: str, default: str) -> str:
+	"""库名解析顺序：数据源自己的键 → 统一键 ``budget_db_name`` → 该数据源的默认库名。
+
+	合并到同一个库之前，各数据源仍用 ``budget_ledger_db_name`` / ``budget_approval_db_name``
+	指明自己的库；合并之后这两个键可以删掉，只留 ``budget_db_name``。
+	"""
+	return _runtime_config_value(*specific_keys, "budget_db_name", default=default)
+
+
 @dataclass(frozen=True)
 class OAApprovalSourceConfig:
 	"""OA 库连接参数；``application_name`` 便于在库里定位调用方。
@@ -44,34 +90,16 @@ class OAApprovalSourceConfig:
 
 	@classmethod
 	def from_site_config(cls) -> OAApprovalSourceConfig:
-		"""环境变量优先，其次 frappe.conf。
-
-		键名按 ``budget_oa_db_*`` 为准，同时兼容线上既有的 ``dingtalk_oa_db_*``
-		与旧模块的 ``oa_mapping_pg_*``，避免切换 app 时改配置。
-		"""
+		"""环境变量优先，其次 frappe.conf；连接信息取 ``shared_db_config()``。"""
+		shared = shared_db_config()
 		return cls(
-			host=_runtime_config_value(
-				"budget_oa_db_host", "dingtalk_oa_db_host", "oa_mapping_pg_host", default="localhost"
-			),
-			port=int(
-				_runtime_config_value(
-					"budget_oa_db_port", "dingtalk_oa_db_port", "oa_mapping_pg_port", default="5432"
-				)
-			),
-			database=_runtime_config_value(
-				"budget_oa_db_name",
-				"dingtalk_oa_db_name",
-				"oa_mapping_pg_database",
-				default=DEFAULT_DATABASE,
-			),
-			user=_runtime_config_value(
-				"budget_oa_db_user", "dingtalk_oa_db_user", "oa_mapping_pg_user", default="postgres"
-			),
-			password=_runtime_config_value(
-				"budget_oa_db_password", "dingtalk_oa_db_password", "oa_mapping_pg_password"
-			),
+			host=shared["host"],
+			port=int(shared["port"]),
+			database=shared["database"],
+			user=shared["user"],
+			password=shared["password"],
 			corp_id=_runtime_config_value(
-				"budget_oa_corp_id", "dingtalk_oa_corp_id", "dingtalk_corp_id"
+				"budget_corp_id", "budget_oa_corp_id", "dingtalk_oa_corp_id", "dingtalk_corp_id"
 			),
 		)
 

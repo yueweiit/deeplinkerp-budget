@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from .oa_approval_source import OAApprovalSourceConfig, _runtime_config_value
+from .oa_approval_source import OAApprovalSourceConfig, shared_database_name, shared_db_config
 
 LOGGER = logging.getLogger(__name__)
 
@@ -55,26 +55,21 @@ class BudgetLedgerSourceConfig:
 
 	@classmethod
 	def from_site_config(cls) -> BudgetLedgerSourceConfig:
+		"""连接信息复用站点唯一的 PG 入口（``shared_db_config()``）。
+
+		台账表与审批表合并到同一个库后，库名也一起共用，无需再配；
+		合并之前才用 ``budget_ledger_db_name``（或旧键 ``budget_system_db_name``）
+		单独指明台账所在的库。
+		"""
+		shared = shared_db_config()
 		return cls(
-			host=_runtime_config_value(
-				"budget_ledger_db_host", "budget_system_db_host", default="localhost"
+			host=shared["host"],
+			port=int(shared["port"]),
+			database=shared_database_name(
+				"budget_ledger_db_name", "budget_system_db_name", default=DEFAULT_DATABASE
 			),
-			port=int(
-				_runtime_config_value(
-					"budget_ledger_db_port", "budget_system_db_port", default="5432"
-				)
-			),
-			database=_runtime_config_value(
-				"budget_ledger_db_name",
-				"budget_system_db_name",
-				default=DEFAULT_DATABASE,
-			),
-			user=_runtime_config_value(
-				"budget_ledger_db_user", "budget_system_db_user", default="postgres"
-			),
-			password=_runtime_config_value(
-				"budget_ledger_db_password", "budget_system_db_password"
-			),
+			user=shared["user"],
+			password=shared["password"],
 		)
 
 

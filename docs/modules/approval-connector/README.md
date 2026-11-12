@@ -78,9 +78,9 @@ integrations/              钉钉 HTTP、上游只读 API、OA 只读库（psyco
 | --- | --- | --- |
 | 上游 API 地址 | `budget_oa_api_url` / `operating_expense_oa_api_url` | 必填 |
 | 上游 API 超时 | `budget_oa_api_timeout` | 30 秒 |
-| OA 库连接 | `budget_oa_db_host` / `_port` / `_name` / `_user` / `_password` | `localhost:5432/dingtalk_oa` |
-| 企业范围 | `budget_oa_corp_id` | 必填（缺失时查询报错） |
-| 兼容旧键 | `dingtalk_oa_db_*`、`oa_mapping_pg_*`、`dingtalk_oa_corp_id` / `dingtalk_corp_id` | — |
+| PG 连接（唯一入口） | `budget_db_host` / `_port` / `_name` / `_user` / `_password` | `localhost:5432/dingtalk_oa` |
+| 企业范围 | `budget_corp_id` | 必填（缺失时查询报错） |
+| 兼容旧键 | `budget_oa_db_*`、`dingtalk_oa_db_*`、`oa_mapping_pg_*`、`budget_oa_corp_id` / `dingtalk_oa_corp_id` / `dingtalk_corp_id` | — |
 | 钉钉应用 | `dingtalk_app_key` / `dingtalk_app_secret` | — |
 | 机器人 | `dingtalk_robot_app_key` / `_secret` / `_code` | — |
 

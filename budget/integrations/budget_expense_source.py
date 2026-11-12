@@ -8,16 +8,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from .oa_approval_source import OAApprovalSourceConfig, _default_connect, _runtime_config_value
+from .oa_approval_source import (
+	OAApprovalSourceConfig,
+	_default_connect,
+	shared_database_name,
+)
 
 APPROVAL_DATABASE = "dingtalk_approval"
 COMPLETED = "COMPLETED"
 
 
 def approval_connection_kwargs() -> dict:
-	"""审批库与 OA 库同实例时复用连接凭据，只换库名。"""
+	"""审批库与 OA 库同实例时复用连接凭据，只换库名。
+
+	连接信息来自站点唯一入口（``shared_db_config()``）；审批表与 OA 表合并到同一个库后
+	库名也共用，合并之前才用 ``budget_approval_db_name`` / ``dingtalk_approval_db_name`` 指定。
+	"""
 	config = OAApprovalSourceConfig.from_site_config()
-	database = _runtime_config_value(
+	database = shared_database_name(
 		"budget_approval_db_name", "dingtalk_approval_db_name", default=APPROVAL_DATABASE
 	)
 	options = [
