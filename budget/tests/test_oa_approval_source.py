@@ -70,7 +70,7 @@ def test_connection_kwargs_enable_read_only_session() -> None:
 
 	assert kwargs["dbname"] == "dingtalk_oa"
 	assert "default_transaction_read_only=on" in kwargs["options"]
-	assert "statement_timeout=10000" in kwargs["options"]
+	assert "statement_timeout=15000" in kwargs["options"]
 
 
 def test_connection_kwargs_can_opt_out_of_read_only() -> None:

@@ -17,7 +17,6 @@ MODULE = "Budget"
 APP = "budget"
 SIDEBAR = "Budget"
 
-# 主入口只有原生列表；旧的 Page 看板不再挂侧边栏（页面本身保留，可直连 /budget-demo）。
 ITEMS = [
 	{
 		"label": "预算台账",
@@ -25,10 +24,22 @@ ITEMS = [
 		"link_to": "Budget Ledger Entry",
 		"icon": "list",
 	},
+	{
+		"label": "预算数据看板",
+		"link_type": "Page",
+		"link_to": "budget-dashboard",
+		"icon": "dashboard",
+	},
+	{
+		"label": "预算配置",
+		"link_type": "Page",
+		"link_to": "budget-config",
+		"icon": "setting",
+	},
 ]
 
 # 早期版本挂过、现在要下掉的入口。
-REMOVED_LABELS = ("预算数据看板",)
+REMOVED_LABELS = ()
 
 
 def ensure_module_def() -> None:
@@ -74,10 +85,37 @@ def _upsert_item(item: dict, index: int) -> None:
 	).db_insert()
 
 
+def _ensure_sidebar_record() -> bool:
+	"""侧边栏记录由 erpnext 的 standard json 同步；缺失时（新站点没 migrate 过）补一个 custom 的。
+
+	``standard=0`` 是刻意的：``WorkspaceSidebar.before_save`` 只在 standard + developer_mode
+	时把记录写回源码目录，custom 记录不会污染 erpnext 仓库。
+	"""
+	if frappe.db.exists("Workspace Sidebar", SIDEBAR):
+		return True
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Workspace Sidebar",
+				"title": SIDEBAR,
+				"app": APP,
+				"module": MODULE,
+				"header_icon": "accounting",
+				"standard": 0,
+			}
+		).insert(ignore_permissions=True)
+	except Exception:  # 补入口失败不该中断 migrate
+		frappe.log_error(
+			title="Budget sidebar 创建失败", message=frappe.get_traceback()
+		)
+		return False
+	return True
+
+
 def ensure_budget_sidebar_link() -> None:
 	"""幂等地补齐侧边栏入口；重复 migrate 也不会把下掉的入口加回来。"""
 	ensure_module_def()
-	if not frappe.db.exists("Workspace Sidebar", SIDEBAR):
+	if not _ensure_sidebar_record():
 		return
 
 	for label in REMOVED_LABELS:

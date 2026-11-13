@@ -95,6 +95,28 @@ budget/
 | Q8 效率报表 | `list_approval_efficiency_rows` |
 | Q9 路径快照 | `list_department_snapshot_rows` + `normalize_department_snapshots` |
 
+## 安装与入口
+
+```bash
+bench --site <site> install-app budget      # 已装则跳过
+bench --site <site> migrate                 # 同步 DocType / Page，并补侧边栏入口
+bench --site <site> build --app budget      # 生成 /assets/budget（Page 脚本从这里加载）
+bench --site <site> clear-cache
+```
+
+入口挂在 ERPNext「会计」侧边栏的 **Budget** 分组下：预算台账（DocType）、预算数据看板
+（`/app/budget-dashboard`）、预算配置（`/app/budget-config`）。`after_install` 与
+`after_migrate` 都会幂等重放，`install-app` 之后仍需跑一次 `migrate`（Page 记录与脚本
+是 migrate 时才同步的，缺了会表现为「点进去空白」）。
+
+找不到入口时先单独补一次：
+
+```bash
+bench --site <site> execute budget.setup.ensure_budget_sidebar_link
+```
+
+看板要求 `System Manager` 或 `Accounts Manager`，预算配置仅 `System Manager`。
+
 ## 配置
 
 站点只配**一套** PostgreSQL 连接，三个只读数据源（OA / 预算台账 / 审批支出）共用
@@ -131,11 +153,23 @@ BUDGET_CORP_ID           # 本实例负责的企业，必填
 上游只读 API（走 HTTP 时必填）：
 
 ```
+BUDGET_OA_SOURCE         # postgres（默认）| http
 BUDGET_OA_API_URL        # 如 https://oa.example.com
 BUDGET_OA_API_TIMEOUT    # 秒，默认 30
+BUDGET_OA_API_PAGE_SIZE  # 每页条数，默认 200（接口上限 200）
 ```
 
-`BUDGET_OA_API_URL` 兼容既有的 `operating_expense_oa_api_url`，避免同一站点配两处地址。
+`BUDGET_OA_SOURCE=http` 时审批读取（Q4/Q5/Q8）改走 `dingtalk-oa` 的
+`GET /api/v1/approvals`，`DingTalk` → Kafka → PG 的归档链路不变；
+
+- 两个数据源暴露同一组方法（`get_instance_row` / `list_approval_efficiency_rows` 等），
+  业务层通过 `oa_factory.get_oa_source()` 取实例，不感知来源；
+- 该接口只覆盖审批，没有部门树：Q6/Q7/Q9 与 Q5 的用户快照名仍回退到 PostgreSQL，
+  库不可达时快照名降级为空（用接口原始名称），不影响查询；
+- 接口不支持按 `createTime` 过滤，时间窗本地过滤，并用 `updatedAfter` 先收窄一页范围。
+
+`BUDGET_OA_API_URL` 兼容既有的 `operating_expense_oa_api_url` 与 `budget_oa_api_base`，
+避免同一站点配两处地址。
 
 钉钉凭据（`frappe.conf` 或环境变量，`DingTalkConfig.from_site_config()`）：
 

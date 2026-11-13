@@ -8,17 +8,21 @@ from __future__ import annotations
 
 import frappe
 
-from ..integrations.oa_approval_source import OAApprovalSource
+from ..integrations.oa_factory import get_oa_source
 from ..services import approval_query_service
 
 READ_ROLES = ("System Manager", "Accounts Manager")
 
 
-def get_source() -> OAApprovalSource:
-	"""同一请求内复用数据源实例（连接不池化，按需新建/关闭）。"""
+def get_source():
+	"""同一请求内复用数据源实例（连接不池化，按需新建/关闭）。
+
+	数据源由 ``budget_oa_source`` 决定：``postgres``（默认）直连库，``http`` 走
+	``dingtalk-oa`` 的只读接口；两者方法签名一致，调用方无感知。
+	"""
 	source = getattr(frappe.local, "budget_approval_source", None)
 	if source is None:
-		source = OAApprovalSource()
+		source = get_oa_source()
 		frappe.local.budget_approval_source = source
 	return source
 

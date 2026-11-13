@@ -1,4 +1,10 @@
-/* 预算数据看板直接使用 Deeplinkerp / Frappe Desk 的页面和报表样式。 */
+/* 可视化报表：1:1 对齐 dingtalk-budget 的 VisualReportEchartsStyle 页面。
+ *
+ * 结构：日期区间 → 7 张统计卡 → 审批效率（5 卡 + 流程表）→ 7 张图
+ * （部门预算分布 Top12 / 地区分布 / 类型占比 / 执行状态 / 月度趋势 / 执行率 / 预算 vs 支出）。
+ * 图表用 ECharts，颜色、圆角、虚线网格、横向柱、环形图、堆叠柱、平滑折线都按源页面配置。
+ * 数据来自 budget.api.report.get_report_data，口径见 services/report_service.py。
+ */
 frappe.pages["budget-dashboard"] = frappe.pages["budget-dashboard"] || {};
 
 frappe.pages["budget-dashboard"].on_page_load = function (wrapper) {
@@ -7,252 +13,654 @@ frappe.pages["budget-dashboard"].on_page_load = function (wrapper) {
 
 frappe.pages["budget-dashboard"].on_page_show = function () {
 	frappe.utils.set_title(__("预算数据看板"));
+	window.dispatchEvent(new Event("resize"));
 };
+
+const ECHARTS_URL = "/assets/budget/js/echarts.min.js";
+const CHART_COLORS = {
+	production: "#2563eb",
+	nonProduction: "#0f766e",
+	total: "#b45309",
+	expense: "#7c3aed",
+	regionBudget: "#5470c6",
+	regionExpense: "#b7d92d",
+	executed: "#52c41a",
+	inProgress: "#faad14",
+	unexecuted: "#d9d9d9",
+	rateDanger: "#dc2626",
+	rateWarning: "#b45309",
+	rateOk: "#0f766e",
+};
+const AXIS_LABEL = { fontSize: 12, color: "#6b7280" };
+const LEGEND = { bottom: 0, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12, color: "#374151" } };
+
+let echarts_promise = null;
+function load_echarts() {
+	if (window.echarts) return Promise.resolve(window.echarts);
+	if (!echarts_promise) {
+		echarts_promise = new Promise((resolve, reject) => {
+			frappe.require([ECHARTS_URL], () => {
+				window.echarts ? resolve(window.echarts) : reject(new Error("ECharts 未加载"));
+			});
+		});
+	}
+	return echarts_promise;
+}
+
+function format_currency(value) {
+	const num = Number(value || 0);
+	if (Math.abs(num) >= 10000) return `${(num / 10000).toFixed(1)}万`;
+	return num.toLocaleString("zh-CN");
+}
+
+function truncate_label(label, max = 10) {
+	const text = String(label || "");
+	return text.length > max ? `${text.slice(0, max)}...` : text;
+}
+
+const TOOLTIP = {
+	backgroundColor: "#fff",
+	borderColor: "#e5e7eb",
+	borderWidth: 1,
+	textStyle: { color: "#374151", fontSize: 13 },
+	extraCssText: "box-shadow: 0 4px 6px rgba(15, 23, 42, 0.1); border-radius: 6px;",
+};
+
+function bar_series(name, data, color, options = {}) {
+	return {
+		name,
+		type: "bar",
+		data,
+		barSize: options.barSize,
+		stack: options.stack,
+		itemStyle: { color, borderRadius: options.borderRadius || 0 },
+		emphasis: { focus: "series" },
+	};
+}
+
+function value_axis(formatter = format_currency, grid_color = "#f3f4f6") {
+	return {
+		type: "value",
+		axisLabel: { ...AXIS_LABEL, formatter },
+		axisLine: { show: false },
+		axisTick: { show: false },
+		splitLine: { lineStyle: { type: "dashed", color: grid_color } },
+	};
+}
 
 class BudgetDashboard {
 	constructor(wrapper) {
 		this.page = frappe.ui.make_app_page({
 			parent: wrapper,
-		title: __("预算数据看板"),
-		single_column: true,
+			title: __("预算数据看板"),
+			single_column: true,
 		});
-		frappe.breadcrumbs.add("Budget");
-		this.page_size = 10;
-		this.page_number = 1;
-		this.total = 0;
-		this.list_request = 0;
-		this.stats_request = 0;
+		this.charts = [];
+		this.request_id = 0;
 		this.setup_filters();
 		this.setup_content();
-		this.page.set_primary_action(__("查询"), () => this.refresh(true), "search");
-		this.page.set_secondary_action(__("重置"), () => this.reset());
-		this.refresh(true);
-	}
-
-	current_month_start() {
-		const today = frappe.datetime.get_today();
-		return frappe.datetime.month_start(today);
+		this.install_styles();
+		this.page.set_primary_action(__("刷新数据"), () => this.load(), "refresh");
+		$(window).on("resize.budget-dashboard", () => this.resize_charts());
+		this.load();
 	}
 
 	setup_filters() {
-		this.budget_date = this.page.add_field({
-			fieldname: "budget_date", label: __("预算月份"), fieldtype: "Date",
-			default: this.current_month_start(),
+		const today = frappe.datetime.get_today();
+		this.start_date = this.page.add_field({
+			fieldname: "start_date",
+			label: __("开始日期"),
+			fieldtype: "Date",
+			default: frappe.datetime.month_start(today),
+			onchange: () => this.load(),
 		});
-		this.remove_filter_tooltip(this.budget_date);
-		this.budget_date.$input.attr("aria-label", __("预算月份"));
-		this.kind = this.page.add_field({
-			fieldname: "budget_type", label: __("预算类型"), fieldtype: "Select",
-			options: [__("全部"), __("生产预算"), __("非生产预算")].join("\n"),
-			default: __("全部"),
+		this.end_date = this.page.add_field({
+			fieldname: "end_date",
+			label: __("结束日期"),
+			fieldtype: "Date",
+			default: frappe.datetime.month_end(today),
+			onchange: () => this.load(),
 		});
-		this.remove_filter_tooltip(this.kind);
-		this.kind.$input.attr("aria-label", __("预算类型"));
-	}
-
-	remove_filter_tooltip(field) {
-		field.$wrapper.tooltip("dispose").removeAttr("title data-original-title");
 	}
 
 	setup_content() {
 		this.$content = $(`
-			<div class="budget-dashboard-page">
-				<div class="budget-dashboard-message" role="alert" hidden></div>
-				<div class="report-summary budget-dashboard-summary" aria-label="${__("预算统计")}">
-					<div class="summary-item"><div class="summary-label">${__("今日生产预算")}</div><div class="summary-value" data-stat="production_today">—</div></div>
-					<div class="summary-item"><div class="summary-label">${__("今日非生产预算")}</div><div class="summary-value" data-stat="non_production_today">—</div></div>
-					<div class="summary-item"><div class="summary-label">${__("生产预算总数")}</div><div class="summary-value" data-stat="production_total">—</div></div>
-					<div class="summary-item"><div class="summary-label">${__("非生产预算总数")}</div><div class="summary-value" data-stat="non_production_total">—</div></div>
+			<div class="budget-report">
+				<div class="br-message" role="alert" hidden></div>
+
+				<div class="br-stats">
+					${[
+						["productionCount", "生产预算明细数"],
+						["operationCount", "非生产预算明细数"],
+						["productionTotal", "生产预算总金额"],
+						["nonProductionTotal", "非生产预算总金额"],
+						["approvedTotal", "实际支出合计"],
+						["budgetSubmittedApprovedTotal", "有提交预算部门支出合计"],
+						["overallRate", "整体执行率"],
+					]
+						.map(
+							([key, label]) => `<div class="br-card">
+								<div class="br-value" data-stat="${key}">—</div>
+								<div class="br-label">${__(label)}</div>
+							</div>`
+						)
+						.join("")}
 				</div>
-				<div class="report-wrapper budget-dashboard-report">
-					<div class="budget-dashboard-heading">
-						<strong>${__("预算明细")}</strong>
-						<span class="text-muted budget-dashboard-count" aria-live="polite">${__("正在加载…")}</span>
+
+				<div class="br-block br-approval">
+					<div class="br-block-head">
+						<strong>${__("审批效率")}</strong>
+						<span class="text-muted br-timeout"></span>
 					</div>
-					<div class="budget-dashboard-table-scroll">
-						<table class="table budget-dashboard-table">
+					<div class="br-stats br-stats-sm">
+						${[
+							["totalInstances", "审批实例数"],
+							["averageCompletionHours", "平均完成时长（小时）"],
+							["runningInstances", "审批中"],
+							["taskOverdueRate", "节点超时率"],
+							["averageTaskHours", "平均节点耗时（小时）"],
+						]
+							.map(
+								([key, label]) => `<div class="br-card br-card-sm">
+									<div class="br-value" data-approval="${key}">—</div>
+									<div class="br-label">${__(label)}</div>
+								</div>`
+							)
+							.join("")}
+					</div>
+					<div class="br-table-wrap">
+						<table class="table br-table br-approval-table">
 							<thead><tr>
-								<th scope="col">${__("表单编号")}</th>
-								<th scope="col">${__("子公司")}</th>
-								<th scope="col">${__("部门")}</th>
-								<th scope="col">${__("预算类型")}</th>
-								<th scope="col">${__("申请日期")}</th>
-								<th scope="col">${__("预算月份")}</th>
-								<th scope="col">${__("执行地区")}</th>
-								<th scope="col">${__("状态")}</th>
-								<th scope="col" class="text-right">${__("预算金额（元）")}</th>
+								<th scope="col">${__("流程")}</th>
+								<th scope="col" class="num">${__("实例数")}</th>
+								<th scope="col" class="num">${__("已完成")}</th>
+								<th scope="col" class="num">${__("审批中")}</th>
+								<th scope="col" class="num">${__("平均完成时长")}</th>
+								<th scope="col" class="num">${__("平均节点耗时")}</th>
+								<th scope="col" class="num">${__("超时节点")}</th>
+								<th scope="col" class="num">${__("节点超时率")}</th>
 							</tr></thead>
-							<tbody><tr><td colspan="9" class="budget-dashboard-empty">${__("正在加载…")}</td></tr></tbody>
+							<tbody><tr><td colspan="8" class="br-empty">${__("正在加载…")}</td></tr></tbody>
 						</table>
 					</div>
-					<div class="budget-dashboard-footer">
-						<span class="text-muted">${__("数据源：budget_system（只读）")}</span>
-						<div class="budget-dashboard-pagination">
-							<span class="text-muted budget-dashboard-page-info" aria-live="polite">—</span>
-							<button type="button" class="btn btn-default btn-sm budget-dashboard-prev">${__("上一页")}</button>
-							<button type="button" class="btn btn-default btn-sm budget-dashboard-next">${__("下一页")}</button>
-						</div>
+				</div>
+
+				<div class="br-charts">
+					<div class="br-chart-card">
+						<h3 class="br-chart-title">${__("各部门预算分布（Top 12）")}</h3>
+						<div class="br-chart" data-chart="dept-dist" style="height: 360px;"></div>
+					</div>
+					<div class="br-chart-card">
+						<h3 class="br-chart-title">${__("地区预算分布")}</h3>
+						<div class="br-chart" data-chart="region-dist" style="height: 300px;"></div>
+					</div>
+					<div class="br-chart-card">
+						<h3 class="br-chart-title">${__("预算类型占比")}</h3>
+						<div class="br-chart" data-chart="type-share" style="height: 360px;"></div>
+					</div>
+					<div class="br-chart-card">
+						<h3 class="br-chart-title">${__("预算执行状态分布（Top 10）")}</h3>
+						<div class="br-chart" data-chart="exec-status" style="height: 360px;"></div>
+					</div>
+					<div class="br-chart-card br-chart-wide">
+						<h3 class="br-chart-title br-trend-title">${__("月度预算趋势")}</h3>
+						<div class="br-chart" data-chart="trend" style="height: 360px;"></div>
+					</div>
+					<div class="br-chart-card">
+						<h3 class="br-chart-title">${__("各部门执行率（Top 10）")}</h3>
+						<div class="br-chart" data-chart="rate" style="height: 360px;"></div>
+					</div>
+					<div class="br-chart-card">
+						<h3 class="br-chart-title">${__("部门预算 vs 实际支出（Top 10）")}</h3>
+						<div class="br-chart" data-chart="compare" style="height: 360px;"></div>
 					</div>
 				</div>
 			</div>
 		`).appendTo(this.page.main);
-		this.$message = this.$content.find(".budget-dashboard-message");
-		this.$body = this.$content.find("tbody");
-		this.$count = this.$content.find(".budget-dashboard-count");
-		this.$page_info = this.$content.find(".budget-dashboard-page-info");
-		this.$prev = this.$content.find(".budget-dashboard-prev");
-		this.$next = this.$content.find(".budget-dashboard-next");
-		this.$prev.on("click", () => {
-			if (this.page_number > 1) { this.page_number -= 1; this.load_list(); }
-		});
-		this.$next.on("click", () => {
-			if (this.page_number * this.page_size < this.total) {
-				this.page_number += 1;
-				this.load_list();
-			}
-		});
-		this.install_styles();
+
+		this.$message = this.$content.find(".br-message");
+		this.$stats = this.$content.find(".br-stats").first();
+		this.$approval_body = this.$content.find(".br-approval-table tbody");
 	}
 
 	install_styles() {
-		if (document.getElementById("budget-dashboard-desk-style")) return;
-		$(`<style id="budget-dashboard-desk-style">
-			.budget-dashboard-page { color: var(--text-color); padding-bottom: 24px; }
-			.budget-dashboard-page .report-summary { margin: 12px 15px 18px; padding: 12px 8px; justify-content: flex-start; gap: 0; border: 1px solid var(--border-color); background: var(--fg-color); }
-			.budget-dashboard-page .summary-item { flex: 1 1 160px; min-width: 140px; max-width: none; height: 54px; margin: 0; padding: 0 18px; align-items: flex-start; }
-			.budget-dashboard-page .summary-item + .summary-item { border-left: 1px solid var(--border-color); }
-			.budget-dashboard-page .summary-label { color: var(--text-muted); text-align: left; font-size: var(--text-sm); }
-			.budget-dashboard-page .summary-value { margin-top: 5px; font-size: var(--text-xl); line-height: 1.2; }
-			.budget-dashboard-message { margin: 12px 15px 0; padding: 8px 12px; border: 1px solid var(--red-200); border-radius: var(--border-radius); color: var(--red-600); background: var(--red-50); }
-			.budget-dashboard-message[hidden] { display: none; }
-			.budget-dashboard-report { padding-top: 0; }
-			.budget-dashboard-heading { display: flex; align-items: baseline; gap: 12px; padding-bottom: 10px; }
-			.budget-dashboard-count, .budget-dashboard-footer { font-size: var(--text-sm); }
-			.budget-dashboard-table-scroll { overflow-x: auto; border: 1px solid var(--table-border-color); border-radius: var(--border-radius); }
-			.budget-dashboard-table { width: 100%; min-width: 1080px; margin-bottom: 0; font-size: var(--text-sm); }
-			.budget-dashboard-table th { background: var(--subtle-fg); color: var(--text-muted); font-weight: 500; white-space: nowrap; border-bottom: 1px solid var(--table-border-color); }
-			.budget-dashboard-table th, .budget-dashboard-table td { padding: 8px 10px; vertical-align: middle; border-right: 1px solid var(--table-border-color); }
-			.budget-dashboard-table th:last-child, .budget-dashboard-table td:last-child { border-right: 0; }
-			.budget-dashboard-table tbody tr:hover { background: var(--highlight-color); }
-			.budget-dashboard-table td { white-space: nowrap; border-top: 1px solid var(--table-border-color); }
-			.budget-dashboard-table .budget-dashboard-ellipsis { display: block; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-			.budget-dashboard-table .budget-dashboard-amount { text-align: right; font-variant-numeric: tabular-nums; }
-			.budget-dashboard-table .budget-dashboard-empty { padding: 36px 12px; text-align: center; color: var(--text-muted); }
-			.budget-dashboard-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; }
-			.budget-dashboard-pagination { display: flex; align-items: center; gap: 8px; }
-			.budget-dashboard-page-info { margin-right: 4px; white-space: nowrap; }
-			@media (max-width: 740px) {
-				.budget-dashboard-page .report-summary { gap: 10px 0; }
-				.budget-dashboard-page .summary-item { flex-basis: 50%; }
-				.budget-dashboard-page .summary-item:nth-child(3) { border-left: 0; }
-			}
+		if (document.getElementById("budget-report-style")) return;
+		$(`<style id="budget-report-style">
+			.budget-report { padding: 12px 15px 30px; }
+			.br-message { margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--red-200); border-radius: var(--border-radius); color: var(--red-600); background: var(--red-50); }
+			.br-message.br-warning { border-color: var(--orange-200); color: var(--orange-700); background: var(--orange-50); }
+			.br-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+			.br-card { padding: 16px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+			.br-card-sm { padding: 10px 14px; }
+			.br-value { font-size: 26px; font-weight: 700; line-height: 1.1; color: #2563eb; font-variant-numeric: tabular-nums; }
+			.br-card-sm .br-value { font-size: 18px; color: inherit; }
+			.br-label { margin-top: 8px; font-size: 13px; color: #6b7280; }
+			.br-block { margin-bottom: 16px; }
+			.br-block-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+			.br-table-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
+			.br-table { width: 100%; margin-bottom: 0; font-size: 13px; }
+			.br-table th { background: #f9fafb; color: #6b7280; font-weight: 500; white-space: nowrap; }
+			.br-table th, .br-table td { padding: 10px; border-bottom: 1px solid #f3f4f6; }
+			.br-table td { border-top: 1px solid #f3f4f6; white-space: nowrap; }
+			.br-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+			.br-empty { padding: 28px 12px; text-align: center; color: #6b7280; font-size: 14px; }
+			/* 固定两列：除趋势卡全宽外，其余图一律两图一行 */
+			.br-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+			.br-chart-card { padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+			.br-chart-wide { grid-column: 1 / -1; }
+			.br-chart-title { margin: 0 0 16px; font-size: 16px; font-weight: 600; color: #374151; }
+			.br-chart { width: 100%; }
+			@media (max-width: 900px) { .br-charts { grid-template-columns: 1fr; } }
 		</style>`).appendTo(document.head);
 	}
 
 	filters() {
-		const selected_date = String(this.budget_date.get_value() || "").trim();
-		const selected = this.kind.get_value();
-		const budget_type = selected === __("生产预算") ? "production" :
-			selected === __("非生产预算") ? "non_production" : "";
-		return { month: selected_date ? selected_date.slice(0, 7) : "", budget_type };
+		return {
+			start_date: this.start_date.get_value() || "",
+			end_date: this.end_date.get_value() || "",
+		};
 	}
 
 	show_error(message) {
-		this.$message.text(message || "").prop("hidden", !message);
+		this.$message.removeClass("br-warning").text(message || "").prop("hidden", !message);
 	}
 
-	refresh(reset_page) {
-		if (reset_page) this.page_number = 1;
-		const filters = this.filters();
-		if (!filters) return;
-		this.active_filters = filters;
+	show_warning(message) {
+		this.$message.addClass("br-warning").text(message || "").prop("hidden", !message);
+	}
+
+	load() {
+		const request = ++this.request_id;
 		this.show_error("");
-		return Promise.allSettled([this.load_stats(), this.load_list(filters)]);
+		this.$approval_body.html(
+			`<tr><td colspan="8" class="br-empty">${__("正在加载…")}</td></tr>`
+		);
+		return frappe
+			.call({
+				method: "budget.api.report.get_report_data",
+				args: this.filters(),
+			})
+			.then((response) => {
+				if (request !== this.request_id) return;
+				const data = response.message || {};
+				this.render_stats(data.stats || {});
+				this.render_approval(data.approval || {});
+				this.render_charts(data);
+				if ((data.warnings || []).length) {
+					this.show_warning(data.warnings.join("；"));
+				}
+			})
+			.catch(() => {
+				if (request !== this.request_id) return;
+				this.show_error(__("报表加载失败，请检查数据库配置或稍后重试"));
+				this.$approval_body.html(
+					`<tr><td colspan="8" class="br-empty">${__("加载失败")}</td></tr>`
+				);
+			});
 	}
 
-	async reset() {
-		await Promise.all([
-			this.budget_date.set_value(this.current_month_start()),
-			this.kind.set_value(__("全部")),
-		]);
-		return this.refresh(true);
+	money(value) {
+		return Number(value || 0).toLocaleString("zh-CN", {
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 2,
+		});
 	}
 
-	async load_stats() {
-		const request = ++this.stats_request;
-		try {
-			const response = await frappe.call({ method: "budget.api.budget_ledger.get_budget_stats" });
-			if (request !== this.stats_request) return;
-			if (!response.message) throw new Error("Missing budget statistics");
-			for (const key of ["production_today", "non_production_today", "production_total", "non_production_total"]) {
-				const value = Number(response.message[key]);
-				if (!Number.isFinite(value)) throw new Error(`Invalid budget statistic: ${key}`);
-				this.$content.find(`[data-stat="${key}"]`).text(value.toLocaleString("zh-CN"));
-			}
-		} catch (error) {
-			if (request === this.stats_request) this.show_error(__("预算统计加载失败，请刷新后重试"));
-		}
+	render_stats(stats) {
+		const moneyKeys = [
+			"productionTotal",
+			"nonProductionTotal",
+			"approvedTotal",
+			"budgetSubmittedApprovedTotal",
+		];
+		const countKeys = ["productionCount", "operationCount"];
+		// 与源页面 statValue 的配色一致
+		const colors = {
+			productionTotal: CHART_COLORS.nonProduction,
+			nonProductionTotal: CHART_COLORS.total,
+			approvedTotal: CHART_COLORS.expense,
+			budgetSubmittedApprovedTotal: CHART_COLORS.regionExpense,
+		};
+		Object.entries(stats).forEach(([key, value]) => {
+			const text = moneyKeys.includes(key)
+				? this.money(value)
+				: countKeys.includes(key)
+				? Number(value || 0).toLocaleString("zh-CN")
+				: String(value ?? "—");
+			this.$content
+				.find(`[data-stat="${key}"]`)
+				.text(text)
+				.css("color", colors[key] || CHART_COLORS.production);
+		});
 	}
 
-	async load_list(filters = this.active_filters) {
-		if (!filters) return;
-		const request = ++this.list_request;
-		this.$body.html(`<tr><td colspan="9" class="budget-dashboard-empty">${__("正在加载…")}</td></tr>`);
-		this.$prev.prop("disabled", true);
-		this.$next.prop("disabled", true);
-		const args = { page: this.page_number, page_size: this.page_size };
-		if (filters.month) {
-			args.start_month = filters.month;
-			args.end_month = filters.month;
-		}
-		if (filters.budget_type) args.budget_type = filters.budget_type;
-		try {
-			const response = await frappe.call({ method: "budget.api.budget_ledger.list_budget_entries", args });
-			if (request !== this.list_request) return;
-			const data = response.message || {};
-			this.total = Number(data.total || 0);
-			this.render_rows(data.rows || []);
-			const pages = Math.max(Math.ceil(this.total / this.page_size), 1);
-			this.$count.text(__("共 {0} 条", [this.total]));
-			this.$page_info.text(__("第 {0} / {1} 页", [this.page_number, pages]));
-			this.$prev.prop("disabled", this.page_number <= 1);
-			this.$next.prop("disabled", this.page_number >= pages);
-		} catch (error) {
-			if (request !== this.list_request) return;
-			this.show_error(__("预算明细查询失败，请检查权限或稍后重试"));
-			this.$body.html(`<tr><td colspan="9" class="budget-dashboard-empty">${__("加载失败")}</td></tr>`);
-			this.$count.text(__("加载失败"));
-			this.$page_info.text("—");
-		}
-	}
+	render_approval(approval) {
+		const summary = approval.summary || {};
+		this.$content
+			.find(".br-timeout")
+			.text(__("超时标准：{0} 小时", [approval.timeoutHours || 24]));
+		Object.entries(summary).forEach(([key, value]) => {
+			const $target = this.$content.find(`[data-approval="${key}"]`);
+			if (!$target.length) return;
+			$target.text(
+				typeof value === "number"
+					? key.endsWith("Rate")
+						? `${value}%`
+						: Number(value).toLocaleString("zh-CN")
+					: String(value ?? "—")
+			);
+		});
 
-	render_rows(rows) {
+		const rows = approval.byProcess || [];
 		if (!rows.length) {
-			this.$body.html(`<tr><td colspan="9" class="budget-dashboard-empty">${__("当前条件下没有预算单")}</td></tr>`);
+			this.$approval_body.html(
+				`<tr><td colspan="8" class="br-empty">${__("当前期间没有审批实例")}</td></tr>`
+			);
 			return;
 		}
-		const escape = (value) => frappe.utils.escape_html(String(value ?? ""));
-		const date = (value) => escape(String(value || "").slice(0, 10) || "-");
-		const money = (value) => {
-			const amount = Number(value ?? 0);
-			return Number.isFinite(amount) ? amount.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "-";
-		};
-		this.$body.html(rows.map((row) => {
-			const status = String(row.status || "-");
-			const color = status.includes("通过") ? "green" : /待|审批|进行/.test(status) ? "orange" : "gray";
-			const kind = row.budget_kind_label || (row.budget_kind === "production" ? __("生产预算") : __("非生产预算"));
-			const amount = row.amount ?? row.total_amount ?? row.budget_amount;
-			return `<tr>
-				<td>${escape(row.form_no || "-")}</td>
-				<td><span class="budget-dashboard-ellipsis" title="${escape(row.company_display || "-")}">${escape(row.company_display || "-")}</span></td>
-				<td><span class="budget-dashboard-ellipsis" title="${escape(row.dept_name || row.department_display || "-")}">${escape(row.department_display || "-")}</span></td>
-				<td>${escape(kind)}</td>
-				<td>${date(row.application_date)}</td>
-				<td>${escape(row.budget_month || row.declaration_month || "-")}</td>
-				<td>${escape(row.execution_region || "-")}</td>
-				<td><span class="indicator-pill no-indicator-dot ${color}">${escape(status)}</span></td>
-				<td class="budget-dashboard-amount">${money(amount)}</td>
-			</tr>`;
-		}).join(""));
+		this.$approval_body.html(
+			rows
+				.map(
+					(row) => `<tr>
+						<td>${frappe.utils.escape_html(String(row.processName || "-"))}</td>
+						<td class="num">${Number(row.totalInstances || 0)}</td>
+						<td class="num">${Number(row.completedInstances || 0)}</td>
+						<td class="num">${Number(row.runningInstances || 0)}</td>
+						<td class="num">${row.averageCompletionHours ?? 0}</td>
+						<td class="num">${row.averageTaskHours ?? 0}</td>
+						<td class="num">${Number(row.overdueTasks || 0)}</td>
+						<td class="num">${row.taskOverdueRate ?? 0}%</td>
+					</tr>`
+				)
+				.join("")
+		);
+	}
+
+	destroy_charts() {
+		this.charts.forEach((chart) => {
+			try {
+				chart.dispose();
+			} catch (error) {
+				// 容器被替换后 dispose 会抛错，忽略
+			}
+		});
+		this.charts = [];
+	}
+
+	resize_charts() {
+		this.charts.forEach((chart) => chart.resize());
+	}
+
+	empty_chart(name) {
+		this.$content.find(`[data-chart="${name}"]`).html(`<div class="br-empty">${__("没有数据")}</div>`);
+	}
+
+	mount(echarts, name, option, height) {
+		const element = this.$content.find(`[data-chart="${name}"]`).get(0);
+		if (!element) return;
+		if (height) element.style.height = `${height}px`;
+		$(element).empty();
+		const chart = echarts.init(element);
+		chart.setOption(option);
+		this.charts.push(chart);
+	}
+
+	async render_charts(data) {
+		this.destroy_charts();
+		let echarts;
+		try {
+			echarts = await load_echarts();
+		} catch (error) {
+			["dept-dist", "region-dist", "type-share", "exec-status", "trend", "rate", "compare"].forEach(
+				(name) => this.empty_chart(name)
+			);
+			return;
+		}
+
+		const category_axis = (labels, extra = {}) => ({
+			type: "category",
+			data: labels,
+			axisTick: { show: false },
+			axisLine: { lineStyle: { color: "#e5e7eb" } },
+			...extra,
+			// 合并默认字号/颜色，避免 extra 里的 axisLabel 覆盖掉它们
+			axisLabel: { ...AXIS_LABEL, ...(extra.axisLabel || {}) },
+		});
+
+		// 1) 各部门预算分布（Top 12）：纵向双柱
+		const dept_dist = data.dept_distribution || [];
+		if (dept_dist.length) {
+			this.mount(echarts, "dept-dist", {
+				tooltip: { ...TOOLTIP, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: format_currency },
+				legend: { ...LEGEND, data: [__("生产预算"), __("非生产预算")] },
+				grid: { left: 8, right: 24, top: 10, bottom: 70, containLabel: true },
+				xAxis: category_axis(
+					dept_dist.map((row) => truncate_label(row.shortName || row.deptName, 10)),
+					{ axisLabel: { rotate: -35, interval: 0, height: 70 } }
+				),
+				yAxis: value_axis(),
+				series: [
+					bar_series("生产预算", dept_dist.map((row) => row.production || 0), CHART_COLORS.production, {
+						borderRadius: [4, 4, 0, 0],
+					}),
+					bar_series(
+						"非生产预算",
+						dept_dist.map((row) => row.nonProduction || 0),
+						CHART_COLORS.nonProduction,
+						{ borderRadius: [4, 4, 0, 0] }
+					),
+				],
+			});
+		} else {
+			this.empty_chart("dept-dist");
+		}
+
+		// 2) 地区预算分布：横向柱（高度随条目数，对齐源页面）
+		const region_dist = data.region_distribution || [];
+		if (region_dist.length) {
+			this.$content
+				.find('[data-chart="region-dist"]')
+				.css("height", `${Math.max(260, region_dist.length * 72)}px`);
+			this.mount(echarts, "region-dist", {
+				tooltip: { ...TOOLTIP, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: format_currency },
+				legend: { ...LEGEND, data: [__("预算"), __("支出")] },
+				grid: { left: 8, right: 40, top: 10, bottom: 40, containLabel: true },
+				xAxis: value_axis(format_currency, "#e5e7eb"),
+				yAxis: category_axis(
+					region_dist.map((row) => row.region),
+					{ axisLabel: { fontSize: 13, color: "#374151" }, inverse: true }
+				),
+				series: [
+					bar_series("预算", region_dist.map((row) => row.budget || 0), CHART_COLORS.regionBudget, {
+						barSize: 16,
+						borderRadius: [0, 2, 2, 0],
+					}),
+					bar_series("支出", region_dist.map((row) => row.expense || 0), CHART_COLORS.regionExpense, {
+						barSize: 16,
+						borderRadius: [0, 2, 2, 0],
+					}),
+				],
+			});
+		} else {
+			this.empty_chart("region-dist");
+		}
+
+		// 3) 预算类型占比：环形图
+		const type_share = (data.type_distribution || []).filter((row) => Number(row.value) > 0);
+		if (type_share.length) {
+			const palette = [CHART_COLORS.production, CHART_COLORS.nonProduction];
+			this.mount(echarts, "type-share", {
+				tooltip: { ...TOOLTIP, trigger: "item", formatter: "{b}: {d}%" },
+				legend: { ...LEGEND },
+				series: [
+					{
+						type: "pie",
+						// 内/外半径与源页面 innerRadius 80 / outerRadius 130（图高 360）等比换算
+						radius: ["44%", "72%"],
+						center: ["50%", "50%"],
+						avoidLabelOverlap: true,
+						itemStyle: { borderColor: "#fff", borderWidth: 3 },
+						label: {
+							color: "#374151",
+							fontSize: 12,
+							formatter: (params) => `${params.name} ${Number(params.percent || 0).toFixed(1)}%`,
+						},
+						data: type_share.map((row, index) => ({
+							name: row.kind === "production" ? __("生产预算") : __("非生产预算"),
+							value: row.value || 0,
+							itemStyle: { color: palette[index % palette.length] },
+						})),
+					},
+				],
+			});
+		} else {
+			this.empty_chart("type-share");
+		}
+
+		// 4) 预算执行状态分布：横向堆叠柱（高度随条目数，对齐源页面）
+		const exec_status = data.execution_status || [];
+		if (exec_status.length) {
+			this.$content
+				.find('[data-chart="exec-status"]')
+				.css("height", `${Math.max(280, exec_status.length * 48)}px`);
+			this.mount(echarts, "exec-status", {
+				tooltip: { ...TOOLTIP, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: format_currency },
+				// 图例顺序对齐源页面「审批中 / 已执行 / 未执行」，堆叠顺序仍是已执行→审批中→未执行
+				legend: { ...LEGEND, data: [__("审批中"), __("已执行"), __("未执行")] },
+				grid: { left: 8, right: 24, top: 10, bottom: 40, containLabel: true },
+				xAxis: value_axis(),
+				yAxis: category_axis(
+					exec_status.map((row) => truncate_label(row.shortName || row.deptName, 10)),
+					{ axisLabel: { fontSize: 12, color: "#374151" }, inverse: true }
+				),
+				series: [
+					bar_series("已执行", exec_status.map((row) => row.executed || 0), CHART_COLORS.executed, {
+						barSize: 20,
+						stack: "a",
+					}),
+					bar_series("审批中", exec_status.map((row) => row.inProgress || 0), CHART_COLORS.inProgress, {
+						barSize: 20,
+						stack: "a",
+					}),
+					bar_series("未执行", exec_status.map((row) => row.unexecuted || 0), CHART_COLORS.unexecuted, {
+						barSize: 20,
+						stack: "a",
+						borderRadius: [0, 4, 4, 0],
+					}),
+				],
+			});
+		} else {
+			this.empty_chart("exec-status");
+		}
+
+		// 5) 月度预算趋势（全年）：平滑折线 + 空心圆点
+		const trend = data.trend || [];
+		if (trend.length) {
+			const same_year =
+				new Set(trend.map((row) => String(row.month || "").slice(0, 4))).size === 1;
+			const year = String((trend[0] || {}).month || "").slice(0, 4);
+			this.$content.find(".br-trend-title").text(__("月度预算趋势（{0}）", [year || __("不限")]));
+			const line = (name, values, color, width) => ({
+				name,
+				type: "line",
+				smooth: true,
+				symbol: "emptyCircle",
+				symbolSize: width > 2 ? 8 : 7,
+				lineStyle: { width, color },
+				itemStyle: { color, borderWidth: 2 },
+				emphasis: { focus: "series" },
+				data: values,
+			});
+			this.mount(echarts, "trend", {
+				tooltip: { ...TOOLTIP, trigger: "axis", valueFormatter: format_currency },
+				legend: {
+					...LEGEND,
+					data: [__("实际支出"), __("生产预算"), __("非生产预算"), __("预算合计")],
+				},
+				grid: { left: 8, right: 24, top: 10, bottom: 40, containLabel: true },
+				xAxis: category_axis(
+					trend.map((row) =>
+						same_year ? `${Number(String(row.month || "").slice(5, 7))}月` : row.month
+					),
+					{ axisLabel: { fontSize: 12, color: "#6b7280" } }
+				),
+				yAxis: value_axis(),
+				series: [
+					line(
+						"预算合计",
+						trend.map((row) => Number(row.production || 0) + Number(row.nonProduction || 0)),
+						CHART_COLORS.total,
+						3
+					),
+					line("生产预算", trend.map((row) => row.production || 0), CHART_COLORS.production, 2),
+					line("非生产预算", trend.map((row) => row.nonProduction || 0), CHART_COLORS.nonProduction, 2),
+					line("实际支出", trend.map((row) => row.actualExpense || 0), CHART_COLORS.expense, 2),
+				],
+			});
+		} else {
+			this.empty_chart("trend");
+		}
+
+		// 6) 各部门执行率（Top 10）：横向柱，按阈值配色
+		const rate = data.execution || [];
+		if (rate.length) {
+			this.mount(echarts, "rate", {
+				tooltip: { ...TOOLTIP, trigger: "axis", valueFormatter: (value) => `${value}%` },
+				grid: { left: 8, right: 24, top: 10, bottom: 20, containLabel: true },
+				xAxis: { ...value_axis((value) => `${value}%`), axisLabel: { ...AXIS_LABEL, formatter: "{value}%" } },
+				yAxis: category_axis(
+					rate.map((row) => truncate_label(row.shortName || row.deptName, 10)),
+					{ axisLabel: { fontSize: 12, color: "#6b7280" }, inverse: true }
+				),
+				series: [
+					{
+						name: __("执行率"),
+						type: "bar",
+						barSize: 16,
+						data: rate.map((row) => {
+							const value = Number(row.executionRate || 0);
+							const color =
+								value >= 100
+									? CHART_COLORS.rateDanger
+									: value >= 80
+									? CHART_COLORS.rateWarning
+									: CHART_COLORS.rateOk;
+							return { value, itemStyle: { color, borderRadius: [0, 4, 4, 0] } };
+						}),
+					},
+				],
+			});
+		} else {
+			this.empty_chart("rate");
+		}
+
+		// 7) 部门预算 vs 实际支出（Top 10）：纵向双柱，标签竖排
+		const compare = data.dept_compare || [];
+		if (compare.length) {
+			this.mount(echarts, "compare", {
+				tooltip: { ...TOOLTIP, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: format_currency },
+				legend: { ...LEGEND },
+				grid: { left: 8, right: 24, top: 10, bottom: 100, containLabel: true },
+				xAxis: category_axis(
+					compare.map((row) => truncate_label(row.shortName || row.deptName, 10)),
+					{ axisLabel: { rotate: -90, interval: 0, height: 100 } }
+				),
+				yAxis: value_axis(),
+				series: [
+					bar_series("预算金额", compare.map((row) => row.budget || 0), CHART_COLORS.production, {
+						borderRadius: [4, 4, 0, 0],
+					}),
+					bar_series("实际支出", compare.map((row) => row.approved || 0), CHART_COLORS.total, {
+						borderRadius: [4, 4, 0, 0],
+					}),
+				],
+			});
+		} else {
+			this.empty_chart("compare");
+		}
+
+		this.resize_charts();
+		// 侧边栏/容器宽度在加载完成后还会变一次，延迟再量一遍避免图表按旧宽度绘制
+		setTimeout(() => this.resize_charts(), 300);
 	}
 }

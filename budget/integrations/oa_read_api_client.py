@@ -60,7 +60,9 @@ class OAReadAPIConfig:
 	def from_site_config(cls) -> OAReadAPIConfig:
 		"""环境变量优先，其次 frappe.conf；键名兼容既有的经营费用配置。"""
 		return cls(
-			base_url=_runtime_config_value("budget_oa_api_url", "operating_expense_oa_api_url"),
+			base_url=_runtime_config_value(
+				"budget_oa_api_url", "budget_oa_api_base", "operating_expense_oa_api_url"
+			),
 			timeout_seconds=float(_runtime_config_value("budget_oa_api_timeout", default="30") or 30),
 		)
 
@@ -106,7 +108,7 @@ class OAReadAPIClient:
 	):
 		if not config.base_url:
 			raise OAReadAPIError(
-				"未配置 OA 只读 API 地址（budget_oa_api_url / operating_expense_oa_api_url）"
+				"未配置 OA 只读 API 地址（budget_oa_api_url / budget_oa_api_base / operating_expense_oa_api_url）"
 			)
 		self.config = config
 		self._session = session or requests.Session()

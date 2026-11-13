@@ -10,8 +10,14 @@ app_license = "mit"
 # 声明未实现的函数会让 scheduler 每轮报错，所以先把 cron 留空。
 
 # ERPNext 的 Workspace Sidebar 每次 migrate 都会按 json 重同步，
-# 所以用 after_migrate 重放「预算数据看板」这个入口。
+# 所以用 after_migrate 重放「预算台账 / 预算数据看板 / 预算配置」这三个入口。
+# install-app 只装代码、不跑 migrate，因此 after_install 也要补一次，否则新装的站点
+# 侧边栏里看不到任何入口（Page 记录也要等 migrate 才同步，点进去会是空白页）。
+after_install = ["budget.setup.ensure_budget_sidebar_link"]
 after_migrate = ["budget.setup.ensure_budget_sidebar_link"]
+
+# 只读 PG 连接按请求复用，响应返回后统一关闭，避免连接泄漏（见 integrations/pg.py）
+after_request = ["budget.integrations.pg.close_all"]
 
 # 外部 budget_system 的预算单每天同步一次到 Budget Ledger Entry；
 # 需要立刻更新时调 budget.api.budget_ledger.sync_budget_entries。

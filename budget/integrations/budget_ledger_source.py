@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from .oa_approval_source import OAApprovalSourceConfig, shared_database_name, shared_db_config
+from .pg import fetch as pg_fetch
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class BudgetLedgerSourceConfig:
 	database: str = DEFAULT_DATABASE
 	user: str = "postgres"
 	password: str = ""
-	connect_timeout: int = 5
+	connect_timeout: int = 3
 	statement_timeout_ms: int = 15000
 	application_name: str = "budget-ledger"
 
@@ -98,6 +98,21 @@ def _default_connect(kwargs: dict) -> Any:
 	except ImportError as exc:  # pragma: no cover - 依赖缺失时给出明确提示
 		raise RuntimeError("查询预算库需要 psycopg3（pip install 'psycopg[binary]'）") from exc
 	return psycopg.connect(**kwargs, row_factory=dict_row)
+
+
+def _remark_text(value: Any) -> str:
+	"""预算单 ``remark`` 兼容 text / jsonb 两种存储，统一转成纯文本。"""
+	if value is None:
+		return ""
+	if isinstance(value, dict):
+		for key in ("remark", "comment", "note", "content", "text"):
+			text = _remark_text(value.get(key))
+			if text:
+				return text
+		return ""
+	if isinstance(value, (list, tuple)):
+		return "；".join(filter(None, (_remark_text(item) for item in value)))
+	return str(value).strip()
 
 
 def _month_expr(alias: str) -> str:
@@ -254,18 +269,15 @@ class BudgetLedgerSource:
 				self._department_cache = {}
 		return self._department_cache
 
-	@contextmanager
-	def _connection(self) -> Iterator[Any]:
-		connection = self._connect(ledger_connection_kwargs(self._config))
-		try:
-			yield connection
-		finally:
-			connection.close()
-
 	def _fetch(self, sql: str, params: list[Any] | None = None) -> list[dict]:
-		with self._connection() as connection, connection.cursor() as cursor:
-			cursor.execute(sql, tuple(params or ()))
-			return list(cursor.fetchall())
+		# 连接按请求复用（见 integrations/pg.py），失败自动重试一次
+		return pg_fetch(
+			ledger_connection_kwargs(self._config),
+			sql,
+			params,
+			connect=self._connect,
+			label="budget-ledger",
+		)
 
 	# ------------------------------------------------------------ 列表
 	def _segment_sql(
@@ -518,17 +530,21 @@ class BudgetLedgerSource:
 	def _detail_rows(
 		self, tables: tuple[tuple[str, str], ...], form_nos: list[str]
 	) -> list[dict]:
+		"""多张结构相同的明细表合成一条 UNION ALL，把多次往返压成一次。
+
+		人资/办公/运营、物料/生产/人工这两组表列定义一致，所以可以并成一条 SQL；
+		分组标记用常量列 ``detail_group``，避免在 Python 侧再拼一次。
+		"""
 		names = list(dict.fromkeys(str(name) for name in form_nos if name))
 		if not names:
 			return []
-		rows: list[dict] = []
+		segments: list[str] = []
+		params: list[Any] = []
 		for group, table in tables:
-			for row in self._fetch(
-				f"SELECT * FROM {table} WHERE form_no = ANY(%s) ORDER BY id", [names]
-			):
-				row["detail_group"] = group
-				rows.append(row)
-		return rows
+			segments.append(f"SELECT %s::text AS detail_group, t.* FROM {table} t WHERE t.form_no = ANY(%s)")
+			params.extend([group, names])
+		sql = " UNION ALL ".join(segments) + " ORDER BY form_no, id"
+		return self._fetch(sql, params)
 
 	def list_expense_details(self, form_nos: list[str]) -> list[dict]:
 		"""非生产预算明细：人资 / 办公场地 / 管理支出。"""
@@ -537,3 +553,53 @@ class BudgetLedgerSource:
 	def list_production_details(self, form_nos: list[str]) -> list[dict]:
 		"""生产预算明细：物料 / 生产 / 人工。"""
 		return self._detail_rows(self._PRODUCTION_DETAIL_TABLES, form_nos)
+
+	def load_remarks(self, form_nos: list[str]) -> dict[str, str]:
+		"""按表单编号取预算单备注（生产 / 非生产两张表）。"""
+		names = list(dict.fromkeys(str(name) for name in form_nos or [] if name))
+		if not names:
+			return {}
+		remarks: dict[str, str] = {}
+		for table in ("production_budget", "non_production_budget"):
+			for row in self._fetch(
+				f"SELECT form_no, remark FROM {table} WHERE form_no = ANY(%s)", [names]
+			):
+				text = _remark_text(row.get("remark"))
+				if text:
+					remarks.setdefault(str(row.get("form_no") or ""), text)
+		return remarks
+
+	def count_detail_rows(self, start_month: str | None = None, end_month: str | None = None) -> dict:
+		"""生产 / 非生产预算明细行数（看板「明细数」卡片）。
+
+		明细表按 ``form_no`` 挂主表，主表的预算月份列是 ``YYYY-MM`` 文本，
+		与列表的筛选口径一致；无效状态（取消/驳回/撤回）不计。
+		"""
+		month_expr = "COALESCE(p.budget_month, p.declaration_month)"
+		conditions = [_valid_status_sql("p")]
+		params: list[Any] = []
+		if start_month:
+			conditions.append(f"{month_expr} >= %s")
+			params.append(str(start_month))
+		if end_month:
+			conditions.append(f"{month_expr} <= %s")
+			params.append(str(end_month))
+		where = " AND ".join(conditions)
+
+		def count(tables: tuple[str, ...], parent: str) -> int:
+			union = " UNION ALL ".join(f"SELECT form_no FROM {table}" for table in tables)
+			rows = self._fetch(
+				f"""
+				SELECT COUNT(*)::int AS total
+				FROM ({union}) AS detail
+				JOIN {parent} AS p ON p.form_no = detail.form_no
+				WHERE {where}
+				""",
+				params,
+			)
+			return int(rows[0].get("total") or 0) if rows else 0
+
+		return {
+			PRODUCTION: count(("budget_material", "budget_production", "budget_labor"), "production_budget"),
+			NON_PRODUCTION: count(("budget_hr", "budget_office", "budget_operation"), "non_production_budget"),
+		}

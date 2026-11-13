@@ -11,10 +11,11 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Any
+
+from .pg import fetch as pg_fetch
 
 DEFAULT_DATABASE = "dingtalk_oa"
 
@@ -84,8 +85,8 @@ class OAApprovalSourceConfig:
 	user: str = "postgres"
 	password: str = ""
 	corp_id: str = ""
-	connect_timeout: int = 5
-	statement_timeout_ms: int = 10000
+	connect_timeout: int = 3
+	statement_timeout_ms: int = 15000
 	application_name: str = "budget"
 
 	@classmethod
@@ -169,18 +170,15 @@ class OAApprovalSource:
 			)
 		return self._corp_id
 
-	@contextmanager
-	def _connection(self) -> Iterator[Any]:
-		connection = self._connect(postgres_connection_kwargs(self._config))
-		try:
-			yield connection
-		finally:
-			connection.close()
-
 	def _fetch(self, sql: str, params: Iterable[Any] = ()) -> list[dict]:
-		with self._connection() as connection, connection.cursor() as cursor:
-			cursor.execute(sql, tuple(params))
-			return list(cursor.fetchall())
+		# 连接按请求复用（见 integrations/pg.py），失败自动重试一次
+		return pg_fetch(
+			postgres_connection_kwargs(self._config),
+			sql,
+			params,
+			connect=self._connect,
+			label="budget-oa",
+		)
 
 	# ---------------------------------------------------------- 实例详情
 	def get_instance_row(self, instance_id: str, *, with_snapshot: bool = True) -> dict | None:

@@ -5,9 +5,15 @@
 
 from __future__ import annotations
 
+import calendar
+from datetime import UTC, date, datetime, timezone
+from urllib.parse import quote
+
 import frappe
 
 from ..integrations.budget_ledger_source import BudgetLedgerSource
+from ..integrations.expense_source import ExpenseSource
+from ..integrations.oa_approval_source import _runtime_config_value
 from ..services.budget_ledger_sync import sync_budget_entries as run_sync
 
 READ_ROLES = ("System Manager", "Accounts Manager")
@@ -467,3 +473,236 @@ def sync_budget_entries() -> dict:
 	"""手动触发一次全量同步（写入 Budget Ledger Entry）。"""
 	frappe.only_for(("System Manager",))
 	return run_sync()
+
+
+# ---------------------------------------------------------------- 详情
+# 对齐 dingtalk-budget 的 BudgetList 详情弹窗：
+# 预算拆 operation/hr/office，支出拆 management/salary/bonus/officeEquipment/office/tax。
+EXPENSE_KEYS = ("management", "salary", "bonus", "officeEquipment", "office", "tax")
+
+# 支出类型为空时（如付款事件行）用分区名兜底，避免明细表出现空白单元格
+EXPENSE_SECTION_LABELS = {
+	"management": "运营/采购支出",
+	"salary": "工资/社保",
+	"bonus": "备用金",
+	"officeEquipment": "办公设备",
+	"office": "办公场地",
+	"tax": "个税",
+}
+
+
+def _month_bounds(value: str) -> tuple[str, str]:
+	"""``YYYY-MM`` → 当月首末日，供支出按审批完成时间过滤。"""
+	text = str(value or "")[:7]
+	if len(text) != 7 or text[4] != "-":
+		today = date.today()
+		return today.replace(day=1).isoformat(), today.isoformat()
+	year, month = int(text[:4]), int(text[5:7])
+	last_day = calendar.monthrange(year, month)[1]
+	return date(year, month, 1).isoformat(), date(year, month, last_day).isoformat()
+
+
+def _utc_minute(value) -> str:
+	"""时间统一按 UTC 输出 ``YYYY-MM-DD HH:mm``，对齐源项目 ``formatUtcDateTime``。"""
+	if not value:
+		return ""
+	if isinstance(value, datetime):
+		moment = value.astimezone(UTC) if value.tzinfo else value.replace(
+			tzinfo=UTC
+		)
+		return moment.strftime("%Y-%m-%d %H:%M")
+	return str(value).strip()
+
+
+def _department_matches(budget_department: str, expense_department: str) -> bool:
+	"""台账部门是带路径的全名，支出部门是短名，按包含关系匹配。"""
+	left = str(budget_department or "").strip()
+	right = str(expense_department or "").strip()
+	if not left or not right:
+		return False
+	return left == right or right in left or left in right
+
+
+# 部门拆分的 split_type → 分区（对齐源项目 sectionKeyForSplit）
+SPLIT_SECTION_MAP = {
+	"salary": "salary",
+	"social_insurance": "salary",
+	"bonus": "bonus",
+	"office_equipment": "officeEquipment",
+	"office_space": "office",
+	"individual_income_tax": "tax",
+	"it_operation": "management",
+	"manual_company_allocation": "management",
+}
+
+
+def _expense_bucket(category: str, expense_type: str, split_type: str = "") -> str:
+	"""金额汇总桶；``split_type`` 优先，关键词只作兜底。"""
+	kind = str(split_type or "").strip().lower()
+	if kind in SPLIT_SECTION_MAP:
+		return SPLIT_SECTION_MAP[kind]
+	if kind == "administrative":
+		# 行政管理费并入「管理支出」，但明细分区按类别单独展示
+		return "management"
+	text = f"{category} {expense_type}"
+	if "个税" in text or "个人所得税" in text:
+		return "tax"
+	if "工资" in text or "社保" in text or "公积金" in text or "薪" in text:
+		return "salary"
+	if "备用金" in text or "奖金" in text:
+		return "bonus"
+	if "办公设备" in text:
+		return "officeEquipment"
+	if "办公场地" in text or "租金" in text:
+		return "office"
+	return "management"
+
+
+def _expense_section(category: str, expense_type: str, split_type: str) -> tuple[str, str]:
+	"""明细分区：返回 ``(section_key, section_title)``。
+
+	``administrative`` 拆分成独立分区（源项目 ``administrative:<类别>``），
+	避免把管理费用混进「运营/采购支出明细」。
+	"""
+	kind = str(split_type or "").strip().lower()
+	if kind == "administrative":
+		label = str(category or "").strip() or "管理费用"
+		return f"administrative:{label}", f"{label}明细"
+	bucket = _expense_bucket(category, expense_type, split_type)
+	label = EXPENSE_SECTION_LABELS.get(bucket, "")
+	return bucket, f"{label}明细"
+
+
+def _payment_event_label(accounting_source: str, evidence: str = "") -> str:
+	"""付款事件列：与源项目 ``paymentEventLabel`` 的文案保持一致。"""
+	source = accounting_source.strip().lower()
+	if source.startswith("payment_event"):
+		return "已全额抵扣" if "已全额抵扣" in (evidence or "") else "实际付款"
+	if source in ("completed_approval_fallback", "purchase_completed"):
+		return "审批完成兜底"
+	return "-"
+
+
+def _dingtalk_links(process_instance_id: str) -> dict:
+	"""PC 免登链接 + 钉钉客户端 scheme（原项目同款拼接）。"""
+	instance_id = str(process_instance_id or "").strip()
+	if not instance_id:
+		return {"pc_url": "", "client_url": ""}
+	pc_url = (
+		"https://aflow.dingtalk.com/dingtalk/mobile/homepage.htm"
+		f"?showmenu=false&dd_progress=false#/approval?procInstId={instance_id}"
+	)
+	return {
+		"pc_url": pc_url,
+		"client_url": f"dingtalk://dingtalkclient/page/link?url={quote(pc_url, safe='')}&pc_slide=true",
+	}
+
+
+@frappe.whitelist()
+def get_budget_entry_detail(form_no: str) -> dict:
+	"""预算单详情：台账字段 + 预算明细 + 实际支出 + 钉钉原单链接。"""
+	frappe.only_for(READ_ROLES)
+	if not form_no or not frappe.db.exists(LEDGER_DOCTYPE, form_no):
+		frappe.throw("预算单不存在")
+
+	entry = frappe.get_doc(LEDGER_DOCTYPE, form_no).as_dict()
+	month = str(entry.get("budget_month") or "")[:7]
+
+	source = get_source()
+	# 详情「备注」沿用预算单原始备注（台账未落库，按单据号现查）
+	try:
+		entry["remark"] = source.load_remarks([str(form_no)]).get(str(form_no), "")
+	except Exception:  # 备注取不到不影响其余信息
+		entry["remark"] = ""
+
+	budget = {"operation": 0.0, "hr": 0.0, "office": 0.0, "production": 0.0}
+	try:
+		for detail in source.list_expense_details([form_no]):
+			group = str(detail.get("detail_group") or "")
+			if group in budget:
+				budget[group] += float(detail.get("amount") or 0)
+		for detail in source.list_production_details([form_no]):
+			budget["production"] += float(detail.get("amount") or 0)
+	except Exception:  # 明细表不可用时仍返回台账信息
+		frappe.log_error(message=frappe.get_traceback(), title="Budget detail rows failed")
+
+	budget["total"] = budget["operation"] + budget["hr"] + budget["office"] + budget["production"]
+	if not budget["total"]:
+		budget["total"] = float(entry.get("amount") or 0)
+		if not any(budget[key] for key in ("operation", "hr", "office", "production")):
+			budget["operation"] = budget["total"]
+
+	expense = {key: 0.0 for key in EXPENSE_KEYS}
+	expense_details: list[dict] = []
+	warning = ""
+	if month:
+		start_date, end_date = _month_bounds(month)
+		try:
+			rows = ExpenseSource().list_approved_expenses(start_date, end_date)
+			matched_rows = [
+				row
+				for row in rows
+				if _department_matches(entry.get("department"), row.get("department"))
+			]
+			# 「事项/说明」「付款证据」需要额外查审批表，失败只影响这两列
+			detail_meta: dict[str, dict] = {}
+			try:
+				detail_meta = ExpenseSource().load_detail_meta(
+					[str(row.get("business_id") or "") for row in matched_rows]
+				)
+			except Exception:  # 说明缺失不影响金额
+				detail_meta = {}
+			for row in matched_rows:
+				amount = float(row.get("amount") or 0)
+				category = str(row.get("category") or "").strip()
+				expense_type = str(row.get("expense_type") or "").strip()
+				split_type = str(row.get("split_type") or "").strip()
+				bucket = _expense_bucket(category, expense_type, split_type)
+				section, section_title = _expense_section(category, expense_type, split_type)
+				expense[bucket] += amount
+				business_id = str(row.get("business_id") or "").strip()
+				meta = detail_meta.get(business_id) or {}
+				accounting_source = str(row.get("accounting_source") or "")
+				# 日期列：付款类行取付款时间，其余取审批完成时间（与源项目一致）
+				is_payment = accounting_source.startswith("payment_event") or (
+					accounting_source == "monthly_settlement"
+				)
+				detail_date = _utc_minute(
+					meta.get("paid_at") if is_payment else meta.get("completed_at")
+				)
+				expense_details.append(
+					{
+						"section": section,
+						"section_title": section_title,
+						"date": detail_date or str(row.get("accounting_date") or ""),
+						"business_id": business_id,
+						"expense_type": category
+						or expense_type
+						or EXPENSE_SECTION_LABELS.get(bucket, ""),
+						"description": meta.get("description") or meta.get("title") or "",
+						"amount": round(amount, 2),
+						"payment_event": _payment_event_label(
+							accounting_source, meta.get("evidence") or ""
+						),
+						"remark": meta.get("evidence") or "",
+					}
+				)
+			expense_details.sort(key=lambda item: (item["date"], item["business_id"]))
+		except Exception as exc:  # 支出库不可用时只影响支出区块
+			warning = f"实际支出读取失败：{exc}"
+	expense["total"] = sum(expense[key] for key in EXPENSE_KEYS)
+	for key, value in list(budget.items()):
+		budget[key] = round(float(value or 0), 2)
+	for key, value in list(expense.items()):
+		expense[key] = round(float(value or 0), 2)
+
+	return {
+		"entry": entry,
+		"budget": budget,
+		"expense": expense,
+		"remaining": round(budget["total"] - expense["total"], 2),
+		"dingtalk": _dingtalk_links(entry.get("process_instance_id")),
+		"expense_details": expense_details,
+		"warning": warning,
+		"corp_id": _runtime_config_value("budget_corp_id", "budget_oa_corp_id", "dingtalk_oa_corp_id"),
+	}
