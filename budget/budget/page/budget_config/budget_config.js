@@ -1,7 +1,7 @@
-/* 预算配置：1:1 对齐 dingtalk-budget 的 BudgetConfiguration 页面。
+/* 预算配置：4 张统计卡 + 7 项筛选 +「组织额度汇总」四页签 +「预算额度明细」分页表。
  *
- * 结构：页头（DingTalk Budget / 标题 / 副标题 / 返回列表 / 退出）→ 4 张统计卡
- * → 7 项筛选 + 重置/查询 →「组织额度汇总」四个页签 →「预算额度明细」分页表。
+ * 视觉完全沿用 Desk 的样式变量与原生控件（form-control / btn / btn-group），
+ * 不再自带页头与主题色，避免和系统其它页面脱节。
  * 口径见 budget/integrations/quota_source.py：只统计 status = 'effective'。
  */
 frappe.pages["budget-config"] = frappe.pages["budget-config"] || {};
@@ -42,8 +42,6 @@ class BudgetConfig {
 			title: __("预算配置"),
 			single_column: true,
 		});
-		// 源页面自带页头，隐藏 Desk 默认的标题栏避免重复
-		$(wrapper).addClass("bc-page-wrap");
 		this.page_size = 20;
 		this.page_number = 1;
 		this.active_tab = "group";
@@ -51,6 +49,8 @@ class BudgetConfig {
 		this.rollups = {};
 		this.request_id = 0;
 		this.setup_content();
+		this.page.set_primary_action(__("查询"), () => this.refresh(true), "search");
+		this.page.set_secondary_action(__("重置"), () => this.reset());
 		this.load_options().then(() => this.refresh(true));
 	}
 
@@ -58,100 +58,80 @@ class BudgetConfig {
 	setup_content() {
 		this.$content = $(`
 			<div class="bc-page">
-				<div class="bc-container">
-					<header class="bc-header">
-						<div>
-							<p class="bc-eyebrow">DingTalk Budget</p>
-							<h1 class="bc-title">${__("预算配置")}</h1>
-							<p class="bc-subtitle">${__(
-								"审批通过的预算申请会形成生效额度，按组织层级查看与汇总。"
-							)}</p>
-						</div>
-						<div class="bc-header-actions">
-							<button type="button" class="bc-button bc-back">${__("返回预算列表")}</button>
-							<button type="button" class="bc-button bc-logout">${__("退出登录")}</button>
-						</div>
-					</header>
+				<div class="bc-message" role="alert" hidden></div>
 
-					<div class="bc-message" role="alert" hidden></div>
+				<div class="bc-stats">
+					${[
+						["total_amount", "生效预算额度"],
+						["quota_count", "生效预算单"],
+						["department_count", "当前可见部门"],
+						["detail_amount_mismatch_count", "明细金额待核对"],
+					]
+						.map(
+							([key, label]) => `<div class="bc-card">
+								<div class="bc-card-label">${__(label)}</div>
+								<div class="bc-card-value" data-stat="${key}">—</div>
+							</div>`
+						)
+						.join("")}
+				</div>
 
-					<section class="bc-stats">
-						${[
-							["total_amount", "生效预算额度"],
-							["quota_count", "生效预算单"],
-							["department_count", "当前可见部门"],
-							["detail_amount_mismatch_count", "明细金额待核对"],
-						]
-							.map(
-								([key, label]) => `<div class="bc-stat-card">
-									<div class="bc-stat-label">${__(label)}</div>
-									<div class="bc-stat-value" data-stat="${key}">—</div>
-								</div>`
-							)
-							.join("")}
-					</section>
+				<div class="bc-panel">
+					<div class="bc-filter-grid"></div>
+				</div>
 
-					<section class="bc-panel">
-						<div class="bc-filter-grid"></div>
-						<div class="bc-filter-actions">
-							<button type="button" class="bc-button bc-reset">${__("重置")}</button>
-							<button type="button" class="bc-button bc-primary bc-search">${__("查询")}</button>
+				<div class="bc-panel">
+					<div class="bc-panel-head">
+						<h3 class="bc-panel-title">${__("组织额度汇总")}</h3>
+						<div class="btn-group btn-group-sm bc-tabs" role="group">
+							${BC_SUMMARY_TABS.map(
+								(tab, index) =>
+									`<button type="button" class="btn btn-default${
+										index === 0 ? " active" : ""
+									}" data-tab="${tab.key}">${tab.label}</button>`
+							).join("")}
 						</div>
-					</section>
+					</div>
+					<div class="bc-table-wrap">
+						<table class="bc-table bc-table-rollup">
+							<thead><tr>
+								<th>${__("集团")}</th>
+								<th class="text-right">${__("生效预算单")}</th>
+								<th class="text-right">${__("预算额度（元）")}</th>
+							</tr></thead>
+							<tbody><tr><td colspan="3" class="bc-empty">${__("正在加载…")}</td></tr></tbody>
+						</table>
+					</div>
+				</div>
 
-					<section class="bc-panel">
-						<div class="bc-section-head">
-							<h2 class="bc-section-title">${__("组织额度汇总")}</h2>
-							<div class="bc-tabs">
-								${BC_SUMMARY_TABS.map(
-									(tab, index) =>
-										`<button type="button" class="bc-tab${
-											index === 0 ? " active" : ""
-										}" data-tab="${tab.key}">${tab.label}</button>`
-								).join("")}
-							</div>
-						</div>
-						<div class="bc-table-wrap">
-							<table class="bc-table bc-table-rollup">
-								<thead><tr>
-									<th>${__("集团")}</th>
-									<th class="bc-num">${__("生效预算单")}</th>
-									<th class="bc-num">${__("预算额度（元）")}</th>
-								</tr></thead>
-								<tbody><tr><td colspan="3" class="bc-empty">${__("正在加载…")}</td></tr></tbody>
-							</table>
-						</div>
-					</section>
-
-					<section class="bc-panel">
-						<div class="bc-section-head">
-							<h2 class="bc-section-title">${__("预算额度明细")}</h2>
-							<span class="bc-subtle bc-count"></span>
-						</div>
-						<div class="bc-table-wrap">
-							<table class="bc-table bc-table-detail">
-								<thead><tr>
-									<th>${__("年度")}</th>
-									<th>${__("月份")}</th>
-									<th>${__("集团")}</th>
-									<th>${__("子公司")}</th>
-									<th>${__("部门")}</th>
-									<th>${__("预算科目")}</th>
-									<th class="bc-num">${__("预算金额（元）")}</th>
-									<th class="bc-num">${__("科目金额（元）")}</th>
-									<th>${__("负责人")}</th>
-									<th>${__("预算类型")}</th>
-									<th>${__("表单编号")}</th>
-								</tr></thead>
-								<tbody><tr><td colspan="11" class="bc-empty">${__("额度配置加载中…")}</td></tr></tbody>
-							</table>
-						</div>
-						<div class="bc-pagination">
-							<button type="button" class="bc-button bc-prev">${__("上一页")}</button>
-							<span class="bc-page-info"></span>
-							<button type="button" class="bc-button bc-next">${__("下一页")}</button>
-						</div>
-					</section>
+				<div class="bc-panel">
+					<div class="bc-panel-head">
+						<h3 class="bc-panel-title">${__("预算额度明细")}</h3>
+						<span class="text-muted small bc-count"></span>
+					</div>
+					<div class="bc-table-wrap">
+						<table class="bc-table bc-table-detail">
+							<thead><tr>
+								<th>${__("年度")}</th>
+								<th>${__("月份")}</th>
+								<th>${__("集团")}</th>
+								<th>${__("子公司")}</th>
+								<th>${__("部门")}</th>
+								<th>${__("预算科目")}</th>
+								<th class="text-right">${__("预算金额（元）")}</th>
+								<th class="text-right">${__("科目金额（元）")}</th>
+								<th>${__("负责人")}</th>
+								<th>${__("预算类型")}</th>
+								<th>${__("表单编号")}</th>
+							</tr></thead>
+							<tbody><tr><td colspan="11" class="bc-empty">${__("额度配置加载中…")}</td></tr></tbody>
+						</table>
+					</div>
+					<div class="bc-pagination">
+						<button type="button" class="btn btn-default btn-xs bc-prev">${__("上一页")}</button>
+						<span class="text-muted bc-page-info"></span>
+						<button type="button" class="btn btn-default btn-xs bc-next">${__("下一页")}</button>
+					</div>
 				</div>
 			</div>
 		`).appendTo(this.page.main);
@@ -176,21 +156,15 @@ class BudgetConfig {
 			this.page_number += 1;
 			this.load_list();
 		});
-		this.$content.find(".bc-tab").on("click", (event) => {
+		this.$content.find(".bc-tabs .btn").on("click", (event) => {
 			event.preventDefault();
 			this.active_tab = event.currentTarget.dataset.tab;
-			this.$content.find(".bc-tab").removeClass("active");
+			this.$content.find(".bc-tabs .btn").removeClass("active");
 			$(event.currentTarget).addClass("active");
 			const tab = BC_SUMMARY_TABS.find((item) => item.key === this.active_tab);
 			this.$rollup_head.text(tab ? tab.name : __("名称"));
 			this.render_rollup();
 		});
-		this.$content.find(".bc-search").on("click", () => this.refresh(true));
-		this.$content.find(".bc-reset").on("click", () => this.reset());
-		this.$content.find(".bc-back").on("click", () => {
-			frappe.set_route("List", "Budget Ledger Entry");
-		});
-		this.$content.find(".bc-logout").on("click", () => frappe.app.logout());
 
 		this.build_filters();
 		this.install_styles();
@@ -216,7 +190,7 @@ class BudgetConfig {
 		configs.forEach((config) => {
 			const $filter = $(`<label class="bc-filter">
 				<span class="bc-filter-label">${config.label}</span>
-				<select class="bc-select"></select>
+				<select class="form-control input-sm"></select>
 			</label>`);
 			const $select = $filter.find("select");
 			$select.on("change", () => {
@@ -232,52 +206,33 @@ class BudgetConfig {
 		// 每次进入都重建，避免旧的样式残留
 		$("#budget-config-style").remove();
 		$(`<style id="budget-config-style">
-			.bc-page-wrap .page-head { display: none; }
-			.bc-page-wrap .page-main { padding: 0; }
-			.bc-page-wrap .layout-main-section { padding: 0; border: 0; box-shadow: none; background: transparent; }
-			.bc-page-wrap .page-body { background: #f4f7fb; }
-			.bc-page { min-height: 100%; width: 100%; overflow-x: hidden; background: #f4f7fb; color: #172033; }
-			.bc-container { width: 100%; max-width: 1520px; margin: 0 auto; padding: 24px 24px 42px; box-sizing: border-box; }
-			.bc-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 22px; }
-			.bc-eyebrow { margin: 0 0 7px; color: #0f766e; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-			.bc-title { margin: 0; font-size: 26px; line-height: 1.25; font-weight: 700; }
-			.bc-subtitle { margin: 8px 0 0; color: #657089; font-size: 14px; }
-			.bc-header-actions { display: flex; gap: 10px; flex-shrink: 0; }
-			.bc-button { height: 34px; padding: 0 13px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #344054; font-size: 13px; cursor: pointer; }
-			.bc-button:disabled { cursor: default; opacity: 0.45; }
-			.bc-primary { border-color: #0f766e; background: #0f766e; color: #fff; }
-			.bc-message { margin-bottom: 16px; padding: 12px 16px; border: 1px solid #fecaca; border-radius: 6px; background: #fff1f2; color: #be123c; font-size: 13px; }
-			.bc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
-			.bc-stat-card { min-height: 98px; padding: 17px 18px; border: 1px solid #dde4ee; border-radius: 6px; background: #fff; box-sizing: border-box; }
-			.bc-stat-label { color: #68748b; font-size: 13px; }
-			.bc-stat-value { margin-top: 12px; color: #172033; font-size: 22px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; }
-			.bc-panel { border: 1px solid #dde4ee; border-radius: 6px; background: #fff; margin-bottom: 16px; }
-			.bc-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 16px; padding: 20px; border-bottom: 1px solid #e7ecf3; }
-			.bc-filter { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 8px; margin: 0; }
-			.bc-filter-label { color: #526078; font-size: 13px; text-align: right; font-weight: 400; }
-			.bc-select { width: 100%; height: 34px; min-width: 0; padding: 0 9px; border: 1px solid #cbd5e1; border-radius: 4px; outline: none; background: #fff; color: #25324b; font-size: 13px; }
-			.bc-filter-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 14px 20px 18px; }
-			.bc-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 15px 20px; border-bottom: 1px solid #e7ecf3; }
-			.bc-section-title { margin: 0; font-size: 16px; font-weight: 700; }
-			.bc-tabs { display: flex; gap: 4px; }
-			.bc-tab { height: 32px; padding: 0 12px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #637087; font-size: 13px; cursor: pointer; }
-			.bc-tab.active { border-color: #b6ded8; background: #e9f7f4; color: #0f766e; font-weight: 700; }
-			.bc-table-wrap { width: 100%; overflow-x: auto; }
-			.bc-table { width: 100%; min-width: 1180px; border-collapse: collapse; font-size: 13px; }
-			.bc-table th { padding: 11px 12px; border-bottom: 1px solid #dfe6ef; background: #f8fafc; color: #516078; text-align: left; font-size: 12px; font-weight: 700; white-space: nowrap; }
-			.bc-table td { padding: 12px; border-bottom: 1px solid #edf1f5; color: #26334b; vertical-align: top; }
-			.bc-table .bc-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-			.bc-table .bc-empty { padding: 34px 20px; color: #7a879b; text-align: center; font-size: 14px; }
-			.bc-table-rollup { min-width: 480px; }
-			.bc-subject-list { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
-			.bc-subject { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #46536c; white-space: nowrap; }
-			.bc-subtle { color: #7a879b; }
-			.bc-type-badge { display: inline-flex; padding: 3px 7px; border-radius: 4px; background: #eef2ff; color: #4f46e5; font-size: 12px; white-space: nowrap; }
-			.bc-warning-badge { display: inline-flex; margin-top: 5px; padding: 2px 6px; border-radius: 4px; background: #fff7e6; color: #b45309; font-size: 11px; }
-			.bc-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 14px 20px; color: #68748b; font-size: 13px; }
+			.bc-page { padding: 12px 15px 30px; }
+			.bc-message { margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--red-200); border-radius: var(--border-radius); color: var(--red-600); background: var(--red-50); }
+			.bc-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+			.bc-card { padding: 14px 16px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md, 8px); background: var(--card-bg, var(--fg-color)); }
+			.bc-card-label { font-size: 12px; color: var(--text-muted); }
+			.bc-card-value { margin-top: 6px; font-size: 20px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+			.bc-panel { margin-bottom: 16px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md, 8px); background: var(--card-bg, var(--fg-color)); }
+			.bc-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 15px; border-bottom: 1px solid var(--border-color); }
+			.bc-panel-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-color); }
+			.bc-filter-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 16px; padding: 15px; }
+			.bc-filter { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 8px; margin: 0; font-weight: 400; }
+			.bc-filter-label { font-size: 12px; color: var(--text-muted); text-align: right; }
+			.bc-table-wrap { overflow-x: auto; }
+			.bc-table { width: 100%; margin: 0; font-size: 12px; border-collapse: collapse; }
+			.bc-table thead th { padding: 8px 12px; background: var(--subtle-fg); color: var(--text-muted); font-size: 12px; font-weight: 500; text-align: left; white-space: nowrap; border-top: 0; border-bottom: 1px solid var(--border-color); }
+			.bc-table tbody td { padding: 8px 12px; color: var(--text-color); vertical-align: top; border-top: 0; border-bottom: 1px solid var(--border-color); }
+			.bc-table tbody tr:last-child td { border-bottom: 0; }
+			.bc-table .text-right { white-space: nowrap; font-variant-numeric: tabular-nums; }
+			.bc-table-detail { min-width: 1080px; }
+			.bc-table .bc-empty { padding: 28px 12px; text-align: center; color: var(--text-muted); font-size: 13px; }
+			.bc-subject-list { display: flex; flex-direction: column; gap: 2px; min-width: 160px; }
+			.bc-subject { display: flex; align-items: center; justify-content: space-between; gap: 12px; white-space: nowrap; }
+			.bc-subject .text-muted { font-variant-numeric: tabular-nums; }
+			.bc-badge { display: inline-block; padding: 1px 6px; border-radius: var(--border-radius-sm, 4px); background: var(--bg-blue-100, #e8f1fd); color: var(--text-on-light-blue, #2b6cb0); font-size: 11px; white-space: nowrap; }
+			.bc-badge-warn { display: inline-block; margin-top: 4px; padding: 1px 6px; border-radius: var(--border-radius-sm, 4px); background: var(--bg-orange-100, #fdf1e0); color: var(--text-on-light-orange, #a45a09); font-size: 11px; white-space: nowrap; }
+			.bc-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 10px 15px; border-top: 1px solid var(--border-color); }
 			@media (max-width: 1200px) {
-				.bc-container { padding: 16px 16px 32px; }
-				.bc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 				.bc-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 			}
 		</style>`).appendTo(document.head);
@@ -429,8 +384,8 @@ class BudgetConfig {
 				.map(
 					(row) => `<tr>
 						<td>${frappe.utils.escape_html(String(row.name || __("待确认")))}</td>
-						<td class="bc-num">${Number(row.quota_count || 0).toLocaleString("zh-CN")}</td>
-						<td class="bc-num">${bc_money(row.total_amount)}</td>
+						<td class="text-right">${Number(row.quota_count || 0).toLocaleString("zh-CN")}</td>
+						<td class="text-right">${bc_money(row.total_amount)}</td>
 					</tr>`
 				)
 				.join("")
@@ -492,17 +447,17 @@ class BudgetConfig {
 									(item) =>
 										`<span class="bc-subject"><span>${esc(
 											item.name || __("未分类预算科目")
-										)}</span><span class="bc-subtle">${bc_money(
+										)}</span><span class="text-muted">${bc_money(
 											item.amount
 										)}</span></span>`
 								)
 								.join("")}</div>`
-						: `<span class="bc-subtle">${__("未填写明细科目")}</span>`;
+						: `<span class="text-muted">${__("未填写明细科目")}</span>`;
 					const department = row.department_is_company
 						? __("子公司本级")
 						: esc(row.department_name || __("待确认"));
 					const mismatch = row.detail_amount_mismatch
-						? `<span class="bc-warning-badge">${__("明细与总额不一致")}</span>`
+						? `<div><span class="bc-badge-warn">${__("明细与总额不一致")}</span></div>`
 						: "";
 					return `<tr>
 						<td>${esc(row.budget_year || "-")}</td>
@@ -511,10 +466,10 @@ class BudgetConfig {
 						<td>${esc(row.company_name || __("待确认"))}</td>
 						<td>${department}</td>
 						<td>${subjects}</td>
-						<td class="bc-num">${bc_money(row.total_amount)}${mismatch}</td>
-						<td class="bc-num">${bc_money(row.subject_amount)}</td>
+						<td class="text-right">${bc_money(row.total_amount)}${mismatch}</td>
+						<td class="text-right">${bc_money(row.subject_amount)}</td>
 						<td>${esc(row.owner_name || row.owner_user_id || __("待确认"))}</td>
-						<td><span class="bc-type-badge">${esc(
+						<td><span class="bc-badge">${esc(
 							bc_budget_type_label(row.budget_type)
 						)}</span></td>
 						<td>${esc(row.form_no || "-")}</td>
