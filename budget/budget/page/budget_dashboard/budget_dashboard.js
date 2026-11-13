@@ -17,19 +17,21 @@ frappe.pages["budget-dashboard"].on_page_show = function () {
 };
 
 const ECHARTS_URL = "/assets/budget/js/echarts.min.js";
+// 全站收敛为「主色 + 灰阶」：仅保留一个蓝色主色与必要的中性灰，
+// 执行率的危险值保留红色作为语义提示，其余不再使用彩色。
 const CHART_COLORS = {
-	production: "#2563eb",
-	nonProduction: "#0f766e",
-	total: "#b45309",
-	expense: "#7c3aed",
-	regionBudget: "#5470c6",
-	regionExpense: "#b7d92d",
-	executed: "#52c41a",
-	inProgress: "#faad14",
-	unexecuted: "#d9d9d9",
-	rateDanger: "#dc2626",
-	rateWarning: "#b45309",
-	rateOk: "#0f766e",
+	production: "#2490ef",
+	nonProduction: "#94a3b8",
+	total: "#2490ef",
+	expense: "#94a3b8",
+	regionBudget: "#2490ef",
+	regionExpense: "#94a3b8",
+	executed: "#2490ef",
+	inProgress: "#94a3b8",
+	unexecuted: "#cbd5e1",
+	rateDanger: "#e5484d",
+	rateWarning: "#94a3b8",
+	rateOk: "#2490ef",
 };
 const AXIS_LABEL = { fontSize: 12, color: "#6b7280" };
 const LEGEND = { bottom: 0, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12, color: "#374151" } };
@@ -169,7 +171,7 @@ class BudgetDashboard {
 							.join("")}
 					</div>
 					<div class="br-table-wrap">
-						<table class="table br-table br-approval-table">
+						<table class="br-table br-approval-table">
 							<thead><tr>
 								<th scope="col">${__("流程")}</th>
 								<th scope="col" class="num">${__("实例数")}</th>
@@ -230,25 +232,25 @@ class BudgetDashboard {
 			.br-message { margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--red-200); border-radius: var(--border-radius); color: var(--red-600); background: var(--red-50); }
 			.br-message.br-warning { border-color: var(--orange-200); color: var(--orange-700); background: var(--orange-50); }
 			.br-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
-			.br-card { padding: 16px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+			.br-card { padding: 14px 16px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md, 8px); background: var(--card-bg, var(--fg-color)); }
 			.br-card-sm { padding: 10px 14px; }
-			.br-value { font-size: 26px; font-weight: 700; line-height: 1.1; color: #2563eb; font-variant-numeric: tabular-nums; }
-			.br-card-sm .br-value { font-size: 18px; color: inherit; }
-			.br-label { margin-top: 8px; font-size: 13px; color: #6b7280; }
+			.br-value { font-size: 22px; font-weight: 600; line-height: 1.2; color: var(--text-color); font-variant-numeric: tabular-nums; }
+			.br-card-sm .br-value { font-size: 18px; }
+			.br-label { margin-top: 6px; font-size: 12px; color: var(--text-muted); }
 			.br-block { margin-bottom: 16px; }
 			.br-block-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
-			.br-table-wrap { overflow-x: auto; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; }
-			.br-table { width: 100%; margin-bottom: 0; font-size: 13px; }
-			.br-table th { background: #f9fafb; color: #6b7280; font-weight: 500; white-space: nowrap; }
-			.br-table th, .br-table td { padding: 10px; border-bottom: 1px solid #f3f4f6; }
-			.br-table td { border-top: 1px solid #f3f4f6; white-space: nowrap; }
+			.br-table-wrap { overflow-x: auto; border: 1px solid var(--border-color); border-radius: var(--border-radius-md, 8px); background: var(--card-bg, var(--fg-color)); }
+			.br-table { width: 100%; margin-bottom: 0; font-size: 12px; border-collapse: collapse; }
+			.br-table th { background: var(--subtle-fg); color: var(--text-muted); font-weight: 500; white-space: nowrap; }
+			.br-table th, .br-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-color); }
+			.br-table td { border-top: 0; white-space: nowrap; }
 			.br-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-			.br-empty { padding: 28px 12px; text-align: center; color: #6b7280; font-size: 14px; }
+			.br-empty { padding: 28px 12px; text-align: center; color: var(--text-muted); font-size: 13px; }
 			/* 固定两列：除趋势卡全宽外，其余图一律两图一行 */
 			.br-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-			.br-chart-card { padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+			.br-chart-card { padding: 15px; border: 1px solid var(--border-color); border-radius: var(--border-radius-md, 8px); background: var(--card-bg, var(--fg-color)); }
 			.br-chart-wide { grid-column: 1 / -1; }
-			.br-chart-title { margin: 0 0 16px; font-size: 16px; font-weight: 600; color: #374151; }
+			.br-chart-title { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--text-color); }
 			.br-chart { width: 100%; }
 			@media (max-width: 900px) { .br-charts { grid-template-columns: 1fr; } }
 		</style>`).appendTo(document.head);
@@ -314,23 +316,14 @@ class BudgetDashboard {
 			"budgetSubmittedApprovedTotal",
 		];
 		const countKeys = ["productionCount", "operationCount"];
-		// 与源页面 statValue 的配色一致
-		const colors = {
-			productionTotal: CHART_COLORS.nonProduction,
-			nonProductionTotal: CHART_COLORS.total,
-			approvedTotal: CHART_COLORS.expense,
-			budgetSubmittedApprovedTotal: CHART_COLORS.regionExpense,
-		};
 		Object.entries(stats).forEach(([key, value]) => {
 			const text = moneyKeys.includes(key)
 				? this.money(value)
 				: countKeys.includes(key)
 				? Number(value || 0).toLocaleString("zh-CN")
 				: String(value ?? "—");
-			this.$content
-				.find(`[data-stat="${key}"]`)
-				.text(text)
-				.css("color", colors[key] || CHART_COLORS.production);
+			// 数值统一使用正文色，不再按指标上色
+			this.$content.find(`[data-stat="${key}"]`).text(text);
 		});
 	}
 
