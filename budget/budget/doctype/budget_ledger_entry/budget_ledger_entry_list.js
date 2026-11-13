@@ -803,7 +803,7 @@ function mount_detail_chart(dialog, budget, expense) {
 			{
 				name: __("预算"),
 				type: "bar",
-				color: "#2490ef",
+				color: "#2f54eb",
 				barMaxWidth: 40,
 				data: [budget.operation || 0, budget.hr || 0, 0, 0, budget.office || 0, 0],
 				label: { show: true, position: "top", formatter: (params) => format_wan(params.value) },
@@ -811,7 +811,7 @@ function mount_detail_chart(dialog, budget, expense) {
 			{
 				name: __("支出"),
 				type: "bar",
-				color: "#94a3b8",
+				color: "#52c41a",
 				barMaxWidth: 40,
 				data: [
 					expense.management || 0,

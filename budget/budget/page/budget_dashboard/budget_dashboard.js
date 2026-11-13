@@ -17,21 +17,19 @@ frappe.pages["budget-dashboard"].on_page_show = function () {
 };
 
 const ECHARTS_URL = "/assets/budget/js/echarts.min.js";
-// 全站收敛为「主色 + 灰阶」：仅保留一个蓝色主色与必要的中性灰，
-// 执行率的危险值保留红色作为语义提示，其余不再使用彩色。
 const CHART_COLORS = {
-	production: "#2490ef",
-	nonProduction: "#94a3b8",
-	total: "#2490ef",
-	expense: "#94a3b8",
-	regionBudget: "#2490ef",
-	regionExpense: "#94a3b8",
-	executed: "#2490ef",
-	inProgress: "#94a3b8",
-	unexecuted: "#cbd5e1",
-	rateDanger: "#e5484d",
-	rateWarning: "#94a3b8",
-	rateOk: "#2490ef",
+	production: "#2563eb",
+	nonProduction: "#0f766e",
+	total: "#b45309",
+	expense: "#7c3aed",
+	regionBudget: "#5470c6",
+	regionExpense: "#b7d92d",
+	executed: "#52c41a",
+	inProgress: "#faad14",
+	unexecuted: "#d9d9d9",
+	rateDanger: "#dc2626",
+	rateWarning: "#b45309",
+	rateOk: "#0f766e",
 };
 const AXIS_LABEL = { fontSize: 12, color: "#6b7280" };
 const LEGEND = { bottom: 0, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12, color: "#374151" } };
