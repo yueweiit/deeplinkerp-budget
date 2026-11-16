@@ -16,12 +16,12 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timezone
 from typing import Any
 
-from ..integrations.budget_ledger_source import (
-	NON_PRODUCTION,
-	PRODUCTION,
-	BudgetLedgerSource,
+from ..integrations.budget_factory import (
+	get_budget_expense_source,
+	get_expense_source,
+	get_ledger_source,
 )
-from ..integrations.expense_source import ExpenseSource
+from ..integrations.budget_ledger_source import NON_PRODUCTION, PRODUCTION
 from ..integrations.oa_factory import get_oa_source
 
 TIMEOUT_HOURS = 24
@@ -120,7 +120,7 @@ def _region_label(value: Any) -> str:
 
 
 # ---------------------------------------------------------------- 预算
-def _all_budget_rows(source: BudgetLedgerSource) -> list[dict]:
+def _all_budget_rows(source: Any) -> list[dict]:
 	rows: list[dict] = []
 	page = 1
 	while True:
@@ -243,7 +243,7 @@ def _approval_efficiency(rows: dict, now: datetime | None = None) -> dict:
 # ---------------------------------------------------------------- 主流程
 def build_report(start_date: str, end_date: str) -> dict:
 	start_month, end_month = _month_of(start_date), _month_of(end_date)
-	ledger = BudgetLedgerSource()
+	ledger = get_ledger_source()
 	# 趋势按自然年展示，所以保留全量行；KPI / 部门图再用区间过滤后的 rows
 	all_rows = _all_budget_rows(ledger)
 	rows = [
@@ -270,7 +270,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 	if trend_year:
 		expense_start, expense_end = f"{trend_year}-01-01", f"{trend_year}-12-31"
 	try:
-		year_expenses = ExpenseSource().list_approved_expenses(expense_start, expense_end)
+		year_expenses = get_expense_source().list_approved_expenses(expense_start, expense_end)
 	except Exception as exc:  # 数据源不可用时降级
 		year_expenses = []
 		warnings.append(f"实际支出读取失败：{exc}")
@@ -286,6 +286,8 @@ def build_report(start_date: str, end_date: str) -> dict:
 	budget_pairs: set[tuple[str, str]] = set()
 	# 部门 id → 展示名：支出行带 department_id，优先按 id 匹配，避免长/短部门名对不上
 	budget_department_by_id: dict[str, str] = {}
+	# 展示名 → 部门 id：图表点击后用 id 跳转台账，比按名称模糊匹配准确
+	department_dept_ids: dict[str, str] = {}
 	# 部门 → 生产/非生产预算 + 执行地区，供「部门预算分布 / 地区分布 / 执行状态」三张图复用
 	dept_stats: dict[str, dict] = {}
 	for row in rows:
@@ -299,6 +301,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 		dept_id = str(row.get("dept_id") or "").strip()
 		if dept_id:
 			budget_department_by_id[dept_id] = department
+			department_dept_ids.setdefault(department, dept_id)
 		stats = dept_stats.setdefault(
 			department,
 			{
@@ -371,6 +374,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 		approved = approved_by_department.get(department, 0.0)
 		execution.append(
 			{
+				"deptId": department_dept_ids.get(department) or "",
 				"deptName": department,
 				"shortName": (dept_stats.get(department) or {}).get("short")
 				or _short_department(department),
@@ -385,6 +389,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 			continue
 		execution.append(
 			{
+				"deptId": "",
 				"deptName": department,
 				"shortName": _short_department(department),
 				"budget": 0.0,
@@ -398,9 +403,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 	# 审批中支出（执行状态分布里的「审批中」）；读取失败只降级，不影响其它区块
 	pending_by_department: dict[str, float] = {}
 	try:
-		from ..integrations.budget_expense_source import BudgetExpenseSource
-
-		for row in BudgetExpenseSource().load_pending_expenses():
+		for row in get_budget_expense_source().load_pending_expenses():
 			# 没有部门的在途单据归到「待确认」，不能丢，否则审批中金额会少算
 			department = str(row.get("applicant_department") or "").strip() or "待确认"
 			matched = _match_budget_department(department, budget_departments)
@@ -414,6 +417,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 	# 各部门预算分布（Top 12）
 	dept_distribution = [
 		{
+			"deptId": department_dept_ids.get(department) or "",
 			"deptName": department,
 			"shortName": stats.get("short") or _short_department(department),
 			"production": _round(stats["production"]),

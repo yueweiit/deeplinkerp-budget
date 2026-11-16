@@ -8,15 +8,16 @@ from __future__ import annotations
 
 import frappe
 
-from ..integrations.quota_source import QuotaSource
+from ..integrations.budget_factory import get_quota_source
 
 READ_ROLES = ("System Manager",)
 
 
-def get_source() -> QuotaSource:
+def get_source():
+	"""数据源由 ``budget_data_source`` 决定，默认读本地表（由 ``quota_sync`` 同步）。"""
 	source = getattr(frappe.local, "budget_quota_source", None)
 	if source is None:
-		source = QuotaSource()
+		source = get_quota_source()
 		frappe.local.budget_quota_source = source
 	return source
 

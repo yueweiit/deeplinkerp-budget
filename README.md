@@ -41,8 +41,15 @@ bench 里此前有三套重复的钉钉/OA 代码，本 app 作为唯一入口�
 | 需要的数据 | 走哪 | 原因 |
 | --- | --- | --- |
 | 审批列表 / 详情 / 附件 | **HTTP** `/api/v1/approvals`、`/attachments`、`/attachment-content` | 上游正式契约，cursor 分页 + `syncUntil` 水位 |
-| 部门树、用户快照 | 只读库 | API 未提供 |
-| 任务明细、审批效率 | 只读库 `ding_approval_task` | API 只把 tasks 放在 `rawPayload` 里，没有聚合接口 |
+| 部门树 / 部门反查 / 路径快照 | **HTTP** `/api/v1/budget/departments*` | 预算列表展示与审批归属都用它 |
+| 预算台账 / 统计 / 明细 / 备注 | **HTTP** `/api/v1/budget/entries*` | 去重与状态口径在 dingtalk-oa 侧复刻 |
+| 预算额度配置 | **HTTP** `/api/v1/budget/quota*` | 下拉候选 / 汇总 / 明细分页 |
+| 实际支出（报表 + 详情） | **HTTP** `/api/v1/budget/expenses*` | 六大分支口径在 dingtalk-oa 侧复刻 |
+| 任务明细、审批效率 | 从 `/api/v1/approvals` 的 `rawPayload.tasks` 解析 | 无独立聚合接口，本地聚合 |
+
+**默认模式下 budget app 不建立任何 PostgreSQL 连接**：所有 SQL 集中在
+`dingtalk-oa`，本 app 只做 HTTP 调用。`budget_data_source=postgres` 时才回退到
+本仓库原有的 psycopg 直连实现（应急排查用）。
 
 增量水位按上游契约算（`approval-read-api/README.md:150-157`）：
 
@@ -55,14 +62,28 @@ next_updated_after = compute_next_watermark(page.sync_until)  # 自动回退 10 
 **不要**用 `last_event_time` 当水位——数据字典明确它是「规范化时的本地刷新时间，并非严格的上游事件时间」。
 `updated_at` 由触发器维护（源内容不变时保留旧值），才是可用的增量依据。
 
-## 需要上游新增的接口（待提 PR）
+### 已在 dingtalk-oa 落地的预算接口
+
+| 路由 | 用途 |
+| --- | --- |
+| `GET /api/v1/budget/entries` | 台账分页（`budgetType` / `startMonth` / `endMonth` / `status` / `keyword` / `page` / `pageSize`），返回 `rows / total / counts / total_amount` |
+| `GET /api/v1/budget/entries/stats` | 今日生产 / 今日非生产 / 生产总数 / 非生产总数 |
+| `GET /api/v1/budget/entries/{expense-details,production-details,remarks,detail-count}` | 明细、备注、明细行数 |
+| `GET /api/v1/budget/quota/{options,summary,entries}` | 额度下拉候选、汇总、明细分页 |
+| `GET /api/v1/budget/expenses/{approved,meta,completed,pending,splits,payments}` | 实际支出与报表聚合原料 |
+| `GET /api/v1/budget/departments{,/candidates,/snapshots}` | 部门树、业务主体反查、路径快照 |
+
+响应统一 `{success: true, data}`，失败 `{success: false, code}`，限流返回 429 + `Retry-After`。
+字段名沿用原 PG 结果集的 snake_case，迁移时业务层不需要改名。
+
+## 仍待上游补充的接口
 
 | 缺口 | 影响 |
 | --- | --- |
 | 审批列表无 `status` / `createTime` 区间过滤 | 只能按 `updatedAfter` 拉全量再本地筛 |
-| 无部门树接口 | 必须读库 |
-| 无审批效率 / 聚合接口 | 必须读库并自己算 |
-| 审批响应无顶层 `tasks` | 需解析 `rawPayload.tasks` 或读库 |
+| 无审批效率 / 聚合接口 | 本地按 `rawPayload.tasks` 聚合 |
+| 审批响应无顶层 `tasks` | 需解析 `rawPayload.tasks` |
+| 无用户快照名接口 | `snapshot_user_name` 恒为空，用接口原始名称展示 |
 
 ## 目录
 
@@ -76,10 +97,15 @@ budget/
 │  ├─ organization_service.py
 │  └─ approval_query_service.py
 ├─ integrations/
-│  ├─ dingtalk_client.py     # token 缓存 + 机器人发送 + 重试 + 三组熔断
-│  ├─ oa_read_api_client.py  # 上游只读 HTTP API（审批快照 / cursor 分页）
-│  └─ oa_approval_source.py  # OA 只读库（psycopg3），仅补 API 缺口
-└─ tests/                    # pytest：全部靠注入替身，不需要站点/库/网络
+│  ├─ dingtalk_client.py          # token 缓存 + 机器人发送 + 重试 + 三组熔断
+│  ├─ oa_read_api_client.py       # 审批只读 HTTP（快照 / cursor 分页）
+│  ├─ budget_read_api_client.py   # 预算只读 HTTP（台账 / 额度 / 支出 / 部门树）
+│  ├─ budget_factory.py           # 数据源选择：http（默认）| postgres
+│  ├─ oa_factory.py               # 审批数据源选择（与上面共用开关）
+│  ├─ *_api_source.py             # 各数据源的 HTTP 实现（统一签名）
+│  ├─ *_source.py                 # 各数据源的 PG 直连实现（应急回退）
+│  └─ pg.py                       # 仅 postgres 模式使用的只读连接池
+└─ tests/                         # pytest：全部靠注入替身，不需要站点/库/网络
 ```
 
 ## 覆盖的接口与查询
@@ -119,22 +145,47 @@ bench --site <site> execute budget.setup.ensure_budget_sidebar_link
 
 ## 配置
 
-站点只配**一套** PostgreSQL 连接，三个只读数据源（OA / 预算台账 / 审批支出）共用
-`shared_db_config()`（环境变量优先，其次 `frappe.conf`）：
+默认（`http`）模式只需配置 `dingtalk-oa` 的地址与企业范围，**不需要任何数据库连接**：
+
+```
+BUDGET_DATA_SOURCE     # http（默认）| postgres
+BUDGET_READ_API_URL    # dingtalk-oa 地址，如 https://oa.example.com
+BUDGET_READ_API_TIMEOUT# 秒，默认 30
+BUDGET_CORP_ID         # 本实例负责的企业，必填
+```
+
+`BUDGET_READ_API_URL` 兼容既有的 `BUDGET_OA_API_URL` / `operating_expense_oa_api_url` /
+`budget_oa_api_base`，避免同一站点配两处地址。旧开关 `BUDGET_OA_SOURCE` 仍生效，
+但优先级低于 `BUDGET_DATA_SOURCE`。
+
+`BUDGET_CORP_ID` 是查询范围，不是可选优化：OA 库多企业共库，`ding_department_tree`
+唯一键是 `(corp_id, dept_id)`，`businessId` 也可能跨企业重复。未配置时部门树查询直接
+报错，不会退化成读全库。企业范围兼容 `budget_oa_corp_id` / `dingtalk_oa_corp_id` /
+`dingtalk_corp_id`。
+
+所有数据源统一由 `integrations/budget_factory.py` 与 `oa_factory.py` 选择：
+
+| 工厂函数 | http（默认） | postgres（应急回退） |
+| --- | --- | --- |
+| `get_ledger_source()` | `BudgetLedgerAPISource` | `BudgetLedgerSource` |
+| `get_quota_source()` | `QuotaAPISource` | `QuotaSource` |
+| `get_expense_source()` | `ExpenseAPISource` | `ExpenseSource` |
+| `get_budget_expense_source()` | `BudgetExpenseAPISource` | `BudgetExpenseSource` |
+| `get_oa_source()` | `OAAPISource` | `OAApprovalSource` |
+
+两组实现的方法签名与行字段完全一致，业务层不感知来源。
+
+> 注意：台账同步后落在**站点自己的 MariaDB**（`Budget Ledger Entry`），
+> 列表、筛选、排序、导出都走站点库；默认模式下外部 PG 完全不参与。
+
+### 应急回退到 PostgreSQL
+
+`BUDGET_DATA_SOURCE=postgres` 时恢复本仓库原有的 psycopg3 直连实现，此时才需要：
 
 ```
 BUDGET_DB_HOST / BUDGET_DB_PORT / BUDGET_DB_NAME
 BUDGET_DB_USER / BUDGET_DB_PASSWORD
-BUDGET_CORP_ID           # 本实例负责的企业，必填
 ```
-
-`BUDGET_CORP_ID` 是查询范围，不是可选优化：OA 库多企业共库，`ding_department_tree`
-唯一键是 `(corp_id, dept_id)`，`businessId` 也可能跨企业重复。未配置时所有查询直接抛
-`OAApprovalSourceScopeError`，不会退化成读全库。
-
-兼容既有键名 `budget_oa_db_*` / `dingtalk_oa_db_*` / `oa_mapping_pg_*`；
-企业范围兼容 `budget_oa_corp_id` / `dingtalk_oa_corp_id` / `dingtalk_corp_id`。
-老站点不用改配置即可运行。
 
 库名按「数据源自己的键 → `BUDGET_DB_NAME` → 该数据源默认库名」解析：
 
@@ -144,32 +195,20 @@ BUDGET_CORP_ID           # 本实例负责的企业，必填
 | 预算台账 | `BUDGET_LEDGER_DB_NAME`（旧：`budget_system_db_name`） | `budget_system` |
 | 审批支出 | `BUDGET_APPROVAL_DB_NAME`（旧：`dingtalk_approval_db_name`） | `dingtalk_approval` |
 
-三个库合并成一个之后，把 `BUDGET_DB_NAME` 指向合并后的库、删掉表格里两个「数据源自己的键」即可，
-连接信息始终只有一处。
+兼容既有键名 `budget_oa_db_*` / `dingtalk_oa_db_*` / `oa_mapping_pg_*`；
+OA 连接一律 `default_transaction_read_only=on` + `statement_timeout`，账号请只授只读权限。
 
-> 注意：台账数据同步后落在**站点自己的 MariaDB**（`Budget Ledger Entry`），
-> 列表、筛选、排序、导出都不依赖上面这些外部连接；外部 PG 只在同步和审批查询时用。
+### dingtalk-oa 侧
 
-上游只读 API（走 HTTP 时必填）：
+新增预算只读接口后，`dingtalk-oa` 需要能读到预算库；主机与账号留空时复用它的主 PG 连接：
 
 ```
-BUDGET_OA_SOURCE         # postgres（默认）| http
-BUDGET_OA_API_URL        # 如 https://oa.example.com
-BUDGET_OA_API_TIMEOUT    # 秒，默认 30
-BUDGET_OA_API_PAGE_SIZE  # 每页条数，默认 200（接口上限 200）
+BUDGET_DB_HOST / BUDGET_DB_PORT / BUDGET_DB_USER / BUDGET_DB_PASSWORD
+BUDGET_DB_NAME                  # 默认 budget_system
+BUDGET_APPROVAL_DB_NAME         # 默认 dingtalk_approval
+BUDGET_API_REQUESTS_PER_MINUTE  # 默认 120
+BUDGET_API_STATEMENT_TIMEOUT_MS # 默认 15000
 ```
-
-`BUDGET_OA_SOURCE=http` 时审批读取（Q4/Q5/Q8）改走 `dingtalk-oa` 的
-`GET /api/v1/approvals`，`DingTalk` → Kafka → PG 的归档链路不变；
-
-- 两个数据源暴露同一组方法（`get_instance_row` / `list_approval_efficiency_rows` 等），
-  业务层通过 `oa_factory.get_oa_source()` 取实例，不感知来源；
-- 该接口只覆盖审批，没有部门树：Q6/Q7/Q9 与 Q5 的用户快照名仍回退到 PostgreSQL，
-  库不可达时快照名降级为空（用接口原始名称），不影响查询；
-- 接口不支持按 `createTime` 过滤，时间窗本地过滤，并用 `updatedAfter` 先收窄一页范围。
-
-`BUDGET_OA_API_URL` 兼容既有的 `operating_expense_oa_api_url` 与 `budget_oa_api_base`，
-避免同一站点配两处地址。
 
 钉钉凭据（`frappe.conf` 或环境变量，`DingTalkConfig.from_site_config()`）：
 
@@ -178,7 +217,54 @@ dingtalk_app_key / dingtalk_app_secret
 dingtalk_robot_app_key / dingtalk_robot_app_secret / dingtalk_robot_code
 ```
 
-OA 连接一律 `default_transaction_read_only=on` + `statement_timeout`，账号请只授只读权限。
+## 台账同步
+
+数据链路：钉钉 OA 归档（PostgreSQL，只读）→ `parse_budget_instance` 解析 → 按
+(dept, 预算月份) 去重取最新 → `Budget Ledger Entry` / `Budget Ledger Detail`（本地 MariaDB）。
+页面此后只读本地表，外部 PG 只在同步时使用。
+
+### 三个 DocType
+
+| DocType | 作用 |
+| --- | --- |
+| `Budget Ledger Entry` | 台账主表，`autoname = form_no`；`source_digest` 存该单指纹，增量判定用 |
+| `Budget Ledger Detail` | 明细，按 `form_no` 归属；某一单变化时只重建这一单的明细 |
+| `Budget Ledger Sync Log` | 每轮一条运行记录（`Running / Success / Failed / Skipped`），只读，30 天后自动清理 |
+
+### 触发方式
+
+| 入口 | 用途 |
+| --- | --- |
+| `scheduled_sync()` | 外部调度器（cron / ofelia / launchd），`trigger=Scheduled`，失败抛异常以拿到非零退出码 |
+| `run_oa_budget_sync(force=0)` | 手动同步；`force=1` 忽略指纹整表重建 |
+| `enqueue_oa_budget_sync()` | 入队 long 队列，`job_id + deduplicate` 保证不会重复排队 |
+| `ensure_ledger_fresh()` | 台账列表页打开时调用，数据超过 120s 未更新才入队；60s 内试过则退避 |
+| `hooks.py` `daily_long` | `sync_budget_entries` 转调 `scheduled_sync`，站点开着 scheduler 时生效 |
+
+站点 `enable_scheduler: 0` 时前四项之外都没人触发，需要外部定时器，例如：
+
+```bash
+bench --site <site> execute budget.services.oa_budget_sync.scheduled_sync
+```
+
+### 增量与全量
+
+- **默认增量**：每单算 `sha256(最终入库字段 + 明细)`，与本地 `source_digest` 相同就整单跳过
+  （不 upsert、不碰明细）。没人改单时每轮 0 写入。
+- **每日整表对账**：`scheduled_sync` 发现距上次成功全量满 24h，自动把这一轮切成全量，
+  对冲「本地被手工改坏」这类增量发现不了的问题。
+- **校验失败自动升级**：增量轮写入后 `_verify` 发现条数/金额/明细对不上，会立刻以全量重跑一次，
+  修好才提交；全量仍对不上才判定失败并整批回滚。
+- **原子性**：全部写库 → 校验 → 提交；任一步失败 `rollback`，本地保持上一轮完整快照。
+
+### 并发、超时与可观测性
+
+- Redis 锁 `budget-ledger-sync`（`SET NX` + token 释放）串行化多 worker / 定时 / 页面触发；
+  拿不到锁的那轮记 `Skipped`，不写库。
+- 单轮时间预算默认 300s，站点配置 `budget_ledger_sync_timeout` 可改；超时抛
+  `LedgerSyncTimeout` 并整批回滚。
+- 最近的同步结果用 `get_ledger_sync_status()` 查（返回 `last` / `recent` / `local` / `lock_held`），
+  数据来自 `Budget Ledger Sync Log`，Redis 重启不丢。
 
 ## 安装与测试
 

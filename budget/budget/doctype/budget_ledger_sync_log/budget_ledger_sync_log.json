@@ -1,0 +1,185 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-11-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "status",
+  "trigger",
+  "full_sync",
+  "started_at",
+  "finished_at",
+  "duration_sec",
+  "message",
+  "remote_total",
+  "deduped",
+  "created",
+  "updated",
+  "unchanged",
+  "removed",
+  "detail_rows",
+  "local_total",
+  "local_amount"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "default": "Running",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Running\nSuccess\nFailed\nSkipped",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "columns": 2,
+   "default": "Manual",
+   "fieldname": "trigger",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Triggered By",
+   "options": "Manual\nScheduled\nBackground",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Started At",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "default": "0",
+   "description": "本轮忽略指纹，整表重建（每日对账用）",
+   "fieldname": "full_sync",
+   "fieldtype": "Check",
+   "label": "Full Sync",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "finished_at",
+   "fieldtype": "Datetime",
+   "label": "Finished At",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "duration_sec",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Duration (s)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Small Text",
+   "label": "Message",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "remote_total",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Remote Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deduped",
+   "fieldtype": "Int",
+   "label": "Deduped",
+   "read_only": 1
+  },
+  {
+   "fieldname": "created",
+   "fieldtype": "Int",
+   "label": "Created",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "updated",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Updated",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "unchanged",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Unchanged",
+   "read_only": 1
+  },
+  {
+   "fieldname": "removed",
+   "fieldtype": "Int",
+   "label": "Removed",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "detail_rows",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Detail Rows",
+   "read_only": 1
+  },
+  {
+   "fieldname": "local_total",
+   "fieldtype": "Int",
+   "label": "Local Total",
+   "read_only": 1
+  },
+  {
+   "fieldname": "local_amount",
+   "fieldtype": "Currency",
+   "label": "Local Amount",
+   "read_only": 1
+  }
+ ],
+ "in_create": 0,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Budget",
+ "name": "Budget Ledger Sync Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1
+  }
+ ],
+ "sort_field": "started_at",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "started_at"
+}

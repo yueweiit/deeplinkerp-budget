@@ -7,12 +7,12 @@ from __future__ import annotations
 
 import calendar
 from datetime import UTC, date, datetime, timezone
+from typing import Any
 from urllib.parse import quote
 
 import frappe
 
-from ..integrations.budget_ledger_source import BudgetLedgerSource
-from ..integrations.expense_source import ExpenseSource
+from ..integrations.budget_factory import get_expense_source, get_ledger_source
 from ..integrations.oa_approval_source import _runtime_config_value
 from ..services.budget_ledger_sync import sync_budget_entries as run_sync
 
@@ -105,12 +105,21 @@ _DETAIL_GROUP_LABELS = {
 }
 
 
-def get_source() -> BudgetLedgerSource:
-	"""同一请求内复用数据源实例。"""
+def get_source():
+	"""同一请求内复用数据源实例；默认读站点本地表（由 OA 归档同步而来）。"""
 	source = getattr(frappe.local, "budget_ledger_source", None)
 	if source is None:
-		source = BudgetLedgerSource()
+		source = get_ledger_source()
 		frappe.local.budget_ledger_source = source
+	return source
+
+
+def get_expense() -> Any:
+	"""同一请求内复用支出数据源实例。"""
+	source = getattr(frappe.local, "budget_expense_read_source", None)
+	if source is None:
+		source = get_expense_source()
+		frappe.local.budget_expense_read_source = source
 	return source
 
 
@@ -638,7 +647,7 @@ def get_budget_entry_detail(form_no: str) -> dict:
 	if month:
 		start_date, end_date = _month_bounds(month)
 		try:
-			rows = ExpenseSource().list_approved_expenses(start_date, end_date)
+			rows = get_expense().list_approved_expenses(start_date, end_date)
 			matched_rows = [
 				row
 				for row in rows
@@ -647,7 +656,7 @@ def get_budget_entry_detail(form_no: str) -> dict:
 			# 「事项/说明」「付款证据」需要额外查审批表，失败只影响这两列
 			detail_meta: dict[str, dict] = {}
 			try:
-				detail_meta = ExpenseSource().load_detail_meta(
+				detail_meta = get_expense().load_detail_meta(
 					[str(row.get("business_id") or "") for row in matched_rows]
 				)
 			except Exception:  # 说明缺失不影响金额

@@ -1,0 +1,292 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:form_no",
+ "creation": "2026-11-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "form_no",
+  "remote_id",
+  "corp_id",
+  "process_instance_id",
+  "oa_process_code",
+  "budget_type",
+  "budget_year",
+  "budget_month",
+  "group_dept_id",
+  "group_name",
+  "company_dept_id",
+  "company_name",
+  "department_id",
+  "department_name",
+  "department_is_company",
+  "department_source",
+  "organization_is_current",
+  "dept_path_ids",
+  "dept_path_names",
+  "total_amount",
+  "detail_amount",
+  "detail_amount_mismatch",
+  "owner_user_id",
+  "owner_name",
+  "status",
+  "approval_status",
+  "approval_result",
+  "effective_at",
+  "deactivated_at",
+  "approval_completed_at",
+  "source_created_at",
+  "source_updated_at",
+  "synced_at"
+],
+ "fields": [
+  {
+   "fieldname": "form_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Form No",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1,
+   "length": 140
+  },
+  {
+   "fieldname": "remote_id",
+   "fieldtype": "Int",
+   "label": "Remote ID",
+   "search_index": 1
+  },
+  {
+   "fieldname": "corp_id",
+   "fieldtype": "Data",
+   "label": "Corp ID",
+   "search_index": 1,
+   "length": 140
+  },
+  {
+   "fieldname": "process_instance_id",
+   "fieldtype": "Data",
+   "label": "Process Instance ID",
+   "length": 140
+  },
+  {
+   "fieldname": "oa_process_code",
+   "fieldtype": "Data",
+   "label": "OA Process Code",
+   "length": 140
+  },
+  {
+   "fieldname": "budget_type",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Budget Type",
+   "options": "production\nnon_production"
+  },
+  {
+   "fieldname": "budget_year",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Budget Year",
+   "search_index": 1
+  },
+  {
+   "fieldname": "budget_month",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Budget Month",
+   "search_index": 1
+  },
+  {
+   "fieldname": "group_dept_id",
+   "fieldtype": "Data",
+   "label": "Group Dept ID",
+   "search_index": 1,
+   "length": 64
+  },
+  {
+   "fieldname": "group_name",
+   "fieldtype": "Data",
+   "label": "Group Name",
+   "length": 255
+  },
+  {
+   "fieldname": "company_dept_id",
+   "fieldtype": "Data",
+   "label": "Company Dept ID",
+   "search_index": 1,
+   "length": 64
+  },
+  {
+   "fieldname": "company_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Company Name",
+   "length": 255
+  },
+  {
+   "fieldname": "department_id",
+   "fieldtype": "Data",
+   "label": "Department ID",
+   "search_index": 1,
+   "length": 64
+  },
+  {
+   "fieldname": "department_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Department Name",
+   "length": 255
+  },
+  {
+   "fieldname": "department_is_company",
+   "fieldtype": "Check",
+   "label": "Department Is Company"
+  },
+  {
+   "fieldname": "department_source",
+   "fieldtype": "Data",
+   "label": "Department Source",
+   "length": 64
+  },
+  {
+   "fieldname": "organization_is_current",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Organization Is Current"
+  },
+  {
+   "fieldname": "dept_path_ids",
+   "fieldtype": "Code",
+   "label": "Department Path IDs",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "dept_path_names",
+   "fieldtype": "Code",
+   "label": "Department Path Names",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Amount",
+   "options": "CNY"
+  },
+  {
+   "fieldname": "detail_amount",
+   "fieldtype": "Currency",
+   "label": "Detail Amount",
+   "options": "CNY"
+  },
+  {
+   "fieldname": "detail_amount_mismatch",
+   "fieldtype": "Check",
+   "label": "Detail Amount Mismatch"
+  },
+  {
+   "fieldname": "owner_user_id",
+   "fieldtype": "Data",
+   "label": "Owner User ID",
+   "length": 140
+  },
+  {
+   "fieldname": "owner_name",
+   "fieldtype": "Data",
+   "label": "Owner",
+   "length": 140
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "default": "effective",
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "effective\ndeactivated"
+  },
+  {
+   "fieldname": "approval_status",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Approval Status",
+   "length": 64
+  },
+  {
+   "fieldname": "approval_result",
+   "fieldtype": "Data",
+   "label": "Approval Result",
+   "length": 64
+  },
+  {
+   "fieldname": "effective_at",
+   "fieldtype": "Datetime",
+   "label": "Effective At"
+  },
+  {
+   "fieldname": "deactivated_at",
+   "fieldtype": "Datetime",
+   "label": "Deactivated At"
+  },
+  {
+   "fieldname": "approval_completed_at",
+   "fieldtype": "Datetime",
+   "label": "Approval Completed At"
+  },
+  {
+   "fieldname": "source_created_at",
+   "fieldtype": "Datetime",
+   "label": "Source Created At"
+  },
+  {
+   "fieldname": "source_updated_at",
+   "fieldtype": "Datetime",
+   "label": "Source Updated At"
+  },
+  {
+   "fieldname": "synced_at",
+   "fieldtype": "Datetime",
+   "label": "Synced At"
+  }
+  ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Budget",
+ "name": "Budget Quota",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 0
+  }
+ ],
+ "sort_field": "budget_month",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

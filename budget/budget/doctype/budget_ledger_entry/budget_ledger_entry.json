@@ -12,13 +12,25 @@
   "company",
   "department",
   "department_id",
+  "creator_name",
+  "dept_name",
+  "dept_key",
   "budget_kind",
   "application_date",
   "budget_month",
+  "declaration_month",
   "execution_region",
   "status",
   "amount",
-  "synced_at"
+  "detail_amount",
+  "total_amount",
+  "remark",
+  "dept_path_ids",
+  "dept_path_names",
+  "oa_process_code",
+  "source_created_at",
+  "synced_at",
+  "source_digest"
  ],
  "fields": [
   {
@@ -59,6 +71,24 @@
    "length": 64
   },
   {
+   "fieldname": "creator_name",
+   "fieldtype": "Data",
+   "label": "Creator",
+   "length": 140
+  },
+  {
+   "fieldname": "dept_name",
+   "fieldtype": "Small Text",
+   "label": "OA Department Name"
+  },
+  {
+   "fieldname": "dept_key",
+   "fieldtype": "Data",
+   "label": "Department Key",
+   "search_index": 1,
+   "length": 255
+  },
+  {
    "fieldname": "budget_kind",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -76,6 +106,12 @@
    "fieldtype": "Date",
    "in_list_view": 1,
    "label": "Budget Month"
+  },
+  {
+   "fieldname": "declaration_month",
+   "fieldtype": "Data",
+   "label": "Declaration Month",
+   "length": 16
   },
   {
    "fieldname": "execution_region",
@@ -99,9 +135,59 @@
    "options": "CNY"
   },
   {
+   "fieldname": "detail_amount",
+   "fieldtype": "Currency",
+   "label": "Detail Amount",
+   "options": "CNY",
+   "description": "本地明细行金额汇总，用于和表单总金额比对"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "options": "CNY"
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Text",
+   "label": "Remark"
+  },
+  {
+   "fieldname": "dept_path_ids",
+   "fieldtype": "Code",
+   "label": "Department Path IDs",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "dept_path_names",
+   "fieldtype": "Code",
+   "label": "Department Path Names",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "oa_process_code",
+   "fieldtype": "Data",
+   "label": "OA Process Code",
+   "search_index": 1,
+   "length": 140
+  },
+  {
+   "fieldname": "source_created_at",
+   "fieldtype": "Datetime",
+   "label": "Source Created At"
+  },
+  {
    "fieldname": "synced_at",
    "fieldtype": "Datetime",
    "label": "Synced At"
+  },
+  {
+   "fieldname": "source_digest",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Source Digest",
+   "length": 64,
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 0,
