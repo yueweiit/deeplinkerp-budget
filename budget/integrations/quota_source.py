@@ -135,112 +135,151 @@ class QuotaSource:
 
 	# ------------------------------------------------------------ 选项
 	def get_options(self) -> dict:
-		"""筛选下拉候选值；组织类选项只取 ``organization_is_current = true``。"""
-		base = "FROM budget_effective_quota q WHERE q.status = %s"
-		years = self._fetch(
-			f"SELECT DISTINCT q.budget_year AS value {base} AND q.budget_year IS NOT NULL "
-			"ORDER BY 1 DESC",
-			[EFFECTIVE],
-		)
-		months = self._fetch(
-			f"SELECT DISTINCT q.budget_month AS value {base} "
-			"AND NULLIF(BTRIM(q.budget_month), '') IS NOT NULL ORDER BY 1",
-			[EFFECTIVE],
-		)
-		budget_types = self._fetch(
-			f"SELECT DISTINCT q.budget_type AS value {base} "
-			"AND NULLIF(BTRIM(q.budget_type), '') IS NOT NULL ORDER BY 1",
-			[EFFECTIVE],
-		)
+		"""筛选下拉候选值；组织类选项只取 ``organization_is_current = true``。
 
-		def org_options(id_column: str, name_column: str, extra: str = "") -> list[dict]:
-			return self._fetch(
-				f"""
-				SELECT DISTINCT NULLIF(BTRIM(q.{id_column}), '') AS id,
-				       COALESCE(NULLIF(BTRIM(q.{name_column}), ''), '待确认') AS name
-				{base}
-				  AND q.organization_is_current = true
-				  AND NULLIF(BTRIM(q.{id_column}), '') IS NOT NULL
-				  {extra}
-				ORDER BY name
-				""",
-				[EFFECTIVE],
-			)
-
-		subjects = self._fetch(
+		7 组候选值合并成一条 SQL（多个 jsonb 标量子查询），把 7 次往返压成 1 次。
+		"""
+		row = self._one(
 			"""
-			SELECT DISTINCT s.subject_name AS value
-			FROM budget_effective_quota q
-			JOIN budget_effective_quota_subject s ON s.quota_id = q.id
-			WHERE q.status = %s AND NULLIF(BTRIM(s.subject_name), '') IS NOT NULL
-			ORDER BY 1
-			""",
-			[EFFECTIVE],
-		)
-
-		return {
-			"years": [row["value"] for row in years],
-			"months": [row["value"] for row in months],
-			"budget_types": [row["value"] for row in budget_types],
-			"groups": org_options("group_dept_id", "group_name"),
-			"companies": org_options("company_dept_id", "company_name"),
-			"departments": org_options(
-				"department_id",
-				"department_name",
-				"AND q.department_id IS DISTINCT FROM q.company_dept_id",
+			WITH base AS (
+				SELECT q.budget_year, q.budget_month, q.budget_type,
+				       q.group_dept_id, q.group_name,
+				       q.company_dept_id, q.company_name,
+				       q.department_id, q.department_name,
+				       q.organization_is_current
+				FROM budget_effective_quota q
+				WHERE q.status = %s
 			),
-			"subjects": [row["value"] for row in subjects],
+			subject_values AS (
+				SELECT DISTINCT s.subject_name AS value
+				FROM budget_effective_quota q
+				JOIN budget_effective_quota_subject s ON s.quota_id = q.id
+				WHERE q.status = %s AND NULLIF(BTRIM(s.subject_name), '') IS NOT NULL
+			)
+			SELECT
+				(SELECT COALESCE(jsonb_agg(value ORDER BY value DESC), '[]'::jsonb)
+				   FROM (SELECT DISTINCT budget_year AS value FROM base
+				          WHERE budget_year IS NOT NULL) t) AS years,
+				(SELECT COALESCE(jsonb_agg(value ORDER BY value), '[]'::jsonb)
+				   FROM (SELECT DISTINCT budget_month AS value FROM base
+				          WHERE NULLIF(BTRIM(budget_month), '') IS NOT NULL) t) AS months,
+				(SELECT COALESCE(jsonb_agg(value ORDER BY value), '[]'::jsonb)
+				   FROM (SELECT DISTINCT budget_type AS value FROM base
+				          WHERE NULLIF(BTRIM(budget_type), '') IS NOT NULL) t) AS budget_types,
+				(SELECT COALESCE(
+				            jsonb_agg(jsonb_build_object('id', id, 'name', name) ORDER BY name),
+				            '[]'::jsonb)
+				   FROM (SELECT DISTINCT NULLIF(BTRIM(group_dept_id), '') AS id,
+				                COALESCE(NULLIF(BTRIM(group_name), ''), '待确认') AS name
+				          FROM base
+				         WHERE organization_is_current
+				           AND NULLIF(BTRIM(group_dept_id), '') IS NOT NULL) t) AS groups,
+				(SELECT COALESCE(
+				            jsonb_agg(jsonb_build_object('id', id, 'name', name) ORDER BY name),
+				            '[]'::jsonb)
+				   FROM (SELECT DISTINCT NULLIF(BTRIM(company_dept_id), '') AS id,
+				                COALESCE(NULLIF(BTRIM(company_name), ''), '待确认') AS name
+				          FROM base
+				         WHERE organization_is_current
+				           AND NULLIF(BTRIM(company_dept_id), '') IS NOT NULL) t) AS companies,
+				(SELECT COALESCE(
+				            jsonb_agg(jsonb_build_object('id', id, 'name', name) ORDER BY name),
+				            '[]'::jsonb)
+				   FROM (SELECT DISTINCT NULLIF(BTRIM(department_id), '') AS id,
+				                COALESCE(NULLIF(BTRIM(department_name), ''), '待确认') AS name
+				          FROM base
+				         WHERE organization_is_current
+				           AND department_id IS DISTINCT FROM company_dept_id
+				           AND NULLIF(BTRIM(department_id), '') IS NOT NULL) t) AS departments,
+				(SELECT COALESCE(jsonb_agg(value ORDER BY value), '[]'::jsonb)
+				   FROM subject_values) AS subjects
+			""",
+			[EFFECTIVE, EFFECTIVE],
+		)
+		return {
+			"years": row.get("years") or [],
+			"months": row.get("months") or [],
+			"budget_types": row.get("budget_types") or [],
+			"groups": row.get("groups") or [],
+			"companies": row.get("companies") or [],
+			"departments": row.get("departments") or [],
+			"subjects": row.get("subjects") or [],
 		}
 
 	# ------------------------------------------------------------ 汇总
 	def get_summary(self, **filters) -> dict:
-		"""4 张统计卡 + 组织额度汇总（集团 / 子公司 / 部门 / 科目）。"""
+		"""4 张统计卡 + 组织额度汇总（集团 / 子公司 / 部门 / 科目）。
+
+		用 CTE 只扫一遍底表，总计与四组汇总在同一条 SQL 内返回（1 次往返）。
+		"""
 		where, params = self._where(**filters)
-		totals = self._one(
+		row = self._one(
 			f"""
-			SELECT COUNT(*)::int AS quota_count,
-			       COALESCE(SUM(q.total_amount), 0) AS total_amount,
-			       COUNT(*) FILTER (WHERE q.detail_amount_mismatch)::int
-			           AS detail_amount_mismatch_count,
-			       COUNT(DISTINCT NULLIF(BTRIM(q.department_id), ''))::int
-			           AS department_count
-			FROM budget_effective_quota q
-			WHERE {where}
-			""",
-			params,
-		)
-
-		def rollup(id_column: str, name_column: str, extra: str = "") -> list[dict]:
-			return self._fetch(
-				f"""
-				SELECT NULLIF(BTRIM(q.{id_column}), '') AS id,
-				       COALESCE(NULLIF(BTRIM(q.{name_column}), ''), '待确认') AS name,
-				       COUNT(*)::int AS quota_count,
-				       COALESCE(SUM(q.total_amount), 0) AS total_amount
-				FROM budget_effective_quota q
-				WHERE {where} {extra}
-				GROUP BY 1, 2
-				ORDER BY total_amount DESC, name ASC
-				""",
-				params,
+			WITH base AS (
+				SELECT q.* FROM budget_effective_quota q WHERE {where}
+			),
+			subject_rollup AS (
+				SELECT s.subject_type, s.subject_code, s.subject_name AS name,
+				       COUNT(DISTINCT b.id)::int AS quota_count,
+				       COALESCE(SUM(s.amount), 0) AS total_amount
+				FROM base b
+				JOIN budget_effective_quota_subject s ON s.quota_id = b.id
+				GROUP BY 1, 2, 3
 			)
-
-		subjects = self._fetch(
-			f"""
-			SELECT s.subject_type,
-			       s.subject_code,
-			       s.subject_name AS name,
-			       COUNT(DISTINCT q.id)::int AS quota_count,
-			       COALESCE(SUM(s.amount), 0) AS total_amount
-			FROM budget_effective_quota q
-			JOIN budget_effective_quota_subject s ON s.quota_id = q.id
-			WHERE {where}
-			GROUP BY 1, 2, 3
-			ORDER BY total_amount DESC, name ASC
+			SELECT
+				(SELECT jsonb_build_object(
+				            'quota_count', COUNT(*)::int,
+				            'total_amount', COALESCE(SUM(b.total_amount), 0),
+				            'detail_amount_mismatch_count',
+				                COUNT(*) FILTER (WHERE b.detail_amount_mismatch)::int,
+				            'department_count',
+				                COUNT(DISTINCT NULLIF(BTRIM(b.department_id), ''))::int)
+				   FROM base b) AS totals,
+				(SELECT COALESCE(
+				            jsonb_agg(jsonb_build_object('id', id, 'name', name,
+				                                         'quota_count', quota_count,
+				                                         'total_amount', total_amount)
+				                      ORDER BY total_amount DESC, name), '[]'::jsonb)
+				   FROM (SELECT NULLIF(BTRIM(group_dept_id), '') AS id,
+				                COALESCE(NULLIF(BTRIM(group_name), ''), '待确认') AS name,
+				                COUNT(*)::int AS quota_count,
+				                COALESCE(SUM(total_amount), 0) AS total_amount
+				           FROM base GROUP BY 1, 2) t) AS group_rollup,
+				(SELECT COALESCE(
+				            jsonb_agg(jsonb_build_object('id', id, 'name', name,
+				                                         'quota_count', quota_count,
+				                                         'total_amount', total_amount)
+				                      ORDER BY total_amount DESC, name), '[]'::jsonb)
+				   FROM (SELECT NULLIF(BTRIM(company_dept_id), '') AS id,
+				                COALESCE(NULLIF(BTRIM(company_name), ''), '待确认') AS name,
+				                COUNT(*)::int AS quota_count,
+				                COALESCE(SUM(total_amount), 0) AS total_amount
+				           FROM base GROUP BY 1, 2) t) AS company_rollup,
+				(SELECT COALESCE(
+				            jsonb_agg(jsonb_build_object('id', id, 'name', name,
+				                                         'quota_count', quota_count,
+				                                         'total_amount', total_amount)
+				                      ORDER BY total_amount DESC, name), '[]'::jsonb)
+				   FROM (SELECT NULLIF(BTRIM(department_id), '') AS id,
+				                COALESCE(NULLIF(BTRIM(department_name), ''), '待确认') AS name,
+				                COUNT(*)::int AS quota_count,
+				                COALESCE(SUM(total_amount), 0) AS total_amount
+				           FROM base
+				          WHERE department_id IS DISTINCT FROM company_dept_id
+				          GROUP BY 1, 2) t) AS department_rollup,
+				(SELECT COALESCE(
+				            jsonb_agg(jsonb_build_object('subject_type', subject_type,
+				                                         'subject_code', subject_code,
+				                                         'name', name,
+				                                         'quota_count', quota_count,
+				                                         'total_amount', total_amount)
+				                      ORDER BY total_amount DESC, name), '[]'::jsonb)
+				   FROM subject_rollup) AS subject_rollup
 			""",
 			params,
 		)
 
+		totals = row.get("totals") or {}
 		return {
 			"totals": {
 				"quota_count": int(totals.get("quota_count") or 0),
@@ -251,14 +290,10 @@ class QuotaSource:
 				"department_count": int(totals.get("department_count") or 0),
 			},
 			"rollups": {
-				"group": rollup("group_dept_id", "group_name"),
-				"company": rollup("company_dept_id", "company_name"),
-				"department": rollup(
-					"department_id",
-					"department_name",
-					"AND q.department_id IS DISTINCT FROM q.company_dept_id",
-				),
-				"subject": subjects,
+				"group": row.get("group_rollup") or [],
+				"company": row.get("company_rollup") or [],
+				"department": row.get("department_rollup") or [],
+				"subject": row.get("subject_rollup") or [],
 			},
 		}
 
@@ -268,13 +303,11 @@ class QuotaSource:
 		page = max(int(page or 1), 1)
 		page_size = min(max(int(page_size or 20), 1), 200)
 
-		total = self._one(
-			f"SELECT COUNT(*)::int AS total FROM budget_effective_quota q WHERE {where}",
-			params,
-		)
+		# 窗口函数把「总数 + 分页」合并成一条 SQL，省掉一次往返
 		rows = self._fetch(
 			f"""
 			SELECT q.id,
+			       COUNT(*) OVER ()::int AS total_count,
 			       q.budget_year,
 			       q.budget_month,
 			       q.group_name,
@@ -309,9 +342,19 @@ class QuotaSource:
 			""",
 			[*params, page_size, (page - 1) * page_size],
 		)
+		total = int(rows[0].pop("total_count") or 0) if rows else 0
+		for row in rows:
+			row.pop("total_count", None)
+		if not rows and page > 1:
+			# 翻到空页时窗口计数拿不到，退化成一次 count
+			count_row = self._one(
+				f"SELECT COUNT(*)::int AS total FROM budget_effective_quota q WHERE {where}",
+				params,
+			)
+			total = int(count_row.get("total") or 0)
 		return {
 			"rows": rows,
-			"total": int(total.get("total") or 0),
+			"total": total,
 			"page": page,
 			"page_size": page_size,
 		}
