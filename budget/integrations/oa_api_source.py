@@ -9,9 +9,9 @@
 
 - 本类是它的 HTTP 版本，对外暴露同一组方法、同一套行字段（snake_case），
   业务层与报表层无需区分数据来源；
-- 接口只覆盖审批（实例 + 任务），没有部门树接口，因此 ``list_departments`` /
-  ``list_department_candidates`` / ``list_department_snapshot_rows`` 回退到 PostgreSQL；
-- 支出库（``dingtalk_approval``）不在该 API 范围内，仍走 ``ExpenseSource``。
+- 审批（实例 + 任务）走 ``/api/v1/approvals``，部门树走
+  ``/api/v1/budget/departments*``，默认模式下不建立任何数据库连接；
+- 支出库（``dingtalk_approval``）由 ``/api/v1/budget/expenses*`` 提供。
 
 取舍说明：接口不支持按 ``createTime`` 过滤，时间窗只能在本地过滤；可以先用
 ``updatedAfter`` 收窄（``updated_at`` 恒不早于 ``create_time``，不会漏掉窗内实例）。
@@ -26,7 +26,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timezone
 from typing import Any
 
-from .oa_approval_source import OAApprovalSource, _runtime_config_value
+from .budget_read_api_client import BudgetReadAPIClient
+from .oa_approval_source import _runtime_config_value
 from .oa_read_api_client import (
 	OAInvalidCursor,
 	OAReadAPIClient,
@@ -112,18 +113,18 @@ def _looks_like_user_id(name: Any, user_id: Any) -> bool:
 
 
 class OAAPISource:
-	"""``OAApprovalSource`` 的 HTTP 版本（审批走接口，组织树回退数据库）。"""
+	"""``OAApprovalSource`` 的 HTTP 版本（审批与部门树都走接口）。"""
 
 	def __init__(
 		self,
 		config: OAAPIConfig | None = None,
 		*,
 		client: OAReadAPIClient | None = None,
-		fallback: OAApprovalSource | None = None,
+		department_client: BudgetReadAPIClient | None = None,
 	):
 		self._config = config or OAAPIConfig.from_site_config()
 		self._client = client
-		self._fallback = fallback
+		self._department_client = department_client
 
 	# ------------------------------------------------------------ 基础设施
 	def _corp_scope(self) -> str:
@@ -147,11 +148,11 @@ class OAAPISource:
 				raise OAAPISourceError(str(exc)) from exc
 		return self._client
 
-	def _fallback_source(self) -> OAApprovalSource:
-		"""接口不覆盖的查询（部门树、用户快照）仍回落到 PostgreSQL。"""
-		if self._fallback is None:
-			self._fallback = OAApprovalSource(corp_id=self._config.corp_id or None)
-		return self._fallback
+	def _department_api(self) -> BudgetReadAPIClient:
+		"""部门树走预算只读接口（``/api/v1/budget/departments*``）。"""
+		if self._department_client is None:
+			self._department_client = BudgetReadAPIClient()
+		return self._department_client
 
 	def _iter_approvals(self, *, updated_after: str | None = None) -> Iterator[dict]:
 		"""逐条翻页；游标中途失效时重开一轮，已产出的实例不重复。"""
@@ -276,20 +277,14 @@ class OAAPISource:
 		return row
 
 	def _snapshot_user_name(self, instance_id: str) -> str | None:
-		"""接口不带用户快照，尽力从库里补；不可达时返回 None，不阻断查询。"""
-		if not instance_id:
-			return None
-		try:
-			db_row = self._fallback_source().get_instance_row(instance_id, with_snapshot=True)
-		except Exception as exc:  # 快照只是补名，失败即降级
-			LOGGER.debug("用户快照补齐失败，降级为接口原始名称：%s", exc)
-			return None
-		return _text((db_row or {}).get("snapshot_user_name")) or None
+		"""接口不返回用户快照：直接放弃补名，绝不为此建立数据库连接。"""
+		return None
 
 	# ------------------------------------------------------------ 部门树
 	def list_departments(self, *, current_only: bool = True) -> list[dict]:
-		"""接口没有部门树，回退到 PostgreSQL（组织级联不受影响）。"""
-		return self._fallback_source().list_departments(current_only=current_only)
+		"""Q6：部门树原始行（``/api/v1/budget/departments``）。"""
+		self._corp_scope()
+		return self._department_api().list_departments(current_only=current_only)
 
 	def list_department_candidates(
 		self,
@@ -298,16 +293,18 @@ class OAAPISource:
 		corresponding_department: str | None = None,
 		dept_code: str | None = None,
 	) -> list[dict]:
-		"""Q7：接口没有部门树，回退到 PostgreSQL。"""
-		return self._fallback_source().list_department_candidates(
+		"""Q7：按业务主体/对应部门/部门编码取候选行（唯一性判定在 service）。"""
+		self._corp_scope()
+		return self._department_api().list_department_candidates(
 			service_entity,
 			corresponding_department=corresponding_department,
 			dept_code=dept_code,
 		)
 
 	def list_department_snapshot_rows(self, dept_ids: Iterable[str]) -> list[dict]:
-		"""Q9：接口没有部门树，回退到 PostgreSQL。"""
-		return self._fallback_source().list_department_snapshot_rows(dept_ids)
+		"""Q9：部门路径快照（当前唯一优先，历史唯一回退）。"""
+		self._corp_scope()
+		return self._department_api().list_department_snapshot_rows(dept_ids)
 
 
 def _tasks_of(item: dict) -> list[dict]:

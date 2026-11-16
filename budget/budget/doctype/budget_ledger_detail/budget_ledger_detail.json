@@ -1,0 +1,283 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "hash",
+ "creation": "2026-11-16 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "form_no",
+  "process_instance_id",
+  "detail_group",
+  "detail_type",
+  "detail_code",
+  "detail_item",
+  "detail_category",
+  "budget_purpose_detail",
+  "operation_expense",
+  "budget_detail",
+  "headcount",
+  "original_amount",
+  "currency",
+  "exchange_rate",
+  "rmb_amount",
+  "amount",
+  "calculation_basis",
+  "remark",
+  "production_line",
+  "item_name",
+  "specification",
+  "product_name",
+  "production_process",
+  "post_name",
+  "work_type",
+  "unit",
+  "quantity",
+  "unit_price",
+  "overtime_hours",
+  "overtime_unit_price",
+  "estimated_overtime_amount",
+  "row_index",
+  "synced_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "form_no",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Form No",
+   "reqd": 1,
+   "search_index": 1,
+   "length": 140
+  },
+  {
+   "fieldname": "process_instance_id",
+   "fieldtype": "Data",
+   "label": "Process Instance ID",
+   "length": 140
+  },
+  {
+   "fieldname": "detail_group",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Detail Group",
+   "options": "hr\noffice\noperation\nmaterial\nproduction\nlabor",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "detail_type",
+   "fieldtype": "Data",
+   "label": "Detail Type",
+   "length": 64
+  },
+  {
+   "fieldname": "detail_code",
+   "fieldtype": "Data",
+   "label": "Detail Code",
+   "length": 64
+  },
+  {
+   "fieldname": "detail_item",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Detail Item",
+   "length": 255
+  },
+  {
+   "fieldname": "detail_category",
+   "fieldtype": "Data",
+   "label": "Detail Category",
+   "length": 140
+  },
+  {
+   "fieldname": "budget_purpose_detail",
+   "fieldtype": "Small Text",
+   "label": "Budget Purpose Detail"
+  },
+  {
+   "fieldname": "operation_expense",
+   "fieldtype": "Data",
+   "label": "Operation Expense",
+   "length": 140
+  },
+  {
+   "fieldname": "budget_detail",
+   "fieldtype": "Data",
+   "label": "Budget Detail",
+   "length": 255
+  },
+  {
+   "fieldname": "headcount",
+   "fieldtype": "Float",
+   "label": "Headcount"
+  },
+  {
+   "fieldname": "original_amount",
+   "fieldtype": "Currency",
+   "label": "Original Amount",
+   "options": "currency"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Data",
+   "label": "Currency",
+   "length": 32
+  },
+  {
+   "fieldname": "exchange_rate",
+   "fieldtype": "Float",
+   "label": "Exchange Rate",
+   "precision": "9"
+  },
+  {
+   "fieldname": "rmb_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "RMB Amount",
+   "options": "CNY"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "options": "CNY"
+  },
+  {
+   "fieldname": "calculation_basis",
+   "fieldtype": "Small Text",
+   "label": "Calculation Basis"
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Small Text",
+   "label": "Remark"
+  },
+  {
+   "fieldname": "production_line",
+   "fieldtype": "Data",
+   "label": "Production Line",
+   "length": 140
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Item Name",
+   "length": 255
+  },
+  {
+   "fieldname": "specification",
+   "fieldtype": "Data",
+   "label": "Specification",
+   "length": 255
+  },
+  {
+   "fieldname": "product_name",
+   "fieldtype": "Data",
+   "label": "Product Name",
+   "length": 255
+  },
+  {
+   "fieldname": "production_process",
+   "fieldtype": "Data",
+   "label": "Process",
+   "length": 140
+  },
+  {
+   "fieldname": "post_name",
+   "fieldtype": "Data",
+   "label": "Post Name",
+   "length": 140
+  },
+  {
+   "fieldname": "work_type",
+   "fieldtype": "Data",
+   "label": "Work Type",
+   "length": 140
+  },
+  {
+   "fieldname": "unit",
+   "fieldtype": "Data",
+   "label": "Unit",
+   "length": 32
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "label": "Quantity"
+  },
+  {
+   "fieldname": "unit_price",
+   "fieldtype": "Currency",
+   "label": "Unit Price",
+   "options": "currency"
+  },
+  {
+   "fieldname": "overtime_hours",
+   "fieldtype": "Float",
+   "label": "Overtime Hours"
+  },
+  {
+   "fieldname": "overtime_unit_price",
+   "fieldtype": "Currency",
+   "label": "Overtime Unit Price",
+   "options": "currency"
+  },
+  {
+   "fieldname": "estimated_overtime_amount",
+   "fieldtype": "Currency",
+   "label": "Estimated Overtime Amount",
+   "options": "currency"
+  },
+  {
+   "fieldname": "row_index",
+   "fieldtype": "Int",
+   "label": "Row Index"
+  },
+  {
+   "fieldname": "synced_at",
+   "fieldtype": "Datetime",
+   "label": "Synced At"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Budget",
+ "name": "Budget Ledger Detail",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 0
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

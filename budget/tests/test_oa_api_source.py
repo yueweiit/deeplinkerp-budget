@@ -8,6 +8,17 @@ from budget.integrations.oa_read_api_client import ApprovalPage
 CONFIG = OAAPIConfig(base_url="https://oa.example", corp_id="ding-1", page_size=200)
 
 
+@pytest.fixture(autouse=True)
+def fake_conf(monkeypatch):
+	"""脱离站点运行时 frappe.local 未绑定，读 frappe.conf 会抛 RuntimeError。
+
+	这个文件里的工厂用例只关心环境变量与默认值，用空配置顶替即可。
+	"""
+	import frappe
+
+	monkeypatch.setattr(frappe, "conf", frappe._dict(), raising=False)
+
+
 class FakeClient:
 	"""按队列返回分页，记录调用参数。"""
 
@@ -25,8 +36,8 @@ class FakeClient:
 		return self.detail
 
 
-class FakeFallback:
-	"""接口不覆盖的部门查询应原样落到这里。"""
+class FakeDepartmentClient:
+	"""部门树走预算只读接口，这里记录调用参数。"""
 
 	def __init__(self):
 		self.calls: list[tuple] = []
@@ -42,10 +53,6 @@ class FakeFallback:
 	def list_department_snapshot_rows(self, dept_ids):
 		self.calls.append(("list_department_snapshot_rows", tuple(dept_ids)))
 		return [{"dept_id": "d1"}]
-
-	def get_instance_row(self, instance_id, *, with_snapshot=True):
-		self.calls.append(("get_instance_row", instance_id))
-		return {"snapshot_user_name": "张三"}
 
 
 def approval_item(**overrides) -> dict:
@@ -172,32 +179,29 @@ def test_instance_row_falls_back_to_approval_no() -> None:
 	]
 
 
-def test_instance_row_enriches_snapshot_only_when_name_looks_like_user_id() -> None:
-	fallback = FakeFallback()
+def test_instance_row_never_opens_a_database_connection_for_snapshot() -> None:
+	"""接口不返回用户快照：直接放弃补名，不再回落 PostgreSQL。"""
 	client = FakeClient(detail=approval_item(originatorUserName="u1"))
-	source = OAAPISource(CONFIG, client=client, fallback=fallback)
+	source = OAAPISource(CONFIG, client=client)
 
 	row = source.get_instance_row("inst-1")
 
-	assert row["snapshot_user_name"] == "张三"
-	assert fallback.calls == [("get_instance_row", "inst-1")]
+	assert row["snapshot_user_name"] is None
 
-	fallback = FakeFallback()
 	client = FakeClient(detail=approval_item(originatorUserName="王五"))
-	source = OAAPISource(CONFIG, client=client, fallback=fallback)
+	source = OAAPISource(CONFIG, client=client)
 
 	assert source.get_instance_row("inst-1")["snapshot_user_name"] is None
-	assert fallback.calls == []
 
 
-def test_department_queries_fall_back_to_postgres() -> None:
-	fallback = FakeFallback()
-	source = OAAPISource(CONFIG, client=FakeClient(), fallback=fallback)
+def test_department_queries_go_through_http() -> None:
+	department_client = FakeDepartmentClient()
+	source = OAAPISource(CONFIG, client=FakeClient(), department_client=department_client)
 
 	assert source.list_departments() == [{"dept_id": "d1"}]
 	assert source.list_department_candidates("主体") == [{"dept_id": "d1"}]
 	assert source.list_department_snapshot_rows(["d1"]) == [{"dept_id": "d1"}]
-	assert fallback.calls == [
+	assert department_client.calls == [
 		("list_departments", True),
 		("list_department_candidates", "主体"),
 		("list_department_snapshot_rows", ("d1",)),
@@ -213,15 +217,26 @@ def test_missing_corp_id_is_rejected() -> None:
 	assert "corp_id" in str(excinfo.value)
 
 
-def test_factory_defaults_to_postgres_and_switches_on_http(monkeypatch) -> None:
-	from budget.integrations import oa_factory
+def test_factory_defaults_to_local_and_can_switch_to_http(monkeypatch) -> None:
+	"""未配置时默认 local（见 ``budget_factory.DEFAULT_MODE``）。
 
+	local 指台账落本地库，审批数据仍读 OA 归档表，所以 ``use_http_source`` 为 False；
+	只有显式配成 http 才走钉钉开放平台接口。
+	"""
+	from budget.integrations import budget_factory, oa_factory
+	from budget.integrations.oa_approval_source import OAApprovalSource
+
+	monkeypatch.delenv("BUDGET_DATA_SOURCE", raising=False)
 	monkeypatch.delenv("BUDGET_OA_SOURCE", raising=False)
 	assert oa_factory.use_http_source() is False
+	assert budget_factory.data_source_mode() == "local"
+	assert isinstance(oa_factory.get_oa_source(), OAApprovalSource)
 
+	monkeypatch.setenv("BUDGET_DATA_SOURCE", "postgres")
+	assert oa_factory.use_http_source() is False
+	assert budget_factory.data_source_mode() == "postgres"
+
+	monkeypatch.delenv("BUDGET_DATA_SOURCE", raising=False)
 	monkeypatch.setenv("BUDGET_OA_SOURCE", "http")
 	assert oa_factory.use_http_source() is True
 	assert isinstance(oa_factory.get_oa_source(), OAAPISource)
-
-	monkeypatch.setenv("BUDGET_OA_SOURCE", "postgres")
-	assert oa_factory.use_http_source() is False
