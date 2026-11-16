@@ -51,7 +51,9 @@ class BudgetConfig {
 		this.setup_content();
 		this.page.set_primary_action(__("查询"), () => this.refresh(true), "search");
 		this.page.set_secondary_action(__("重置"), () => this.reset());
-		this.load_options().then(() => this.refresh(true));
+		// 筛选项与数据互不依赖，并行请求，少等一个来回
+		this.load_options();
+		this.refresh(true);
 	}
 
 	/* ---------------------------------------------------------- 骨架 */

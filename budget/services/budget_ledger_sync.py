@@ -7,15 +7,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import frappe
 
-from ..integrations.budget_ledger_source import BudgetLedgerSource
+from ..integrations.budget_factory import get_ledger_source
 
 DOCTYPE = "Budget Ledger Entry"
 BATCH_SIZE = 100
 
 
-def _fetch_all_rows(source: BudgetLedgerSource) -> list[dict]:
+def _fetch_all_rows(source: Any) -> list[dict]:
 	"""分页拉全量；去重口径由数据源保证（部门 + 预算月份取最新一单）。"""
 	rows: list[dict] = []
 	page = 1
@@ -60,12 +62,22 @@ def _values(row: dict, synced_at: str) -> dict:
 	}
 
 
-def sync_budget_entries(*, source: BudgetLedgerSource | None = None) -> dict:
-	"""全量对齐：远端有则 upsert，远端没有则删除本地残留。
+def sync_budget_entries(*, source: Any | None = None) -> dict:
+	"""同步入口（保持函数名不变，兼容 hooks 与 whitelist）。
 
-	预算单量级不大（百级），全量对齐比增量更省事，也不会因为去重规则变化留下脏行。
+	默认改为「OA 归档 → 解析 → 增量写本地表」，直接复用外部调度器入口
+	``oa_budget_sync.scheduled_sync``：``hooks.py`` 的 ``daily_long`` 与外部 cron
+	走完全同一条链路（含每日一次整表对账）。传入 ``source`` 时仍走旧的
+	「数据源 → 本地表」路径，仅供单测注入替身。
 	"""
-	rows = _fetch_all_rows(source or BudgetLedgerSource())
+	if source is None:
+		from .oa_budget_sync import scheduled_sync
+
+		return scheduled_sync()
+
+	# 以下分支仅供单测注入替身：直接 commit、不写运行记录、不做写后校验，
+	# 生产请一律走上面的 scheduled_sync。
+	rows = _fetch_all_rows(source)
 	synced_at = frappe.utils.now()
 
 	created = 0

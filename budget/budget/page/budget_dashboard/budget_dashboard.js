@@ -394,6 +394,45 @@ class BudgetDashboard {
 		const chart = echarts.init(element);
 		chart.setOption(option);
 		this.charts.push(chart);
+		return chart;
+	}
+
+	/** 部门维度的图：点柱子跳到台账列表，按该部门 + 看板当前日期区间筛选。 */
+	bind_department_click(chart, rows) {
+		if (!chart) return;
+		const element = chart.getDom();
+		element.style.cursor = "pointer";
+		element.setAttribute("title", __("点击查看该部门的预算单据"));
+		chart.on("click", (params) => {
+			const row = rows[params.dataIndex];
+			if (row) this.open_ledger_entries(row);
+		});
+	}
+
+	open_ledger_entries(row) {
+		const deptId = String(row.deptId || "").trim();
+		const deptName = String(row.deptName || "").trim();
+		if (!deptId && !deptName) return;
+
+		// ListView.before_refresh 会把 route_options 转成筛选：
+		// 单值 = 等值；[[操作符, 值], ...] 展开成多条（见 frappe list_view.js）
+		const filters = {};
+		if (deptId) {
+			filters.department_id = deptId;
+		} else {
+			filters.department = ["like", `%${deptName}%`];
+		}
+		const start = this.start_date && this.start_date.get_value();
+		const end = this.end_date && this.end_date.get_value();
+		if (start && end) {
+			filters.budget_month = [["between", [start, end]]];
+		} else if (start) {
+			filters.budget_month = [[">=", start]];
+		} else if (end) {
+			filters.budget_month = [["<=", end]];
+		}
+		frappe.route_options = filters;
+		frappe.set_route("List", "Budget Ledger Entry", "List");
 	}
 
 	async render_charts(data) {
@@ -421,7 +460,7 @@ class BudgetDashboard {
 		// 1) 各部门预算分布（Top 12）：纵向双柱
 		const dept_dist = data.dept_distribution || [];
 		if (dept_dist.length) {
-			this.mount(echarts, "dept-dist", {
+			const dept_dist_chart = this.mount(echarts, "dept-dist", {
 				tooltip: { ...TOOLTIP, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: format_currency },
 				legend: { ...LEGEND, data: [__("生产预算"), __("非生产预算")] },
 				grid: { left: 8, right: 24, top: 10, bottom: 70, containLabel: true },
@@ -442,6 +481,7 @@ class BudgetDashboard {
 					),
 				],
 			});
+			this.bind_department_click(dept_dist_chart, dept_dist);
 		} else {
 			this.empty_chart("dept-dist");
 		}
@@ -595,7 +635,7 @@ class BudgetDashboard {
 		// 6) 各部门执行率（Top 10）：横向柱，按阈值配色
 		const rate = data.execution || [];
 		if (rate.length) {
-			this.mount(echarts, "rate", {
+			const rate_chart = this.mount(echarts, "rate", {
 				tooltip: { ...TOOLTIP, trigger: "axis", valueFormatter: (value) => `${value}%` },
 				grid: { left: 8, right: 24, top: 10, bottom: 20, containLabel: true },
 				xAxis: { ...value_axis((value) => `${value}%`), axisLabel: { ...AXIS_LABEL, formatter: "{value}%" } },
@@ -621,6 +661,7 @@ class BudgetDashboard {
 					},
 				],
 			});
+			this.bind_department_click(rate_chart, rate);
 		} else {
 			this.empty_chart("rate");
 		}
@@ -628,7 +669,7 @@ class BudgetDashboard {
 		// 7) 部门预算 vs 实际支出（Top 10）：纵向双柱，标签竖排
 		const compare = data.dept_compare || [];
 		if (compare.length) {
-			this.mount(echarts, "compare", {
+			const compare_chart = this.mount(echarts, "compare", {
 				tooltip: { ...TOOLTIP, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: format_currency },
 				legend: { ...LEGEND },
 				grid: { left: 8, right: 24, top: 10, bottom: 100, containLabel: true },
@@ -646,6 +687,7 @@ class BudgetDashboard {
 					}),
 				],
 			});
+			this.bind_department_click(compare_chart, compare);
 		} else {
 			this.empty_chart("compare");
 		}

@@ -28,9 +28,20 @@ class FakeExpense:
 
 @pytest.fixture
 def patch_sources(monkeypatch):
-	def apply(budget_rows: list[dict], expense_rows: list[dict]) -> None:
-		monkeypatch.setattr(report_service, "BudgetLedgerSource", lambda: FakeLedger(budget_rows))
-		monkeypatch.setattr(report_service, "ExpenseSource", lambda: FakeExpense(expense_rows))
+	def apply(
+		budget_rows: list[dict],
+		expense_rows: list[dict],
+		pending_rows: list[dict] | None = None,
+	) -> None:
+		monkeypatch.setattr(report_service, "get_ledger_source", lambda: FakeLedger(budget_rows))
+		monkeypatch.setattr(report_service, "get_expense_source", lambda: FakeExpense(expense_rows))
+		# 这里一并替换掉在途支出源，所以测试不要再自己 monkeypatch 同一个名字，
+		# 否则会被这行覆盖成空数据（曾经因此让「审批中」金额恒为 0）
+		monkeypatch.setattr(
+			report_service,
+			"get_budget_expense_source",
+			lambda: FakePendingExpense(pending_rows or []),
+		)
 
 		def no_oa():
 			raise RuntimeError("审批数据源不可用")
@@ -38,6 +49,14 @@ def patch_sources(monkeypatch):
 		monkeypatch.setattr(report_service, "get_oa_source", no_oa)
 
 	return apply
+
+
+class FakePendingExpense:
+	def __init__(self, rows: list[dict] | None = None):
+		self.rows = rows or []
+
+	def load_pending_expenses(self):
+		return self.rows
 
 
 def test_build_report_groups_departments_by_display_name(patch_sources) -> None:
@@ -63,7 +82,11 @@ def test_build_report_groups_departments_by_display_name(patch_sources) -> None:
 
 	data = report_service.build_report("2026-11-01", "2026-11-30")
 
-	assert data["execution"] == [
+	# 只比对业务字段：deptId 之类新增的展示字段不该让用例跟着改
+	assert [
+		{key: value for key, value in row.items() if key != "deptId"}
+		for row in data["execution"]
+	] == [
 		{
 			"deptName": "管理规划中心/财务中心",
 			"shortName": "管理规划中心/财务中心",
@@ -102,20 +125,10 @@ def test_build_report_keeps_rows_without_department(patch_sources) -> None:
 
 
 def test_execution_status_includes_pending_departments_without_budget(
-	patch_sources, monkeypatch
+	patch_sources,
 ) -> None:
 	"""在途支出没有对应预算部门时也要单独成行（源项目显示为「待确认」）。"""
-	from budget.integrations import budget_expense_source
 
-	class FakePending:
-		def load_pending_expenses(self):
-			return [
-				{"applicant_department": "财务中心", "base_currency_amount": 100.0},
-				{"applicant_department": "无预算部门", "base_currency_amount": 300.0},
-				{"applicant_department": None, "base_currency_amount": 50.0},
-			]
-
-	monkeypatch.setattr(budget_expense_source, "BudgetExpenseSource", FakePending)
 	patch_sources(
 		[
 			{
@@ -126,6 +139,11 @@ def test_execution_status_includes_pending_departments_without_budget(
 			}
 		],
 		[],
+		pending_rows=[
+			{"applicant_department": "财务中心", "base_currency_amount": 100.0},
+			{"applicant_department": "无预算部门", "base_currency_amount": 300.0},
+			{"applicant_department": None, "base_currency_amount": 50.0},
+		],
 	)
 
 	data = report_service.build_report("2026-11-01", "2026-11-30")

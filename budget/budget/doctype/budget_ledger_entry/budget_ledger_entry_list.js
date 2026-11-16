@@ -2,7 +2,8 @@
  * - 生产 / 非生产用 tab 切页；
  * - 子公司 / 部门 / 状态 / 执行地区用下拉筛选（候选值 = 设置页 + 台账现有值 + 系统主数据）；
  * - 预算月份用只能选月份的日历弹层；
- * 文案一律英文原文 + translations/*.csv，跟随系统语言。
+ * - 打开页面时数据过期会自动在后台补一轮同步，完成后刷新列表。
+ * 文案以中文原文 + translations/*.csv 维护，跟随系统语言。
  */
 frappe.listview_settings["Budget Ledger Entry"] = {
 	onload(listview) {
@@ -499,6 +500,29 @@ frappe.listview_settings["Budget Ledger Entry"] = {
 				</style>
 			`).appendTo(document.head);
 		}
+
+		// ---------- 打开即刷新 ----------
+		// 列表照常先渲染本地表（毫秒级，不阻塞）；只有数据过期（默认 120s）才在后台补一轮。
+		// 服务端 job_id 去重：多人同时打开也只排一个任务；定时任务只作兜底。
+		const refreshIfStale = () => {
+			// 这个接口有副作用（可能入队一次同步），所以走默认 POST，不用 GET
+			frappe
+				.call({
+					method: "budget.services.oa_budget_sync.ensure_ledger_fresh",
+				})
+				.then(({ message }) => {
+					if (!message || !message.queued) return;
+					frappe.show_alert({
+						message: __("台账数据已过期，正在后台同步…"),
+						indicator: "blue",
+					});
+					// 一轮同步约 2s，稍等再刷一次列表把最新数据带出来
+					setTimeout(() => listview.refresh(), 4000);
+				})
+				// 刷新失败不影响用户看本地已有数据
+				.catch(() => {});
+		};
+		refreshIfStale();
 
 		// ---------- 启动 ----------
 		syncControls();
