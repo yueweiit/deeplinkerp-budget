@@ -1,0 +1,47 @@
+{
+ "app": "budget",
+ "doctype": "Workspace Sidebar",
+ "header_icon": "receipt-text",
+ "items": [
+  {
+   "type": "Link",
+   "label": "Budget Ledger",
+   "link_type": "DocType",
+   "link_to": "Budget Ledger Entry",
+   "icon": "list",
+   "child": 0,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "show_arrow": 0
+  },
+  {
+   "type": "Link",
+   "label": "Budget Dashboard",
+   "link_type": "Page",
+   "link_to": "budget-dashboard",
+   "icon": "chart-no-axes-combined",
+   "child": 0,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "show_arrow": 0
+  },
+  {
+   "type": "Link",
+   "label": "Budget Configuration",
+   "link_type": "Page",
+   "link_to": "budget-config",
+   "icon": "settings",
+   "child": 0,
+   "collapsible": 0,
+   "indent": 0,
+   "keep_closed": 0,
+   "show_arrow": 0
+  }
+ ],
+ "module": "Budget",
+ "name": "China Operating Expenses",
+ "standard": 1,
+ "title": "China Operating Expenses"
+}

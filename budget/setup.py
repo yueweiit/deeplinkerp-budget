@@ -4,9 +4,10 @@ ERPNext 的 ``Workspace Sidebar`` / ``Desktop Icon`` 都是 standard 记录，
 ``bench migrate`` 会按 erpnext 目录里的 json 重新同步，所以这里用
 ``after_migrate`` 钩子重放；``before_uninstall`` 里再还原，保证卸载本 app
 后导航回到 ERPNext 原生形态，不会留下指向已删 DocType/Page 的死链接。
+定制入口在 China Operating Expenses 中维护，Budget 仅清理本 app 的旧挂载。
 
-所有写操作都走 ``db_insert`` / ``db_set_value``，不调用 ``doc.save()``：
-后者在 developer_mode 下会把改动导回 erpnext 源码目录。
+导航迁移使用原生 metadata import 和直接 db 写入，避免 developer_mode
+把站点调整导回 ERPNext 源码目录。
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ APP = "budget"
 SIDEBAR = "Budget"
 GROUP_LABEL = "自定义"
 
-# ERPNext 原生（这 5 项收进分组里）
+# ERPNext 原生（恢复旧版本对这五个入口的分组调整）
 GROUPED_LABELS = (
 	"Budget",
 	"Cost Center",
@@ -53,9 +54,31 @@ ITEMS = [
 
 # ------------------------------------------------------------ 桌面导航项
 DESKTOP_ICON = "Budget"
-DESKTOP_ICON_ROOT_IDX = 103
 DESKTOP_ICON_NATIVE_PARENT = "Accounting"
 DESKTOP_ICON_NATIVE_IDX = 6
+
+CN_PAGES = (
+	("Expense Overview", "china-expenses", "layout-dashboard", 0),
+	("Expense Details", "china-expense-details", "list", 0),
+	("Expenditure Analysis", "china-expense-reports", "", 1),
+	("Personnel Analysis", "china-personnel-report", "", 1),
+	("Data Review", "china-expense-review", "clipboard-check", 0),
+)
+
+
+def cn_navigation_items(has_page):
+	"""Add the regional layout only when its optional branding Pages are installed."""
+	if not all(has_page(route) for _, route, _, _ in CN_PAGES):
+		return []
+	items = []
+	for label, route, icon, child in CN_PAGES:
+		if route == "china-expense-reports":
+			items.append(dict(type="Section Break", label="Expense Reports", icon="chart-no-axes-combined",
+				child=0, indent=1, collapsible=1, keep_closed=1))
+		items.append(dict(type="Link", label=label, link_type="Page", link_to=route, icon=icon, child=child))
+	items.append(dict(type="Section Break", label="Budget Management", icon="landmark",
+		child=0, indent=1, collapsible=1, keep_closed=1))
+	return items
 
 
 # ------------------------------------------------------------------ 工具
@@ -71,41 +94,6 @@ def _get_items() -> list[dict]:
 		order_by="idx asc",
 		limit_page_length=0,
 	)
-
-
-def _insert_item(
-	label: str,
-	*,
-	item_type: str = "Link",
-	link_type: str | None = None,
-	link_to: str | None = None,
-	icon: str | None = None,
-	child: int = 0,
-	indent: int = 0,
-	collapsible: int = 0,
-	keep_closed: int = 0,
-	idx: int = 0,
-) -> str:
-	doc = frappe.get_doc(
-		{
-			"doctype": "Workspace Sidebar Item",
-			"parent": SIDEBAR,
-			"parentfield": "items",
-			"parenttype": "Workspace Sidebar",
-			"type": item_type,
-			"label": label,
-			"link_type": link_type,
-			"link_to": link_to,
-			"icon": icon,
-			"child": child,
-			"indent": indent,
-			"collapsible": collapsible,
-			"keep_closed": keep_closed,
-			"idx": idx,
-		}
-	)
-	doc.db_insert()
-	return doc.name
 
 
 def _delete_items(names: list[str]) -> None:
@@ -139,164 +127,30 @@ def ensure_module_def() -> None:
 	).db_insert()
 
 
-def _ensure_sidebar_record() -> bool:
-	"""侧边栏记录由 erpnext 的 standard json 同步；缺失时（新站点没 migrate 过）补一个 custom 的。
-
-	``standard=0`` 是刻意的：``WorkspaceSidebar.before_save`` 只在 standard + developer_mode
-	时把记录写回源码目录，custom 记录不会污染 erpnext 仓库。
-	"""
-	if frappe.db.exists("Workspace Sidebar", SIDEBAR):
-		return True
-	try:
-		frappe.get_doc(
-			{
-				"doctype": "Workspace Sidebar",
-				"title": SIDEBAR,
-				"app": APP,
-				"module": MODULE,
-				"header_icon": "accounting",
-				"standard": 0,
-			}
-		).insert(ignore_permissions=True)
-	except Exception:  # 补入口失败不该中断 migrate
-		frappe.log_error(title="Budget sidebar 创建失败", message=frappe.get_traceback())
-		return False
-	return True
-
-
 # ---------------------------------------------------------------- 安装态
 def apply_budget_nav() -> None:
-	"""把 ERPNext 原生的预算入口收进「自定义」分组，并追加本 app 的 3 个入口。"""
+	"""Keep ERPNext Budget native; custom budget pages belong to CN operations."""
 	ensure_module_def()
-	if not _ensure_sidebar_record():
-		return
-
-	ensure_budget_sidebar_group()
-	ensure_budget_sidebar_link()
-	ensure_desktop_icon_position()
-
-	frappe.db.commit()
+	restore_desktop_icon_position()
+	restore_budget_sidebar()
+	# Standard metadata is imported explicitly for install-app as well as migrate.
+	from frappe.modules.import_file import import_file_by_path
+	for folder in ("workspace_sidebar", "desktop_icon"):
+		import_file_by_path(frappe.get_app_path(APP, folder, "china_operating_expenses.json"), force=True)
+	# Existing CN pages are optional; standalone budget installations keep their existing links.
+	items = cn_navigation_items(lambda route: frappe.db.exists("Page", route))
+	regional_layout = bool(items)
+	if not items and frappe.db.exists("Page", "operating-expenses"):
+		items = [dict(type="Link", label="Operating Expenses", link_type="Page",
+			link_to="operating-expenses", icon="receipt-text", child=0)]
+	if items:
+		sidebar = frappe.get_doc("Workspace Sidebar", "China Operating Expenses")
+		for item in sidebar.items:
+			_set(item.name, {"idx": item.idx + len(items), "child": int(regional_layout)})
+		for idx, item in enumerate(items, 1):
+			frappe.get_doc({"doctype": "Workspace Sidebar Item", "parent": sidebar.name,
+				"parenttype": "Workspace Sidebar", "parentfield": "items", "idx": idx, **item}).db_insert()
 	frappe.clear_cache()
-
-
-def ensure_budget_sidebar_group() -> None:
-	"""5 个 ERPNext 原生入口折叠进「自定义」分组（默认收起）。
-
-	``collapsible`` 必须与 ``keep_closed`` 同时为 1：前端
-	``enable_collapsible`` 会先判断 ``item.collapsible`` 才创建 ``$drop_icon``，
-	随后才对 ``keep_closed`` 调 ``close()``。若只设 ``keep_closed``，
-	``toggle()`` 会访问 undefined 的 ``$drop_icon`` 抛 TypeError，
-	``create_sidebar`` 的 forEach 直接中断——表现为分组之后的侧边栏项全部消失。
-	"""
-	rows = _get_items()
-	groups = _group_rows(rows)
-
-	if groups:
-		group_name = groups[0]["name"]
-		if len(groups) > 1:
-			_delete_items([row["name"] for row in groups[1:]])
-		_set(
-			group_name,
-			{
-				"type": "Section Break",
-				"link_type": "DocType",
-				"link_to": None,
-				"icon": None,
-				"child": 0,
-				"indent": 1,
-				"collapsible": 1,
-				"keep_closed": 1,
-			},
-		)
-	else:
-		group_name = _insert_item(
-			GROUP_LABEL,
-			item_type="Section Break",
-			link_type="DocType",
-			indent=1,
-			collapsible=1,
-			keep_closed=1,
-		)
-
-	rows = _get_items()
-	by_label = {row["label"]: row for row in rows if row["type"] == "Link"}
-	grouped = []
-	for label in GROUPED_LABELS:
-		row = by_label.get(label)
-		if not row:
-			continue  # erpnext 这个入口不存在（版本差异），保持原样
-		if not row["child"]:
-			_set(row["name"], {"child": 1})
-		grouped.append(row)
-
-	others = [
-		row
-		for row in rows
-		if row["name"] != group_name and row["name"] not in {item["name"] for item in grouped}
-	]
-	for row in others:
-		if row["child"]:
-			_set(row["name"], {"child": 0})
-
-	group_row = next(row for row in rows if row["name"] == group_name)
-	_reorder([group_row, *grouped, *others])
-	frappe.db.set_value(
-		"Workspace Sidebar", SIDEBAR, "modified", frappe.utils.now(), update_modified=False
-	)
-
-
-def ensure_budget_sidebar_link() -> None:
-	"""幂等地补齐「预算台账 / 预算数据看板 / 预算配置」三个入口。"""
-	if not frappe.db.exists("Workspace Sidebar", SIDEBAR):
-		return
-
-	rows = _get_items()
-	existing = {row["label"]: row for row in rows}
-	max_idx = max((int(row["idx"] or 0) for row in rows), default=0)
-
-	for item in ITEMS:
-		row = existing.get(item["label"])
-		if row:
-			frappe.db.set_value(
-				"Workspace Sidebar Item",
-				row["name"],
-				{
-					"type": "Link",
-					"link_type": item["link_type"],
-					"link_to": item["link_to"],
-					"url": None,
-					"icon": item["icon"],
-					"child": 0,
-				},
-				update_modified=False,
-			)
-			continue
-		max_idx += 1
-		_insert_item(
-			item["label"],
-			link_type=item["link_type"],
-			link_to=item["link_to"],
-			icon=item["icon"],
-			idx=max_idx,
-		)
-
-
-def ensure_desktop_icon_position() -> None:
-	"""把 Desktop Icon「Budget」从「会计」里提到顶级，排在「海外成本核算」之后。"""
-	if not frappe.db.exists("Desktop Icon", DESKTOP_ICON):
-		return
-	current = frappe.db.get_value(
-		"Desktop Icon", DESKTOP_ICON, ["parent_icon", "idx"], as_dict=True
-	)
-	if current.parent_icon == "" and int(current.idx or 0) == DESKTOP_ICON_ROOT_IDX:
-		return
-	frappe.db.set_value(
-		"Desktop Icon",
-		DESKTOP_ICON,
-		{"parent_icon": "", "idx": DESKTOP_ICON_ROOT_IDX},
-		update_modified=False,
-	)
-	frappe.cache.delete_key("desktop_icons")
 
 
 # ---------------------------------------------------------------- 卸载态
@@ -305,6 +159,14 @@ def restore_budget_nav() -> None:
 	try:
 		restore_desktop_icon_position()
 		restore_budget_sidebar()
+		for doctype in ("Desktop Icon", "Workspace Sidebar"):
+			if frappe.db.exists(doctype, "China Operating Expenses"):
+				developer_mode = frappe.conf.developer_mode
+				try:
+					frappe.conf.developer_mode = False
+					frappe.delete_doc(doctype, "China Operating Expenses", ignore_permissions=True)
+				finally:
+					frappe.conf.developer_mode = developer_mode
 	except Exception:
 		frappe.log_error(title="Budget 导航还原失败", message=frappe.get_traceback())
 	finally:

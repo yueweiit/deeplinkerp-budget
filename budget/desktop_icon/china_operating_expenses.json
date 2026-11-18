@@ -1,0 +1,27 @@
+{
+ "app": "budget",
+ "doctype": "Desktop Icon",
+ "name": "China Operating Expenses",
+ "label": "China Operating Expenses",
+ "link_to": "China Operating Expenses",
+ "link_type": "Workspace Sidebar",
+ "sidebar": "China Operating Expenses",
+ "icon": "expenses",
+ "icon_type": "Link",
+ "bg_color": "blue",
+ "hidden": 0,
+ "idx": 104,
+ "parent_icon": "",
+ "standard": 1,
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  },
+  {
+   "role": "Accounts User"
+  }
+ ]
+}

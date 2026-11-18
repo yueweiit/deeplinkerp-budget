@@ -5,17 +5,15 @@ app_description = "预算与费用审批：钉钉开放平台接口 + OA 只读�
 app_email = "308642281@qq.com"
 app_license = "mit"
 
+app_include_js = ["/assets/budget/js/budget_navigation.js"]
+
 # 本 app 读钉钉 / OA 一侧的数据写入本地账本（Budget Ledger Entry / Detail），
 # 不接管任何 DocType 事件，也不改上游 app。同步的触发方式见文件末尾：
 # 站点开着 scheduler 时走 daily_long；站点 enable_scheduler=0 时由外部 cron 调
 # budget.services.oa_budget_sync.scheduled_sync，两者链路完全一致（含每日整表对账）。
 
-# ERPNext 的 Workspace Sidebar / Desktop Icon 每次 migrate 都会按 json 重同步，
-# 所以用 after_migrate 重放：5 个原生入口收进「自定义」分组、追加本 app 的 3 个入口、
-# 并把 Desktop Icon「Budget」提到顶级。
-# install-app 只装代码、不跑 migrate，因此 after_install 也要补一次，否则新装的站点
-# 侧边栏里看不到任何入口（Page 记录也要等 migrate 才同步，点进去会是空白页）。
-# 卸载时把导航还原成 ERPNext 原生形态，避免留下指向已删 DocType/Page 的死链接。
+# CN 定制入口独立于 ERPNext 原生 Budget。迁移时清理旧预算导航挂载并
+# 同步 CN Sidebar/Icon；只改变导航，不迁移或删除预算业务数据。
 after_install = ["budget.setup.apply_budget_nav"]
 after_migrate = ["budget.setup.apply_budget_nav"]
 before_uninstall = ["budget.setup.restore_budget_nav"]
