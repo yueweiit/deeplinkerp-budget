@@ -4,12 +4,54 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "ledger_sync_section",
+  "ledger_sync_enabled",
+  "ledger_corp_id",
+  "ledger_connection_profile",
+  "ledger_source_fingerprint",
+  "filter_options_section",
   "company_options",
   "department_options",
   "status_options",
   "execution_region_options"
  ],
  "fields": [
+  {
+   "fieldname": "ledger_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Budget Ledger Synchronization"
+  },
+  {
+   "fieldname": "ledger_sync_enabled",
+   "fieldtype": "Check",
+   "label": "Enable Budget Synchronization",
+   "default": "0"
+  },
+  {
+   "fieldname": "ledger_corp_id",
+   "fieldtype": "Data",
+   "label": "OA Corporation ID",
+   "description": "Explicit corporation scope for the budget ledger."
+  },
+  {
+   "fieldname": "ledger_connection_profile",
+   "fieldtype": "Select",
+   "label": "Connection Profile",
+   "options": "budget\nshared_oa",
+   "default": "budget"
+  },
+  {
+   "fieldname": "ledger_source_fingerprint",
+   "fieldtype": "Data",
+   "label": "Ledger Source Fingerprint",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "filter_options_section",
+   "fieldtype": "Section Break",
+   "label": "Filter Options"
+  },
   {
    "description": "Defaults to system Company records plus values already in the ledger.",
    "fieldname": "company_options",

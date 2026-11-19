@@ -2,7 +2,7 @@
  * - 生产 / 非生产用 tab 切页；
  * - 子公司 / 部门 / 状态 / 执行地区用下拉筛选（候选值 = 设置页 + 台账现有值 + 系统主数据）；
  * - 预算月份用只能选月份的日历弹层；
- * - 打开页面时数据过期会自动在后台补一轮同步，完成后刷新列表。
+ * - 同步设置与手动同步分离，打开页面只读取本地台账和配置状态。
  * 文案以中文原文 + translations/*.csv 维护，跟随系统语言。
  */
 frappe.listview_settings["Budget Ledger Entry"] = {
@@ -249,7 +249,7 @@ frappe.listview_settings["Budget Ledger Entry"] = {
 				frappe.db.get_doc("Budget Settings", "Budget Settings").catch(() => ({})),
 				frappe.db.get_list(listview.doctype, { fields, limit_page_length: 0 }).catch(() => []),
 				frappe
-					.call({ method: "budget.api.approval.list_organization_options" })
+					.call({ method: "budget.services.ledger_sync_settings.get_ledger_organization_options" })
 					.then((r) => r.message || {})
 					.catch(() => null),
 			]).then(([settings, rows, org]) => {
@@ -271,6 +271,9 @@ frappe.listview_settings["Budget Ledger Entry"] = {
 				const fromRows = (fieldname) =>
 					(rows || []).map((row) => String(row[fieldname] || "").trim());
 
+				if (org?.reason === "organization_unavailable") {
+					listview.page.main.find(".budget-sync-notice").text(__("Organization options are unavailable. Existing ledger filters are being used."));
+				}
 				// 组织树：公司取第 3 层，部门取叶子节点，与台账 company/department 口径一致
 				const orgCompanies = ((org || {}).companies || [])
 					.map((row) => String(row.name || "").trim())
@@ -501,28 +504,8 @@ frappe.listview_settings["Budget Ledger Entry"] = {
 			`).appendTo(document.head);
 		}
 
-		// ---------- 打开即刷新 ----------
-		// 列表照常先渲染本地表（毫秒级，不阻塞）；只有数据过期（默认 120s）才在后台补一轮。
-		// 服务端 job_id 去重：多人同时打开也只排一个任务；定时任务只作兜底。
-		const refreshIfStale = () => {
-			// 这个接口有副作用（可能入队一次同步），所以走默认 POST，不用 GET
-			frappe
-				.call({
-					method: "budget.services.oa_budget_sync.ensure_ledger_fresh",
-				})
-				.then(({ message }) => {
-					if (!message || !message.queued) return;
-					frappe.show_alert({
-						message: __("台账数据已过期，正在后台同步…"),
-						indicator: "blue",
-					});
-					// 一轮同步约 2s，稍等再刷一次列表把最新数据带出来
-					setTimeout(() => listview.refresh(), 4000);
-				})
-				// 刷新失败不影响用户看本地已有数据
-				.catch(() => {});
-		};
-		refreshIfStale();
+		// Reading the list never schedules synchronization.
+		BudgetLedgerSync.attach(listview);
 
 		// ---------- 启动 ----------
 		syncControls();

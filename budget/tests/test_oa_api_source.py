@@ -225,12 +225,17 @@ def test_factory_defaults_to_local_and_can_switch_to_http(monkeypatch) -> None:
 	"""
 	from budget.integrations import budget_factory, oa_factory
 	from budget.integrations.oa_approval_source import OAApprovalSource
+	from budget.services import ledger_sync_settings
+
+	local_reader = OAApprovalSource()
+	monkeypatch.setattr(ledger_sync_settings, "get_ledger_oa_source", lambda: local_reader)
 
 	monkeypatch.delenv("BUDGET_DATA_SOURCE", raising=False)
 	monkeypatch.delenv("BUDGET_OA_SOURCE", raising=False)
 	assert oa_factory.use_http_source() is False
 	assert budget_factory.data_source_mode() == "local"
 	assert isinstance(oa_factory.get_oa_source(), OAApprovalSource)
+	assert oa_factory.get_oa_source() is local_reader
 
 	monkeypatch.setenv("BUDGET_DATA_SOURCE", "postgres")
 	assert oa_factory.use_http_source() is False

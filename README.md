@@ -55,7 +55,7 @@ bench 里此前有三套重复的钉钉/OA 代码，本 app 作为唯一入口�
 | 实际支出（报表 + 详情） | **HTTP** `/api/v1/budget/expenses*` | 六大分支口径在 dingtalk-oa 侧复刻 |
 | 任务明细、审批效率 | 从 `/api/v1/approvals` 的 `rawPayload.tasks` 解析 | 无独立聚合接口，本地聚合 |
 
-**默认模式下 budget app 不建立任何 PostgreSQL 连接**：所有 SQL 集中在
+**显式 HTTP 模式下 budget app 不建立任何 PostgreSQL 连接**：所有 SQL 集中在
 `dingtalk-oa`，本 app 只做 HTTP 调用。`budget_data_source=postgres` 时才回退到
 本仓库原有的 psycopg 直连实现（应急排查用）。
 
@@ -108,7 +108,7 @@ budget/
 │  ├─ dingtalk_client.py          # token 缓存 + 机器人发送 + 重试 + 三组熔断
 │  ├─ oa_read_api_client.py       # 审批只读 HTTP（快照 / cursor 分页）
 │  ├─ budget_read_api_client.py   # 预算只读 HTTP（台账 / 额度 / 支出 / 部门树）
-│  ├─ budget_factory.py           # 数据源选择：http（默认）| postgres
+│  ├─ budget_factory.py           # 数据源选择：local（默认）| http | postgres
 │  ├─ oa_factory.py               # 审批数据源选择（与上面共用开关）
 │  ├─ *_api_source.py             # 各数据源的 HTTP 实现（统一签名）
 │  ├─ *_source.py                 # 各数据源的 PG 直连实现（应急回退）
@@ -153,10 +153,43 @@ bench --site <site> execute budget.setup.ensure_budget_sidebar_link
 
 ## 配置
 
-默认（`http`）模式只需配置 `dingtalk-oa` 的地址与企业范围，**不需要任何数据库连接**：
+### 预算台账同步（2026-11-19）
+
+台账当前默认使用 `local`（见 `budget/integrations/budget_factory.py`），由
+`services/oa_budget_sync.py` 只读读取 OA PostgreSQL 归档并解析到本地台账。
+以下 HTTP 连接说明针对显式选择 HTTP 的接口适配器，不代表本地台账同步会使用 HTTP。
+
+- 台账页面菜单提供“预算同步设置”，工具栏提供独立“同步数据”。保存只保存配置，
+  打开台账只读，不自动排入同步；兼容接口 `ensure_ledger_fresh` 也不再入队。
+- 在现有 `Budget Settings` 中配置 `ledger_corp_id`、`ledger_connection_profile`
+  和 `ledger_sync_enabled`。未填写企业时兼容服务端原有 `budget_corp_id` 等别名，
+  不猜测企业；新开关默认关闭，手动、兼容及定时台账同步均检查完整配置和启用状态。
+- `budget` 连接来源复用 `budget_db_*` 及现有别名；`shared_oa` 复用
+  `overseas_costing_oa_db_*`。必须显式配置 host/user/password；库名默认 `dingtalk_oa`，
+  端口默认 5432。共享来源同时传递已有 SSL 模式。密码只在服务端使用，设置 API 不返回连接凭据。
+- 同步、组织树和审批统计读取使用同一企业及连接；同步查询同时限定企业和预算模板。
+  未配置时公司/部门选项退回本地配置及台账，返回明确状态，不弹服务器错误。
+- 实际支出及审批中支出来自独立历史汇总库，本地模式读取前核对原服务端企业配置、
+  主机和端口与台账来源一致，不猜测新库名。停用同步不影响来源匹配后的只读查询，
+  显式 HTTP/PostgreSQL 模式保留原行为。
+- 同步窗口跟踪 RQ 实际状态和持久运行日志，区分排队、运行、成功、失败和跳过，
+  展示新增/更新等数量；跳过的已启动任务也保存 `run_id` 和 `reason_code`，RQ 结果过期后
+  仍能显示跳过原因。停用状态下的日常定时检查不新增无意义日志。
+  关闭窗口停止轮询，打开窗口不会自动提交同步任务。
+- 保存设置与同步共用站点锁，包括原生设置表单；原生保存从写库前持锁到事务提交或回滚，
+  避免首次导入与来源切换并发。已排队任务执行前复核配置版本。成功同步将来源指纹
+  与台账同事务保存，台账已有数据时阻止直接切换企业或数据库；服务端连接变更后指纹
+  不匹配也停止同步，避免跨来源覆盖或删除历史数据。
+
+实现入口：`services/ledger_sync_settings.py`、`services/oa_budget_sync.py`、
+`public/js/budget_ledger_sync.js`。更新站点需同步 `Budget Settings`、`Budget Ledger Sync Log`
+新增字段和清理缓存；
+未配置的数据源保持停用，不能把本地界面测试视为 OA 实际同步验收。
+
+显式 `http` 模式只需配置 `dingtalk-oa` 的地址与企业范围，**不需要数据库连接**；本地预算台账同步使用上节独立配置：
 
 ```
-BUDGET_DATA_SOURCE     # http（默认）| postgres
+BUDGET_DATA_SOURCE     # local（默认）| http | postgres
 BUDGET_READ_API_URL    # dingtalk-oa 地址，如 https://oa.example.com
 BUDGET_READ_API_TIMEOUT# 秒，默认 30
 BUDGET_CORP_ID         # 本实例负责的企业，必填
@@ -173,7 +206,7 @@ BUDGET_CORP_ID         # 本实例负责的企业，必填
 
 所有数据源统一由 `integrations/budget_factory.py` 与 `oa_factory.py` 选择：
 
-| 工厂函数 | http（默认） | postgres（应急回退） |
+| 工厂函数 | http（显式配置） | postgres（应急回退） |
 | --- | --- | --- |
 | `get_ledger_source()` | `BudgetLedgerAPISource` | `BudgetLedgerSource` |
 | `get_quota_source()` | `QuotaAPISource` | `QuotaSource` |
@@ -184,7 +217,7 @@ BUDGET_CORP_ID         # 本实例负责的企业，必填
 两组实现的方法签名与行字段完全一致，业务层不感知来源。
 
 > 注意：台账同步后落在**站点自己的 MariaDB**（`Budget Ledger Entry`），
-> 列表、筛选、排序、导出都走站点库；默认模式下外部 PG 完全不参与。
+> `local` 模式的列表、筛选、排序、导出走站点库；组织选项可从配置完整的 OA 只读库读取，台账同步必须单独启用。
 
 ### 应急回退到 PostgreSQL
 

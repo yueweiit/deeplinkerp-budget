@@ -1,19 +1,16 @@
-"""OA 审批数据源选择：默认走 ``dingtalk-oa`` 的只读接口，PostgreSQL 仅作应急回退。
+"""OA 审批数据源选择，与预算台账共用 ``budget_data_source`` 开关。
 
-开关与预算台账共用一套（见 ``budget_factory``）：``budget_data_source``（旧键
-``budget_oa_source``），默认 ``http``。两种实现暴露同一组方法：
+默认 ``local``：台账存本地，OA 读取复用 Budget Settings 指定的连接和企业范围；
+显式 ``http`` / ``postgres`` 保持历史配置行为。实现暴露同一组方法：
 ``list_departments`` / ``list_department_candidates`` / ``get_instance_row`` /
 ``list_approval_efficiency_rows`` / ``list_department_snapshot_rows``。
-
-HTTP 版本现在也覆盖了部门树（``/api/v1/budget/departments*``），因此默认模式下
-budget app 不会再建立任何 PostgreSQL 连接。
 
 调用方统一用 ``get_oa_source()``，不要直接实例化具体实现。
 """
 
 from __future__ import annotations
 
-from .budget_factory import use_http_sources
+from .budget_factory import data_source_mode, use_http_sources
 from .oa_api_source import OAAPISource
 from .oa_approval_source import OAApprovalSource
 
@@ -24,4 +21,8 @@ def use_http_source() -> bool:
 
 
 def get_oa_source() -> OAApprovalSource | OAAPISource:
+	if data_source_mode() == "local":
+		from ..services.ledger_sync_settings import get_ledger_oa_source
+
+		return get_ledger_oa_source()
 	return OAAPISource() if use_http_source() else OAApprovalSource()

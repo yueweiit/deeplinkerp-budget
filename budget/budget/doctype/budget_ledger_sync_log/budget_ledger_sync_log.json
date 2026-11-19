@@ -9,6 +9,8 @@
  "field_order": [
   "status",
   "trigger",
+  "run_id",
+  "reason_code",
   "full_sync",
   "started_at",
   "finished_at",
@@ -25,6 +27,18 @@
   "local_amount"
  ],
  "fields": [
+  {
+   "fieldname": "run_id",
+   "fieldtype": "Data",
+   "label": "Synchronization Run ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reason_code",
+   "fieldtype": "Data",
+   "label": "Synchronization Reason Code",
+   "read_only": 1
+  },
   {
    "columns": 2,
    "default": "Running",

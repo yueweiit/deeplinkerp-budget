@@ -81,6 +81,10 @@ def get_expense_source() -> Any:
 		from .expense_api_source import ExpenseAPISource
 
 		return ExpenseAPISource()
+	if data_source_mode() == "local":
+		from ..services.ledger_sync_settings import validate_expense_source
+
+		validate_expense_source()
 	from .expense_source import ExpenseSource
 
 	return ExpenseSource()
@@ -92,6 +96,10 @@ def get_budget_expense_source() -> Any:
 		from .budget_expense_api_source import BudgetExpenseAPISource
 
 		return BudgetExpenseAPISource()
+	if data_source_mode() == "local":
+		from ..services.ledger_sync_settings import validate_expense_source
+
+		validate_expense_source()
 	from .budget_expense_source import BudgetExpenseSource
 
 	return BudgetExpenseSource()

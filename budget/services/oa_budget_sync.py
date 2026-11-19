@@ -14,16 +14,17 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
 import frappe
 
-from ..integrations.oa_approval_source import _runtime_config_value, shared_db_config
 from ..integrations.pg import fetch as pg_fetch
 from .oa_budget_parser import BUDGET_PROCESS_CODE, dedupe_latest, parse_budget_instance
 from .sync_lock import is_locked, sync_lock
+from . import ledger_sync_settings as sync_settings
 
 ENTRY_DOCTYPE = "Budget Ledger Entry"
 DETAIL_DOCTYPE = "Budget Ledger Detail"
@@ -55,7 +56,8 @@ SELECT process_instance_id,
        originator_user_name,
        to_char(create_time AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS') AS create_time
   FROM ding_approval_instance
- WHERE process_code = %s
+ WHERE corp_id = %s
+   AND process_code = %s
    AND status = 'COMPLETED'
    AND result = 'agree'
    AND deleted_at IS NULL
@@ -99,31 +101,18 @@ ENTRY_FIELDS = (
 
 
 def _corp_id() -> str:
-	return _runtime_config_value(
-		"budget_corp_id", "budget_oa_corp_id", "dingtalk_oa_corp_id", "dingtalk_corp_id"
-	)
+	return sync_settings.current_source()["corp_id"]
 
 
 def _oa_connection() -> dict:
-	"""``shared_db_config()`` 用的是 ``database`` 键，psycopg 需要 ``dbname``。"""
-	shared = shared_db_config()
-	return {
-		"host": shared.get("host") or "localhost",
-		"port": int(shared.get("port") or 5432),
-		"dbname": shared.get("database") or "dingtalk_oa",
-		"user": shared.get("user") or "postgres",
-		"password": shared.get("password") or "",
-		"connect_timeout": 8,
-		"application_name": "budget-oa-sync",
-		"options": "-c default_transaction_read_only=on -c statement_timeout=30000",
-	}
+	return sync_settings.connection_kwargs()
 
 
 def _fetch_instances() -> list[dict]:
 	return pg_fetch(
 		_oa_connection(),
 		INSTANCE_SQL,
-		[BUDGET_PROCESS_CODE],
+		[_corp_id(), BUDGET_PROCESS_CODE],
 		label="oa-budget-sync",
 	)
 
@@ -242,7 +231,7 @@ def _check_deadline() -> None:
 		raise LedgerSyncTimeout(f"同步超过单次时间预算 {_timeout_seconds():.0f}s，已中止")
 
 
-def _log_start(trigger: str, started_at: str) -> str | None:
+def _log_start(trigger: str, started_at: str, *, run_id: str | None = None) -> str | None:
 	"""先落一条 ``Running`` 并立即提交。
 
 	提交是刻意的：后续写库若失败要 ``rollback()`` 整批撤销，日志行必须先于事务边界
@@ -256,6 +245,7 @@ def _log_start(trigger: str, started_at: str) -> str | None:
 				"status": "Running",
 				"trigger": trigger,
 				"started_at": started_at,
+				"run_id": run_id,
 			}
 		).insert(ignore_permissions=True)
 		frappe.db.commit()
@@ -278,6 +268,27 @@ LOG_COUNT_FIELDS = (
 	"detail_rows",
 	"local_total",
 )
+
+SKIP_REASONS = {
+	"running": "Budget synchronization is already running.",
+	"not_configured": "Budget synchronization is not configured. Open Sync Settings.",
+	"disabled": "Budget synchronization is disabled.",
+	"source_changed": "The configured source differs from the ledger source. Ask an administrator to review it.",
+	"settings_changed": "Settings changed after this task was queued. Start synchronization again.",
+	"no_source_records": "No eligible budget approvals were found. Existing ledger data was retained.",
+}
+
+
+def _record_skipped(trigger: str, reason: str, run_id: str) -> dict:
+	"""Persist terminal attempts even when the worker never enters the import transaction."""
+	stamp = frappe.utils.now()
+	frappe.get_doc({
+		"doctype": SYNC_LOG_DOCTYPE, "status": "Skipped", "trigger": trigger,
+		"started_at": stamp, "finished_at": stamp, "run_id": run_id, "reason_code": reason,
+		"message": frappe._(SKIP_REASONS[reason]),
+	}).insert(ignore_permissions=True)
+	frappe.db.commit()
+	return {"skipped": True, "reason_code": reason, "run_id": run_id}
 
 
 def _log_values(
@@ -304,6 +315,8 @@ def _log_values(
 	if message:
 		values["message"] = message[:1000]
 	payload = payload or {}
+	if payload.get("reason_code"):
+		values["reason_code"] = payload["reason_code"]
 	for field in LOG_COUNT_FIELDS:
 		if payload.get(field) is not None:
 			values[field] = int(payload[field] or 0)
@@ -412,7 +425,23 @@ def _write_details(form_no: str, details: list[dict], synced_at: str) -> int:
 	return written
 
 
-def sync_from_oa(*, trigger: str = "Manual", force: bool = False) -> dict:
+def sync_from_oa(*, trigger: str = "Manual", force: bool = False,
+                 expected_config_version: str | None = None, run_id: str | None = None) -> dict:
+	run_id = run_id or uuid.uuid4().hex
+	with sync_lock(LEDGER_LOCK_NAME) as acquired:
+		if not acquired:
+			return _record_skipped(trigger, "running", run_id)
+		source = sync_settings.current_source()
+		reason = sync_settings.blocked_reason(source)
+		if expected_config_version and expected_config_version != source["version"]:
+			reason = "settings_changed"
+		if reason:
+			return _record_skipped(trigger, reason, run_id)
+		with sync_settings.source_context(source):
+			return _run_sync(trigger=trigger, force=force, run_id=run_id)
+
+
+def _run_sync(*, trigger: str, force: bool, run_id: str | None = None) -> dict:
 	"""拉取 OA 归档 → 解析 → 去重 → 增量写本地表 → 自校验 → 提交。
 
 	默认增量：每单算指纹，与本地 ``source_digest`` 相同就整单跳过（不 upsert、不碰明细），
@@ -428,94 +457,47 @@ def sync_from_oa(*, trigger: str = "Manual", force: bool = False) -> dict:
 	"""
 	started_at = frappe.utils.now()
 	started_mono = time.monotonic()
-	with sync_lock(LEDGER_LOCK_NAME) as acquired:
-		if not acquired:
-			result = {"skipped": True, "reason": "另一个预算台账同步正在运行，本次跳过"}
-			log_name = _log_start(trigger, started_at)
-			_log_finish(
-				log_name,
-				"Skipped",
-				payload=result,
-				message=result["reason"],
-				started_mono=started_mono,
-				full_sync=force,
-			)
-			_remember(
-				{
-					"status": "skipped",
-					"started_at": started_at,
-					"finished_at": frappe.utils.now(),
-					**result,
-				}
-			)
-			return result
-
-		log_name = _log_start(trigger, started_at)
-		_prune_sync_logs()
-		try:
-			with _time_budget():
-				result = _sync_from_oa(force=force)
-		except Exception as error:
-			frappe.db.rollback()
-			_log_finish(
-				log_name,
-				"Failed",
-				message=f"{type(error).__name__}: {error}",
-				started_mono=started_mono,
-				full_sync=force,
-			)
-			_remember(
-				{
-					"status": "failed",
-					"started_at": started_at,
-					"finished_at": frappe.utils.now(),
-					"error": f"{type(error).__name__}: {error}",
-				}
-			)
-			frappe.log_error(
-				title="预算台账同步失败",
-				message=frappe.get_traceback(with_context=True),
-			)
-			raise
-
-		if result.get("skipped"):
-			_log_finish(
-				log_name,
-				"Skipped",
-				payload=result,
-				message=result.get("reason"),
-				started_mono=started_mono,
-				full_sync=force,
-				)
-			_remember(
-				{
-					"status": "skipped",
-					"started_at": started_at,
-					"finished_at": frappe.utils.now(),
-					**result,
-				}
-			)
-			return result
-
-		# 台账写入与日志收尾同一事务提交：要么都成功，要么日志停在 Running
+	log_name = _log_start(trigger, started_at, run_id=run_id)
+	_prune_sync_logs()
+	try:
+		with _time_budget():
+			result = _sync_from_oa(force=force)
+			result["run_id"] = run_id
+	except Exception as error:
+		frappe.db.rollback()
 		_log_finish(
 			log_name,
-			"Success",
-			payload=result,
-			message=(
-				"增量校验不一致，已自动升级为整表重建"
-				if result.get("escalated")
-				else None
-			),
+			"Failed",
+			message=f"{type(error).__name__}: {error}",
 			started_mono=started_mono,
-			# 自动升级的那一轮实际跑的是全量，对账计时也应按全量算
-			full_sync=force or bool(result.get("escalated")),
-			commit=False,
+			full_sync=force,
 		)
-		frappe.db.commit()
 		_remember(
 			{
-				"status": "success",
+				"status": "failed",
+				"started_at": started_at,
+				"finished_at": frappe.utils.now(),
+				"error": f"{type(error).__name__}: {error}",
+			}
+		)
+		frappe.log_error(
+			title="预算台账同步失败",
+			message=frappe.get_traceback(),
+		)
+		raise
+
+	if result.get("skipped"):
+		_log_finish(
+			log_name,
+			"Skipped",
+			payload=result,
+			message=result.get("reason"),
+			started_mono=started_mono,
+			full_sync=force,
+			)
+		_remember(
+			{
+				"status": "skipped",
 				"started_at": started_at,
 				"finished_at": frappe.utils.now(),
 				**result,
@@ -523,12 +505,40 @@ def sync_from_oa(*, trigger: str = "Manual", force: bool = False) -> dict:
 		)
 		return result
 
+	# 台账写入与日志收尾同一事务提交：要么都成功，要么日志停在 Running
+	_log_finish(
+		log_name,
+		"Success",
+		payload=result,
+		message=(
+			"增量校验不一致，已自动升级为整表重建"
+			if result.get("escalated")
+			else None
+		),
+		started_mono=started_mono,
+		# 自动升级的那一轮实际跑的是全量，对账计时也应按全量算
+		full_sync=force or bool(result.get("escalated")),
+		commit=False,
+	)
+	frappe.db.set_single_value("Budget Settings", "ledger_source_fingerprint",
+		sync_settings.current_source()["fingerprint"], update_modified=False)
+	frappe.db.commit()
+	_remember(
+		{
+			"status": "success",
+			"started_at": started_at,
+			"finished_at": frappe.utils.now(),
+			**result,
+		}
+	)
+	return result
+
 
 def _sync_from_oa(*, force: bool = False) -> dict:
 	rows = _fetch_instances()
 	_check_deadline()
 	if not rows:
-		return {"skipped": True, "reason": "OA 归档没有符合条件的预算单", "remote_total": 0}
+		return {"skipped": True, "reason_code": "no_source_records", "reason": "OA 归档没有符合条件的预算单", "remote_total": 0}
 
 	paths = _department_paths()
 	_check_deadline()
@@ -651,10 +661,13 @@ def scheduled_sync() -> dict:
 	拿到非零退出码，调度器那边能直接看到这一轮失败；并自动承担每日一次整表对账
 	（平时增量，距上次全量满 24h 的那一轮改为全量），不需要额外配一条 cron。
 	"""
+	source = sync_settings.current_source()
+	if reason := sync_settings.blocked_reason(source):
+		return {"skipped": True, "reason_code": reason}
 	return sync_from_oa(trigger="Scheduled", force=_force_full_due())
 
 
-def _enqueue_sync() -> bool:
+def _enqueue_sync(expected_config_version=None) -> bool:
 	"""入队一次后台同步，返回是否真的排上了（被去重挡掉就是 False）。"""
 	timeout = int(_timeout_seconds()) + 120
 	job = frappe.enqueue(
@@ -664,11 +677,13 @@ def _enqueue_sync() -> bool:
 		job_id=LEDGER_JOB_ID,
 		deduplicate=True,
 		trigger="Background",
+		expected_config_version=expected_config_version,
+		run_id=uuid.uuid4().hex,
 	)
 	return bool(job)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def enqueue_oa_budget_sync() -> dict:
 	"""异步触发：``job_id`` + ``deduplicate`` 保证同一时刻只有一个任务在队列里。
 
@@ -676,14 +691,14 @@ def enqueue_oa_budget_sync() -> dict:
 	真正写库那一步仍由 Redis 锁兜底。
 	"""
 	frappe.only_for(("System Manager",))
-	return {"queued": _enqueue_sync(), "job_id": LEDGER_JOB_ID}
+	source = sync_settings.current_source()
+	if reason := sync_settings.blocked_reason(source):
+		return {"queued": False, "blocked_by": reason}
+	return {"queued": _enqueue_sync(source["version"]), "job_id": LEDGER_JOB_ID}
 
 
-# 列表页认为「够新」的阈值：超过就在后台补一轮，用户不必等下一次定时任务
+# 兼容旧调用方的新鲜度阈值；读取该状态不再自动排队。
 FRESHNESS_SECONDS = 120
-# 上一轮（不论成败）启动后多久内不再因打开页面而重试。没有这个退避，OA 库长时间故障时
-# 每个用户每次打开列表都会排一轮注定失败（连接超时 8s）的同步
-FRESHNESS_RETRY_SECONDS = 60
 
 
 def _seconds_since(value) -> float:
@@ -692,12 +707,7 @@ def _seconds_since(value) -> float:
 
 @frappe.whitelist()
 def ensure_ledger_fresh(max_age_seconds: int | None = None) -> dict:
-	"""列表页打开时调用：本地数据太旧就入队一次同步（读权限即可，不要求管理员）。
-
-	先渲染本地表、后台补齐，这样「随时能看到」不依赖定时任务的频率：
-	多人同时打开也只会排一个任务（``job_id`` 去重），定时任务只作兜底。
-	``queued=False`` 且 ``blocked_by == "recent_attempt"`` 表示上一轮刚试过、这是退避。
-	"""
+	"""兼容旧页面的新鲜度查询：只读，实际同步由管理员独立操作或启用后的定时任务触发。"""
 	frappe.only_for(READ_ROLES)
 
 	# 不能用 ``or``：传 0 是合法用法（强制认为过期），会被 falsy 吃掉
@@ -713,28 +723,13 @@ def ensure_ledger_fresh(max_age_seconds: int | None = None) -> dict:
 		age_seconds = _seconds_since(last_finished)
 
 	stale = age_seconds is None or age_seconds > threshold
-	queued = False
-	blocked_by = None
-	if stale:
-		# 用「最近一次尝试」而不是「最近一次成功」做退避：失败轮也算试过了，
-		# 否则失败后每个打开页面的人都会再触发一轮
-		last_attempt = frappe.db.get_value(
-			SYNC_LOG_DOCTYPE, {}, "started_at", order_by="started_at desc"
-		)
-		if last_attempt and _seconds_since(last_attempt) < FRESHNESS_RETRY_SECONDS:
-			blocked_by = "recent_attempt"
-		else:
-			queued = _enqueue_sync()
-
+	# Compatibility endpoint: visiting a list no longer authorizes a write job.
 	return {
-		"stale": stale,
-		"queued": queued,
-		"blocked_by": blocked_by,
+		"stale": stale, "queued": False,
+		"blocked_by": sync_settings.blocked_reason(sync_settings.current_source()) or "manual_sync_required",
 		"age_seconds": None if age_seconds is None else round(age_seconds, 1),
-		"threshold": threshold,
-		"job_id": LEDGER_JOB_ID if stale else None,
+		"threshold": threshold, "job_id": None,
 	}
-
 
 @frappe.whitelist()
 def get_ledger_sync_status() -> dict:

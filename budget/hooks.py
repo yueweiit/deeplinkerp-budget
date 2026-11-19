@@ -5,7 +5,10 @@ app_description = "预算与费用审批：钉钉开放平台接口 + OA 只读�
 app_email = "308642281@qq.com"
 app_license = "mit"
 
-app_include_js = ["/assets/budget/js/budget_navigation.js"]
+app_include_js = [
+	"/assets/budget/js/budget_navigation.js",
+	"/assets/budget/js/budget_ledger_sync.js?v=0.0.1",
+]
 
 # 本 app 读钉钉 / OA 一侧的数据写入本地账本（Budget Ledger Entry / Detail），
 # 不接管任何 DocType 事件，也不改上游 app。同步的触发方式见文件末尾：
@@ -34,5 +37,5 @@ scheduler_events = {
 
 # 站点关闭 scheduler（enable_scheduler: 0）时 daily_long 不会触发，此时由外部定时器
 # 调 scheduled_sync（部署侧的 ofelia 覆盖层见 frappe_docker 仓库
-# overrides/compose.budget-sync-cron.yaml）。台账列表页打开时还会调
-# ensure_ledger_fresh 按需补一轮，所以定时间隔只需当兜底。
+# overrides/compose.budget-sync-cron.yaml）。同步入口均检查配置和启用状态；
+# 台账页面只读，不再因打开页面而自动入队。

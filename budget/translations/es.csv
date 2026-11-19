@@ -84,3 +84,64 @@ Budget Dashboard,Panel de presupuestos
 Budget Configuration,Configuración de presupuestos
 Personnel Analysis,Análisis de nómina y personal
 Budget Management,Gestión presupuestaria
+Budget Ledger Synchronization,Sincronización del registro presupuestario
+Enable Budget Synchronization,Habilitar sincronización presupuestaria
+OA Corporation ID,ID de empresa de OA
+Explicit corporation scope for the budget ledger.,Ámbito explícito de la empresa de OA para el registro presupuestario.
+Connection Profile,Origen de la conexión
+Ledger Source Fingerprint,Huella del origen del registro
+Filter Options,Opciones de filtro
+budget,Conexión de base de datos presupuestaria
+shared_oa,Conexión compartida de base de datos OA
+Budget synchronization is not configured. Open Sync Settings.,La sincronización presupuestaria no está configurada. Abra Configuración de sincronización.
+Budget synchronization is disabled.,La sincronización presupuestaria está deshabilitada.
+The configured source differs from the ledger source. Ask an administrator to review it.,El origen configurado difiere del origen del registro. Solicite una revisión al administrador.
+Settings changed after this task was queued. Start synchronization again.,La configuración cambió después de poner la tarea en cola. Inicie la sincronización de nuevo.
+Budget synchronization is already running.,La sincronización presupuestaria ya está en curso.
+Budget synchronization is running. Try again after it finishes.,La sincronización presupuestaria está en curso. Inténtelo de nuevo cuando termine.
+Invalid budget connection profile.,El origen de conexión presupuestaria no es válido.
+Enter a valid OA corporation ID.,Introduzca un ID de empresa de OA válido.
+Complete the corporation scope and server connection before enabling synchronization.,Configure el ámbito de la empresa y la conexión del servidor antes de habilitar la sincronización.
+The ledger contains data. Its corporation and database cannot be changed here.,El registro contiene datos. Su empresa y base de datos no pueden cambiarse aquí.
+The ledger source fingerprint is managed by synchronization.,La huella del origen del registro la administra el proceso de sincronización.
+Budget sync settings changed. Reopen the settings and try again.,La configuración de sincronización cambió. Vuelva a abrirla e inténtelo de nuevo.
+Not synchronized,Sin sincronizar
+Queued,En cola
+Synchronizing,Sincronizando
+Synchronization completed,Sincronización completada
+Synchronization failed,Sincronización fallida
+Synchronization skipped,Sincronización omitida
+Synchronization result is unavailable,El resultado de sincronización no está disponible
+The last synchronization failed. Existing ledger data was retained. Open the sync log for details.,La última sincronización falló. Los datos existentes se conservaron. Consulte el registro de sincronización.
+Last Run,Última ejecución
+Local Ledger Entries,Registros presupuestarios locales
+Budget Sync Settings,Configuración de sincronización presupuestaria
+Saving settings does not start synchronization. Database credentials are managed on the server and are never returned to this page.,Guardar la configuración no inicia la sincronización. Las credenciales se administran en el servidor y nunca se devuelven a esta página.
+Controls manual and scheduled budget ledger synchronization.,Controla la sincronización manual y programada del registro presupuestario.
+Budget database connection,Conexión de base de datos presupuestaria
+Shared OA database connection,Conexión compartida de base de datos OA
+Reuse a server connection. Its configuration is checked when settings are saved.,Reutiliza una conexión del servidor. Su configuración se comprueba al guardar.
+Save Settings,Guardar configuración
+Budget sync settings saved.,Configuración de sincronización presupuestaria guardada.
+Could not save settings. Your inputs have been retained.,No se pudo guardar la configuración. Se conservaron los datos introducidos.
+Budget Synchronization,Sincronización de datos presupuestarios
+Synchronize Now,Sincronizar ahora
+Could not queue synchronization. Check the status before retrying.,No se pudo poner la sincronización en cola. Compruebe el estado antes de reintentar.
+Refresh,Actualizar
+Could not load synchronization status. Refresh to retry.,No se pudo cargar el estado de sincronización. Actualice para reintentar.
+Open Sync Log,Abrir registro de sincronización
+Budget data is synchronized through Synchronize Data.,Use Sincronizar datos para actualizar el registro presupuestario.
+Synchronize Data,Sincronizar datos
+Organization options are unavailable. Existing ledger filters are being used.,Las opciones de organización no están disponibles. Se utilizan los filtros existentes del registro.
+Created,Creados
+Updated,Actualizados
+Unchanged,Sin cambios
+Removed,Eliminados
+Success,Correcto
+Failed,Fallido
+Running,En ejecución
+Skipped,Omitido
+No eligible budget approvals were found. Existing ledger data was retained.,No se encontraron aprobaciones presupuestarias que cumplan los criterios. Se conservaron los datos existentes del registro.
+The expense source does not match the budget source. Expense amounts and balances are unavailable until the source binding is reviewed.,El origen de los gastos no coincide con el del presupuesto. Los importes y saldos no están disponibles hasta revisar la vinculación del origen.
+Synchronization Run ID,Identificador de ejecución de sincronización
+Synchronization Reason Code,Código de motivo de sincronización

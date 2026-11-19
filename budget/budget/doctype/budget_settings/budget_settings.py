@@ -6,4 +6,19 @@ from frappe.model.document import Document
 
 
 class BudgetSettings(Document):
-	pass
+	def _save(self, *args, **kwargs):
+		from budget.services.ledger_sync_settings import acquire_settings_transaction_lock
+
+		acquire_settings_transaction_lock()
+		return super()._save(*args, **kwargs)
+
+	def insert(self, *args, **kwargs):
+		from budget.services.ledger_sync_settings import acquire_settings_transaction_lock
+
+		acquire_settings_transaction_lock()
+		return super().insert(*args, **kwargs)
+
+	def validate(self):
+		from budget.services.ledger_sync_settings import validate_settings
+
+		validate_settings(self)
