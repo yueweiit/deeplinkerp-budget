@@ -76,6 +76,8 @@ def sync_lock(name: str, *, ttl: int = LOCK_TTL) -> Iterator[bool]:
 def is_locked(name: str) -> bool:
 	"""当前是否有同步在跑（给状态接口用）。"""
 	try:
-		return bool(_cache_client().exists(lock_key(name)))
+		# RedisWrapper.exists adds its own database prefix; set/eval above use raw,
+		# already site-scoped keys. GET uses that same raw key without another prefix.
+		return bool(_cache_client().get(lock_key(name)))
 	except Exception:
 		return False
