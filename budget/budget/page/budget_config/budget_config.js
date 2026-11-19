@@ -7,11 +7,16 @@
 frappe.pages["budget-config"] = frappe.pages["budget-config"] || {};
 
 frappe.pages["budget-config"].on_page_load = function (wrapper) {
+	if (frappe.boot?.cn_budget_workbench) return;
 	wrapper.budget_config = new BudgetConfig(wrapper);
 };
 
 frappe.pages["budget-config"].on_page_show = function () {
-	frappe.utils.set_title(__("预算配置"));
+	if (frappe.boot?.cn_budget_workbench) {
+		frappe.set_route("china-expense-details", {cn_filters:JSON.stringify({approval_type:"budget",budget_tab:"quota"})});
+		return;
+	}
+	frappe.utils.set_title(__("Budget Quotas"));
 };
 
 // key 与后端 rollups 的键名保持一致（group / company / department / subject）
@@ -39,7 +44,7 @@ class BudgetConfig {
 	constructor(wrapper) {
 		this.page = frappe.ui.make_app_page({
 			parent: wrapper,
-			title: __("预算配置"),
+			title: __("Budget Quotas"),
 			single_column: true,
 		});
 		this.page_size = 20;

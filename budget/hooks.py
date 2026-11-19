@@ -5,8 +5,11 @@ app_description = "预算与费用审批：钉钉开放平台接口 + OA 只读�
 app_email = "308642281@qq.com"
 app_license = "mit"
 
+boot_session = "budget.setup.boot_session"
+
 app_include_js = [
 	"/assets/budget/js/budget_navigation.js",
+	"/assets/budget/js/cn_budget.js",
 	"/assets/budget/js/budget_ledger_sync.js?v=0.0.1",
 ]
 

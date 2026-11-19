@@ -9,12 +9,12 @@ function dashboard() {
 		frappe: {pages: {}, utils: {escape_html: value => String(value)}},
 		window: {echarts: {}}, __: value => value, setTimeout() {},
 	});
-	vm.runInContext(fs.readFileSync(path.join(__dirname, "../budget/page/budget_dashboard/budget_dashboard.js"), "utf8"), context);
-	const instance = vm.runInContext("Object.create(BudgetDashboard.prototype)", context);
+	vm.runInContext(fs.readFileSync(path.join(__dirname, "../public/js/budget_report.js"), "utf8"), context);
+	const instance = vm.runInContext("Object.create(window.BudgetReport.prototype)", context);
 	const rendered = new Map(), charts = new Map();
 	instance.$content = {find(selector) {
 		return {length: 1, text(value) {rendered.set(selector, value); return this;},
-			html(value) {rendered.set(selector, value); return this;}, css() {return this;}};
+			html(value) {rendered.set(selector, value); return this;}, css() {return this;}, prop() {return this;}};
 	}};
 	instance.$approval_body = {html(value) {rendered.set("approval-table", value);}};
 	instance.destroy_charts = () => charts.clear();
@@ -30,10 +30,24 @@ test("unknown expense amounts render as unavailable while real zero stays zero",
 	assert.equal(rendered.get('[data-stat="approvedTotal"]'), "—");
 	assert.equal(rendered.get('[data-stat="budgetSubmittedApprovedTotal"]'), "—");
 	assert.equal(rendered.get('[data-stat="productionTotal"]'), "0.00");
-	const context = vm.createContext({frappe: {listview_settings: {}}});
-	vm.runInContext(fs.readFileSync(path.join(__dirname, "../budget/doctype/budget_ledger_entry/budget_ledger_entry_list.js"), "utf8"), context);
-	assert.equal(vm.runInContext("format_wan(null)", context), "—");
-	assert.equal(vm.runInContext("format_wan(0)", context), "¥0.00");
+	const context = vm.createContext({window: {}, frappe: {listview_settings: {}}});
+	vm.runInContext(fs.readFileSync(path.join(__dirname, "../public/js/budget_detail.js"), "utf8"), context);
+	assert.equal(vm.runInContext("window.BudgetLedgerDetail.formatAmount(null)", context), "—");
+	assert.equal(vm.runInContext("window.BudgetLedgerDetail.formatAmount(0)", context), "¥0.00");
+});
+
+test("shared CN report labels approval amounts and preserves legacy labels on switch", async () => {
+	const {instance, rendered, charts} = dashboard();
+	const data = {expense_basis: "approved", scope_notice: "Approval is not payment", availability: {expenses: true},
+		trend: [{month: "2026-11", actualExpense: 20}], region_distribution: [{region: "CN", expense: 20}]};
+	instance.render_scope(data);
+	assert.equal(rendered.get('[data-stat-label="approvedTotal"]'), "Approved Spending Total");
+	assert.match(rendered.get(".br-scope"), /Approval is not payment/);
+	await instance.render_charts(data);
+	assert.ok(charts.get("trend").series.some(row => row.name === "Approved Spending"));
+	assert.ok(!charts.get("trend").series.some(row => row.name === "实际支出"));
+	instance.render_scope({expense_basis: "legacy"});
+	assert.equal(rendered.get('[data-stat-label="approvedTotal"]'), "实际支出合计");
 });
 
 test("unavailable approval response clears prior metrics and explains missing data", () => {
@@ -66,4 +80,23 @@ test("missing expense source hides expense series and dependent charts but prese
 	await instance.render_charts(data);
 	assert.equal(charts.get("region-dist").series.length, 2);
 	assert.equal(charts.get("trend").series.find(row => row.name === "实际支出").data[0], 0);
+});
+
+test("unavailable annual expenses hide only the trend series and recover on refresh", async () => {
+	const {instance, charts} = dashboard();
+	const data = {expense_basis: "approved", availability: {expenses: true, trend_expenses: false, pending_expenses: true},
+		trend: [{month: "2026-11", nonProduction: 500, actualExpense: null}],
+		region_distribution: [{region: "CN", budget: 500, expense: 100}],
+		execution_status: [{deptName: "Finance", total: 500, executed: 100, inProgress: 20, unexecuted: 380}],
+		dept_compare: [{deptName: "Finance", budget: 500, approved: 100}]};
+	await instance.render_charts(data);
+	assert.ok(!charts.get("trend").series.some(row => row.name === "Approved Spending"));
+	assert.ok(!charts.get("trend").legend.data.includes("Approved Spending"));
+	assert.equal(charts.get("region-dist").series.find(row => row.name === "Approved Spending").data[0], 100);
+	assert.equal(charts.get("exec-status").series.find(row => row.name === "Approved Spending").data[0], 100);
+	assert.equal(charts.get("compare").series.find(row => row.name === "Approved Spending").data[0], 100);
+	data.availability.trend_expenses = true;
+	data.trend[0].actualExpense = 100;
+	await instance.render_charts(data);
+	assert.equal(charts.get("trend").series.find(row => row.name === "Approved Spending").data[0], 100);
 });

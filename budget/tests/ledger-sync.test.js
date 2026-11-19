@@ -29,6 +29,34 @@ function host(call) {
 }
 const settings = {version:"v1",corp_id:"corp-1",profile:"budget",enabled:true,configured:true,blocked_by:null};
 
+test("CN settings offer the shared source without starting synchronization", async () => {
+	const requests = [];
+	const api = create(host(async req => {
+		requests.push(req.method);
+		return {message:{...settings,shared_oa_available:true,profile:"operating_oa",enabled:false}};
+	}));
+	const dialog = await api.openSettings();
+	const field = dialog.fields.find(f => f.fieldname === "profile");
+	assert.equal(field.default,"operating_oa");
+	assert.equal(field.options[0].value,"operating_oa");
+	assert.equal(dialog.fields.find(f => f.fieldname === "enabled").default,0);
+	assert.deepEqual(requests,["budget.services.ledger_sync_settings.get_sync_settings"]);
+});
+
+test("unmigrated settings hide organization mappings and do not submit their values", async () => {
+	const requests=[];
+	const api=create(host(async req=>{
+		requests.push(req);
+		return {message:{...settings,organization_review_ready:false}};
+	}));
+	const dialog=await api.openSettings();
+	assert.equal(dialog.fields.find(f=>f.fieldname === "organization_mappings").hidden,true);
+	await dialog.primary_action({corp_id:"corp-1",profile:"budget",enabled:0,organization_mappings:[]});
+	assert.equal("organization_mappings" in requests[1].args,false);
+	assert.equal(api.canStart({settings:{...settings,blocked_by:"schema_update_required"}}),false);
+	assert.match(api.statusHTML({settings:{...settings,blocked_by:"schema_update_required"}}),/requires a database update/);
+});
+
 test("only complete enabled and idle settings can start synchronization", () => {
 	const api = create({});
 	assert.equal(api.canStart({settings, state:"success"}),true);
@@ -122,4 +150,58 @@ test("status failure disables synchronization instead of reusing stale eligibili
 test("non-managers cannot open configuration or synchronization controls", async () => {
 	const h=host(()=>assert.fail('unauthorized request'));h.frappe.session.user='Accounts User';
 	const api=create(h);await api.openSettings();await api.openSync();
+});
+
+test("source transition verifies first and switches only after a second action", async () => {
+	const requests = []; let refreshed = 0;
+	const api = create(host(async req => {
+		requests.push(req);
+		return {message:req.method.endsWith("preview_shared_source") ? {token:"verified",matched:5,additional:2} : {switched:true}};
+	}));
+	const dialog = api.openTransition(settings, () => refreshed++);
+	assert.equal(requests.length,0);
+	await dialog.primary_action();
+	assert.equal(requests.length,1);
+	assert.equal(refreshed,0);
+	assert.equal(dialog.primary.content,"Confirm Source Switch");
+	await dialog.primary_action();
+	assert.equal(requests.length,2);
+	assert.deepEqual(requests[1].args,{token:"verified",expected_version:"v1"});
+	assert.equal(refreshed,1);
+	assert.equal(dialog.visible,false);
+	assert.ok(requests.every(req => !req.method.includes("sync_from_oa")));
+});
+
+test("failed source confirmation discards proof and requires a fresh verification", async () => {
+	const requests = [];
+	const api = create(host(async req => {
+		requests.push(req.method);
+		if(req.method.endsWith("confirm_shared_source")) throw Error("changed snapshot");
+		return {message:{token:"one",matched:1,additional:0}};
+	}));
+	const dialog = api.openTransition(settings, () => assert.fail("must not report success"));
+	await dialog.primary_action();await dialog.primary_action();
+	assert.equal(dialog.primary.content,"Verify Source");
+	assert.equal(dialog.visible,true);
+	await dialog.primary_action();
+	assert.ok(requests[2].endsWith("preview_shared_source"));
+});
+
+test("organization review keeps the source identity read-only and saves against the settings version", async () => {
+	const requests = [];let refreshed = 0;
+	const api = create(host(async req => {
+		requests.push(req);
+		return {message:req.method.endsWith("get_mapping_context") ? {department_id:"org1",source_name:"<old name>",version:"v2"} : {saved:true}};
+	}));
+	const dialog = await api.openOrganization("B1",()=>refreshed++);
+	assert.equal(dialog.fields.find(f=>f.fieldname === "department_id").read_only,1);
+	assert.match(dialog.fields[0].options,/&lt;old name&gt;/);
+	await dialog.primary_action({company:"Company A",organization_level:"company"});
+	assert.deepEqual(requests[1].args,{name:"B1",company:"Company A",department:"",organization_level:"company",expected_version:"v2"});
+	assert.equal(refreshed,1);
+});
+
+test("new mapping and source-transition dialogs require manager access", async () => {
+	const h=host(()=>assert.fail("unauthorized request"));h.frappe.session.user="Accounts User";
+	const api=create(h);await api.openOrganization("B1");api.openTransition(settings,()=>{});
 });

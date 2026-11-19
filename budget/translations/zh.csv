@@ -147,11 +147,32 @@ Expense data unavailable,支出数据暂不可用
 Approval data unavailable,审批数据暂不可用
 Synchronization Run ID,同步运行编号
 Synchronization Reason Code,同步原因代码
+Budget Execution Analysis,预算执行分析
+Budget Overview,预算概览
+Budget Details,预算明细
+Budget Data Review,预算数据核对
+Budget Quotas,预算额度
+Budget Subjects,预算科目
+All Budget Types,全部预算类型
 Non-production Budget,非生产预算
+Effective Budget Quotas,已生效预算额度
+Effective Quotas,生效额度单数
+Departments,部门数
+Amount Differences,金额差异数
+Review Issues,待核对问题
+Budget Applications,预算申请数
+Budget Records Requiring Review,待核对预算单
+Monthly Budget,月度预算
+Budget Composition,预算构成
+Subsidiary Budget Distribution,子公司预算分布
 Budget company is missing,预算公司待确认
 Budget department is missing,预算部门待确认
 Budget month is missing,预算月份待确认
 Budget amount differs from detail total,预算金额与明细合计不一致
+"Budgets use complete budget months and CNY amounts. Budget plans, effective quotas and actual expenses are shown separately.",预算按完整预算月份统计，金额为人民币。预算申请、已生效额度与实际支出分别展示。
+Department filter,部门筛选
+Budget data could not be loaded,预算数据加载失败
+The CN budget workspace requires the local budget source. Use the original budget pages for other sources.,CN 预算工作台需要本地预算数据源，其他数据源请使用原有预算页面。
 Invalid budget filters,预算筛选条件无效
 Start date must not be after end date,开始日期不能晚于结束日期
 Pending expense company scope is unavailable,审批中支出暂不支持可靠的公司归属核对
@@ -159,12 +180,31 @@ Approval efficiency company scope is unavailable,审批效率暂不支持按公�
 Expense company ownership is incomplete; company execution amounts are unavailable,支出公司归属不完整，暂无法确定该公司的执行金额
 Narrow the date range to export at most 10000 budget records,请缩小日期范围，每次最多导出 10000 条预算记录
 Sync Settings,同步设置
+This total contains operating expenses only. Select Budget to view plans and quotas separately; purchase statistics are not connected yet.,此合计仅包含运营支出。选择“预算”可查看预算申请和额度；采购支出统计尚未接入。
+No records,暂无记录
 Approval Number,审批单号
 Subsidiary,子公司
 Amount,金额
+Previous,上一页
 Next,下一页
+Records,记录数
 Subject,科目
+Details,详情
+Clear,清除
+Subsidiaries Included,纳入子公司数
+Applications,申请数
+Pending Review,待核对
+Loading...,加载中…
+All Subsidiaries,全部子公司
+Date Basis,日期口径
+Date Range,日期范围
+Reporting Currency,折算币种
+Reset Filters,重置筛选
 Retry,重试
+Group,集团
+Quota Distribution,预算额度分布
+Synchronize Budget Ledger,同步预算台账
+Shared CN/MX OA approval API,共用 CN/MX OA 审批接口
 Shared OA configuration changed. Reopen the sync settings.,共用 OA 配置已变更，请重新打开同步设置。
 OA approval snapshot changed. Retry synchronization.,OA 审批快照已变更，请重新同步。
 OA approval pagination returned duplicate records.,OA 审批分页返回了重复记录。
@@ -199,7 +239,24 @@ Budget source verification timed out. No source was changed.,预算来源验证�
 The source verification expired. Verify again before switching.,来源验证已失效，请重新验证后再切换。
 The source or ledger changed after verification. Verify again before switching.,验证后来源或台账发生变化，请重新验证后再切换。
 Switched to the shared OA API after verifying {0} budget approvals. Synchronization remains disabled.,已核对 {0} 笔预算审批并切换至共用 OA 接口，同步保持停用。
+Map exact organization IDs. Company-level budgets leave the department empty. Saving applies mappings to existing entries and future synchronization.,请按组织 ID 精确映射；公司层级预算的部门留空。保存后映射用于现有台账和后续同步。
+Verify and Switch OA Source,验证并切换 OA 来源
+Review Organization,核对组织归属
+This assignment applies to all budgets with the same organization ID.,该映射将用于同一组织 ID 下的全部预算。
+Save Mapping,保存映射
+Verify every existing budget against the shared API before switching. The corporation stays the same. Switching preserves ledger data and disables synchronization. Unsaved settings are not included.,切换前逐笔核对现有预算与共用接口。企业范围保持一致，切换会保留台账并停用同步。本次验证不包含尚未保存的设置。
+Verify Source,验证来源
+Verified {0} existing budgets; {1} additional approvals await a later synchronization.,已验证 {0} 笔现有预算；另有 {1} 笔审批待后续同步。
+Confirm Source Switch,确认切换来源
+OA source switched. Synchronization is disabled.,OA 来源已切换，同步处于停用状态。
+Could not verify or switch the source. No ledger data was changed. Reopen settings and retry.,来源验证或切换未完成，台账数据未改变。请重新打开设置后重试。
 Budget organization review requires a database update. Ask an administrator to complete the update.,预算组织归属核对需要更新数据库结构，请联系管理员完成更新。
+Organization review is not enabled yet. Existing budgets remain available.,组织归属核对尚未启用，现有预算仍可查看。
+Approved Spending,已审批支出
+Approved Spending Total,已审批支出合计
+Approved Spending of Budgeted Departments,已编制预算部门的已审批支出
+Department Budget vs Approved Spending (Top 10),部门预算与已审批支出（前 10 名）
+Statistical Scope,统计口径
 Unlinked organization,未关联预算组织
 CN Operating Expenses,国内运营支出
 Review the budget OA source settings before loading approval statistics.,请先核对预算的 OA 来源设置，再读取审批统计。

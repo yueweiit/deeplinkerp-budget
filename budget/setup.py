@@ -62,6 +62,7 @@ CN_PAGES = (
 	("Expense Details", "china-expense-details", "list", 0),
 	("Expenditure Analysis", "china-expense-reports", "", 1),
 	("Personnel Analysis", "china-personnel-report", "", 1),
+	("Budget Execution Analysis", "budget-dashboard", "", 1),
 	("Data Review", "china-expense-review", "clipboard-check", 0),
 )
 
@@ -76,8 +77,6 @@ def cn_navigation_items(has_page):
 			items.append(dict(type="Section Break", label="Expense Reports", icon="chart-no-axes-combined",
 				child=0, indent=1, collapsible=1, keep_closed=1))
 		items.append(dict(type="Link", label=label, link_type="Page", link_to=route, icon=icon, child=child))
-	items.append(dict(type="Section Break", label="Budget Management", icon="landmark",
-		child=0, indent=1, collapsible=1, keep_closed=1))
 	return items
 
 
@@ -146,7 +145,10 @@ def apply_budget_nav() -> None:
 	if items:
 		sidebar = frappe.get_doc("Workspace Sidebar", "China Operating Expenses")
 		for item in sidebar.items:
-			_set(item.name, {"idx": item.idx + len(items), "child": int(regional_layout)})
+			if regional_layout:
+				frappe.db.delete("Workspace Sidebar Item", {"name": item.name})
+			else:
+				_set(item.name, {"idx": item.idx + len(items), "child": 0})
 		for idx, item in enumerate(items, 1):
 			frappe.get_doc({"doctype": "Workspace Sidebar Item", "parent": sidebar.name,
 				"parenttype": "Workspace Sidebar", "parentfield": "items", "idx": idx, **item}).db_insert()
@@ -224,3 +226,8 @@ def restore_desktop_icon_position() -> None:
 		update_modified=False,
 	)
 	frappe.cache.delete_key("desktop_icons")
+
+
+def boot_session(bootinfo):
+	bootinfo.cn_budget_workbench = ("deeplinkerp_branding" in frappe.get_installed_apps()
+		and bool(cn_navigation_items(lambda route: frappe.db.exists("Page", route))))

@@ -147,11 +147,32 @@ Expense data unavailable,Datos de gastos no disponibles
 Approval data unavailable,Datos de aprobaciones no disponibles
 Synchronization Run ID,Identificador de ejecución de sincronización
 Synchronization Reason Code,Código de motivo de sincronización
+Budget Execution Analysis,Análisis de ejecución del presupuesto
+Budget Overview,Resumen del presupuesto
+Budget Details,Detalles del presupuesto
+Budget Data Review,Revisión de datos del presupuesto
+Budget Quotas,Cuotas presupuestarias
+Budget Subjects,Partidas presupuestarias
+All Budget Types,Todos los tipos de presupuesto
 Non-production Budget,Presupuesto no productivo
+Effective Budget Quotas,Cuotas presupuestarias vigentes
+Effective Quotas,Número de cuotas vigentes
+Departments,Departamentos
+Amount Differences,Diferencias de importe
+Review Issues,Problemas por revisar
+Budget Applications,Solicitudes de presupuesto
+Budget Records Requiring Review,Presupuestos por revisar
+Monthly Budget,Presupuesto mensual
+Budget Composition,Composición del presupuesto
+Subsidiary Budget Distribution,Distribución del presupuesto por filial
 Budget company is missing,Empresa del presupuesto por confirmar
 Budget department is missing,Departamento del presupuesto por confirmar
 Budget month is missing,Mes del presupuesto por confirmar
 Budget amount differs from detail total,El importe del presupuesto difiere del total detallado
+"Budgets use complete budget months and CNY amounts. Budget plans, effective quotas and actual expenses are shown separately.","Los presupuestos se calculan por meses completos en CNY. Las solicitudes, las cuotas vigentes y los gastos reales se muestran por separado."
+Department filter,Filtro de departamento
+Budget data could not be loaded,No se pudieron cargar los datos del presupuesto
+The CN budget workspace requires the local budget source. Use the original budget pages for other sources.,"El espacio de presupuestos CN requiere la fuente local. Para otras fuentes, utilice las páginas originales."
 Invalid budget filters,Filtros de presupuesto no válidos
 Start date must not be after end date,La fecha inicial no puede ser posterior a la final
 Pending expense company scope is unavailable,No se puede determinar de forma fiable la empresa de los gastos pendientes
@@ -159,12 +180,31 @@ Approval efficiency company scope is unavailable,La eficiencia de aprobación no
 Expense company ownership is incomplete; company execution amounts are unavailable,La asignación de gastos a empresas está incompleta; no se puede determinar el importe ejecutado de esta empresa
 Narrow the date range to export at most 10000 budget records,Reduzca el intervalo de fechas para exportar un máximo de 10000 registros
 Sync Settings,Configuración de sincronización
+This total contains operating expenses only. Select Budget to view plans and quotas separately; purchase statistics are not connected yet.,Este total solo incluye gastos operativos. Seleccione Presupuesto para consultar las solicitudes y cuotas; los gastos de compras aún no están conectados.
+No records,Sin registros
 Approval Number,Número de aprobación
 Subsidiary,Filial
 Amount,Importe
+Previous,Anterior
 Next,Siguiente
+Records,Registros
 Subject,Partida
+Details,Detalles
+Clear,Limpiar
+Subsidiaries Included,Filiales incluidas
+Applications,Solicitudes
+Pending Review,Pendiente de revisión
+Loading...,Cargando...
+All Subsidiaries,Todas las filiales
+Date Basis,Criterio de fecha
+Date Range,Intervalo de fechas
+Reporting Currency,Moneda de presentación
+Reset Filters,Restablecer filtros
 Retry,Reintentar
+Group,Grupo
+Quota Distribution,Distribución de cuotas presupuestarias
+Synchronize Budget Ledger,Sincronizar registro presupuestario
+Shared CN/MX OA approval API,API de aprobaciones OA compartida de CN/MX
 Shared OA configuration changed. Reopen the sync settings.,La configuración de OA compartida ha cambiado. Vuelva a abrir la configuración de sincronización.
 OA approval snapshot changed. Retry synchronization.,La instantánea de aprobaciones OA ha cambiado. Reintente la sincronización.
 OA approval pagination returned duplicate records.,La paginación de aprobaciones OA devolvió registros duplicados.
@@ -199,7 +239,24 @@ Budget source verification timed out. No source was changed.,Se agotó el tiempo
 The source verification expired. Verify again before switching.,La verificación del origen caducó. Verifique de nuevo antes de cambiar.
 The source or ledger changed after verification. Verify again before switching.,El origen o el registro cambió después de la verificación. Verifique de nuevo antes de cambiar.
 Switched to the shared OA API after verifying {0} budget approvals. Synchronization remains disabled.,Se verificaron {0} aprobaciones presupuestarias y se cambió a la API OA compartida. La sincronización sigue deshabilitada.
+Map exact organization IDs. Company-level budgets leave the department empty. Saving applies mappings to existing entries and future synchronization.,"Asigne los ID de organización exactos. Para presupuestos de empresa, deje vacío el departamento. Al guardar, las asignaciones se aplican al registro existente y a sincronizaciones futuras."
+Verify and Switch OA Source,Verificar y cambiar el origen OA
+Review Organization,Verificar asignación de organización
+This assignment applies to all budgets with the same organization ID.,Esta asignación se aplica a todos los presupuestos con el mismo ID de organización.
+Save Mapping,Guardar asignación
+Verify every existing budget against the shared API before switching. The corporation stays the same. Switching preserves ledger data and disables synchronization. Unsaved settings are not included.,"Antes de cambiar, verifique cada presupuesto existente con la API compartida. La corporación no cambia. Se conserva el registro y se deshabilita la sincronización. No se incluyen los cambios de configuración sin guardar."
+Verify Source,Verificar origen
+Verified {0} existing budgets; {1} additional approvals await a later synchronization.,Se verificaron {0} presupuestos existentes; hay {1} aprobaciones adicionales pendientes de sincronizar.
+Confirm Source Switch,Confirmar cambio de origen
+OA source switched. Synchronization is disabled.,Se cambió el origen OA. La sincronización está deshabilitada.
+Could not verify or switch the source. No ledger data was changed. Reopen settings and retry.,No se pudo verificar o cambiar el origen. Los datos del registro no cambiaron. Abra de nuevo la configuración e inténtelo otra vez.
 Budget organization review requires a database update. Ask an administrator to complete the update.,La verificación de organizaciones presupuestarias requiere actualizar la base de datos. Solicite la actualización al administrador.
+Organization review is not enabled yet. Existing budgets remain available.,La verificación de organizaciones aún no está habilitada. Los presupuestos existentes siguen disponibles.
+Approved Spending,Gastos aprobados
+Approved Spending Total,Total de gastos aprobados
+Approved Spending of Budgeted Departments,Gastos aprobados de departamentos con presupuesto
+Department Budget vs Approved Spending (Top 10),Presupuesto departamental frente a gastos aprobados (10 principales)
+Statistical Scope,Alcance estadístico
 Unlinked organization,Organización sin presupuesto vinculado
 CN Operating Expenses,Gastos operativos de China
 Review the budget OA source settings before loading approval statistics.,Revise la configuración del origen OA del presupuesto antes de consultar las estadísticas de aprobación.

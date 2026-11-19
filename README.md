@@ -6,9 +6,9 @@
 > **命名**：app 按业务域命名（对齐 `china_finance` / `overseas_costing` / `mes_integration`），
 > 不按数据源命名。钉钉与 `dingtalk_oa` 库只是数据来源，不是这个 app 的边界。
 
-导航入口为“运营支出（CN）”（`China Operating Expenses`），包含预算台账、预算数据看板和预算配置；安装 `deeplinkerp_branding` 且已有运营支出工作台时，同时提供该页面入口。Sidebar、Desktop Icon 及每个 Page/DocType 仍按原生权限过滤，不额外授权业务数据。
+导航入口为“运营支出（CN）”（`China Operating Expenses`）。独立安装保留预算台账、预算看板和预算额度入口；与 `deeplinkerp_branding` 联合安装时整合进 CN 工作台。Sidebar、Desktop Icon 及每个 Page/DocType 仍按原生权限过滤，不额外授权业务数据。
 
-安装新版 `deeplinkerp_branding` 后，CN 提供支出概览、支出明细、统计报表（支出分析、薪酬人事分析）和数据核对，原有三个预算页面收在“预算管理”分组。运营支出已复用中国财务原入口的申请、付款、核对和办理接口；预算、采购及薪酬统计仍显示待接入，不读取 MX 数据或模拟金额。详细统计口径和权限边界由品牌 App 的 `docs/operating-expenses-implementation.md` 维护。
+安装新版 `deeplinkerp_branding` 后，CN 提供支出概览、支出明细、统计报表和数据核对，取消独立“预算管理”分组。选择上方“预算”后，概览、明细及核对读取本地预算；明细提供“预算台账／预算额度”页签。原预算看板归入“统计报表 → 预算执行分析”。运营支出仍复用中国财务原申请、付款及办理接口；采购及薪酬统计尚未接入，不读取 MX 数据或模拟金额。详细运营支出口径由品牌 App 的 `docs/operating-expenses-implementation.md` 维护。
 
 页面由品牌 App 的 `public/js/china_expenses.js`、`public/js/china_operating_expenses.js`、`public/js/china_expenses_page.js` 和五个 `china_*` Page 承载；复用 MX 展示组件但保持独立路由、偏好及数据服务。`budget.setup.cn_navigation_items` 仅在五个 Page 均存在时启用新版侧栏；创建后调用品牌 App 的导航合并，移除中国财务系统管理的重复入口。旧运营 URL 和独立安装的回退入口保留。卸载预算 App 删除 CN 侧栏后，若品牌 App 仍存在，会立即恢复其原生备用入口，不依赖后续迁移。无需新增业务表。
 
@@ -138,26 +138,36 @@ bench --site <site> build --app budget      # 生成 /assets/budget（Page 脚�
 bench --site <site> clear-cache
 ```
 
-入口位于“运营支出（CN）”：预算台账（DocType）、预算数据看板
-（`/desk/budget-dashboard`）、预算配置（`/desk/budget-config`）。`after_install` 与
-`after_migrate` 都会幂等重放，`install-app` 之后仍需跑一次 `migrate`（Page 记录与脚本
-是 migrate 时才同步的，缺了会表现为「点进去空白」）。
+联合安装下，“预算执行分析”沿用 `/desk/budget-dashboard`；旧 `/desk/budget-config` 转到预算明细的额度页签，`/desk/budget-ledger-entry` 仍可直接打开原生列表，原单详情保留。CN 集成时列表、报表、详情及额度均读取同步后的本地数据，旧 `budget_data_source` / `budget_oa_source` 不再切换 CN 来源或限制导航；独立 Budget 安装仍保留原模式及原组件。`after_install` / `after_migrate` 调用 `budget.setup.apply_budget_nav` 重放导航，不更改 ERPNext 原生 Budget 菜单及业务数据。
 
-找不到入口时先单独补一次：
+### CN 预算整合（2026-11-19）
 
-```bash
-bench --site <site> execute budget.setup.ensure_budget_sidebar_link
-```
+- `budget/api/cn_workbench.py` 提供本地预算概览、分页明细、核对及最多 10000 行的 XLSX 导出。日期按覆盖的完整预算月份归一；公司取来源原名精确筛选，不与法律公司做模糊合并。预算申请按台账 `COALESCE(total_amount, amount, 0)` 计，真实零值保留。
+- 概览与台账按预算月份查询；核对覆盖公司/部门/月份缺失及金额差异（超过 0.01）。公司层级预算允许部门展示名为空，须有相符的组织路径，或由组织映射明确核对为公司层级；不能仅凭非空组织 ID 跳过核对。缺少预算月份的核对记录按申请日期定位，不计入已归期预算金额。概览待核对数采用同一核对查询。
+- 预算额度复用 `BudgetQuotaLocalSource`，只计 `effective`，按公司及月份区间读取；列表、汇总和导出共用部门 ID／名称下钻条件。保留集团、公司、部门、科目汇总以及每单科目明细。额度和预算申请分别展示，不相加，也不混入实际支出。原额度同步任务保持不变；页面“同步预算台账”明确只同步台账。
+- `public/js/cn_budget.js` 为 CN 提供预算适配；品牌 App 负责公共日期、导航及生命周期。原报表和详情分别提取为 `public/js/budget_report.js`、`budget_detail.js`，原生页面和 CN 共用。预算仅用人民币，日期/公司及额度页签随导航保留。
+- 报表公司筛选同时约束预算与支出。支出只通过可靠、唯一的部门 ID 归属公司；归属不完整或冲突时，公司执行金额显示不可用，不把全公司金额或零值作为该公司金额。独立旧模式的在途支出和审批效率接口没有可靠公司维度，选择公司时相应指标显示不可用；同年趋势仍显示自然年。
+- CN 共用来源的“预算执行分析”通过 `integrations/cn_expense_report_source.py` 读取品牌 App 的本地运营审批快照，沿用原生列表/公司/字段权限，不再调用旧独立支出库和审批库。**已审批支出**按审批完成日期（中国时区）归期，审批中金额按申请日期归期；外币复用 MX 的月初汇率服务折算 CNY，分别采用审批完成月及申请月。只覆盖已接入的国内运营申请，采购尚未纳入；审批通过不代表付款，预算申请也不计入支出。页面卡片及图例明确使用“已审批支出”，口径放入悬停提示。
+- 预算组织以相同企业下的组织 ID 精确关联；来源主体与发起人部门不同则不能借用发起人部门 ID。未关联记录仍计入全部公司支出并单列，不能用相似名称冲抵预算。公司筛选通过台账组织归属及显式组织映射约束金额与审批效率。审批效率按区间内发起的申请和 OA 任务时间计算；缺少完成时间、汇率或必要节点信息时返回可翻译的不可用状态，预算部分仍可展示；预算总额为零时整体执行率为 `null`（页面“—”）。
+- 品牌 App 同步保存 `workflow_summary.reporting` 的精简时间快照；已有申请在正常同步结束核查时补齐。读取报表不会主动同步审批或生成付款记录，无需新增数据库字段。接口保留 `approvedTotal`、`actualExpense` 等历史字段，新增 `expense_basis=approved` 和 `scope_notice` 区分展示口径，独立旧模式保持兼容。
+- 执行状态图按预算、已审批支出和审批中支出的组织并集汇总；没有预算或未关联预算组织的已审批金额仍单列展示。全年趋势读取失败时，重新按当前查询区间计算金额与执行率，返回独立的 `availability.trend_expenses=false`，趋势中的支出值为 `null`，前端只隐藏该趋势系列；本期也无法核实的金额仍显示不可用。OA 来源初始化失败时保留本地预算，显示一条翻译后的配置提示，不回退到旧来源，也不附带服务器错误弹窗。这些读取均不修改同步配置或业务数据。
+- 台账、概览、核对、报表要求 `System Manager` / `Accounts Manager`；额度与同步设置仍仅允许 `System Manager`。前端隐藏额度页签之外，后端每次读取/导出均鉴权；未扩大角色授权。全部审批表仍是运营支出合计，预算单独展示。
+- CN 预算浏览不触发同步；同步设置及同步执行复用 `BudgetLedgerSync`。未配置连接/企业范围时仍不得启用或同步。
+- 同步设置新增 `operating_oa`（共用 CN/MX OA 审批接口），由 `integrations/shared_operating_oa.py` 复用品牌 App 的只读审批客户端与服务器端 URL／企业白名单，按预算模板、审批通过状态和国内执行地区读取。单企业无需重复填写企业 ID，多企业必须明确选择；未配置且无历史台账的 CN 站点默认展示此来源，但不会自动启用或同步。已绑定台账仍禁止直接换企业/来源，已有历史记录不会因读取页面而重写。
+- HTTP 同步逐页检查身份、快照、重复记录、游标前进和页数上限，读取完整后才复用原事务、幂等及金额核验写入本地。现有共享接口没有部门树端点，保留已确认的本地组织路径，新组织保留 OA 原名，由管理员在明细／核对行的“核对组织归属”中明确指定公司、部门或公司层级；不猜测公司，不请求不存在的旧预算部门接口。共享接口未提供的审批统计和未关联的旧支出汇总显示不可用，不以零值代替。
+- `services/organization_mapping.py` 将组织归属存入 `Budget Settings.organization_mappings`（子表 `Budget Organization Mapping`），按 `corp_id + department_id` 精确匹配，拒绝重复、跨企业、缺失名称及层级冲突。同步设置可集中维护；保存与同步共用锁，原生设置保存也校验并记版本。保存映射只更新对应台账的公司／部门及 `reviewed_organization_level`，清空旧摘要以便后续同步重检，保留 OA 原名、原路径和全部金额。删除映射恢复原路径推导结果；无原路径时回到待核对。
+- 已有台账通过同步设置“验证并切换 OA 来源”迁移到 `operating_oa`：`services/ledger_source_transition.py` 检查同企业白名单，完整读取国内已通过预算，逐笔匹配审批实例 ID、单号、组织 ID、月份、类型、模板及金额。预览仅生成绑定当前用户／配置／数据摘要的 10 分钟凭据；确认时在同步锁内重新核对，并锁定现有台账行。验证失败、超时、企业不符或预览后变化均拒绝切换。仅这条受控路径允许重新绑定指纹，保留台账及组织映射，记录审计说明并停用同步；不会导入、删除数据或自动入队。历史非国内记录、缺少实例 ID 或金额不一致须先人工查明，不能靠清空指纹绕过。
+- 发布须先同步 `Budget Settings`、新增子表 `Budget Organization Mapping` 及台账 `reviewed_organization_level` 元数据，再启用新版页面。无需回填或删除历史台账。未迁移站点按实际列存在情况读取旧组织路径，概览、明细、核对与导出仍可用；界面明确提示组织归属核对尚未启用，并阻止映射保存、来源切换及同步写入，返回 `schema_update_required`。结构检查同时核对物理表／列与 Frappe 元数据，避免仅更新代码就查询不存在的列。当前已在未迁移开发站点只读调用概览、明细、核对、导出和设置接口，并通过浏览器验证概览返回 HTTP 200、四张统计卡片正常渲染且无页面脚本异常；台账与同步日志数量保持不变。未运行迁移、真实同步或来源切换。
 
-看板要求 `System Manager` 或 `Accounts Manager`，预算配置仅 `System Manager`。
+验证入口：`budget/tests/test_cn_workbench.py`、`test_cn_navigation.py`、`test_organization_mapping.py`、`test_ledger_source_transition.py`、`cn-budget.test.js`、`ledger-sync.test.js`、`dashboard-availability.test.js`。开发站点另用事务内合成记录验证公司隔离、跨月、缺失月份核对、分页和导出，完成后回滚；浏览器验证 CN/原入口切换及无自动同步。此验证不等于生产数据核对或部署。
 
 ## 配置
 
 ### 预算台账同步（2026-11-19）
 
 台账当前默认使用 `local`（见 `budget/integrations/budget_factory.py`），由
-`services/oa_budget_sync.py` 只读读取 OA PostgreSQL 归档并解析到本地台账。
-以下 HTTP 连接说明针对显式选择 HTTP 的接口适配器，不代表本地台账同步会使用 HTTP。
+`services/oa_budget_sync.py` 按连接配置只读读取 OA PostgreSQL 归档或共用 OA 审批接口，并解析到本地台账。
+下面的旧 HTTP 适配器与 `operating_oa` 共用审批接口是两个独立入口；CN 集成仅展示本地快照。
 
 - 台账页面菜单提供“预算同步设置”，工具栏提供独立“同步数据”。保存只保存配置，
   打开台账只读，不自动排入同步；兼容接口 `ensure_ledger_fresh` 也不再入队。

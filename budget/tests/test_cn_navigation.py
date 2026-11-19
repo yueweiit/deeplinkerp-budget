@@ -19,9 +19,22 @@ def test_optional_cn_pages_are_required_before_showing_new_navigation():
 	assert setup.cn_navigation_items(lambda route: route != "china-personnel-report") == []
 	items = setup.cn_navigation_items(lambda route: True)
 	assert [item["link_to"] for item in items if item["type"] == "Link"] == [row[1] for row in setup.CN_PAGES]
-	assert [item["label"] for item in items if item["type"] == "Section Break"] == ["Expense Reports", "Budget Management"]
+	assert [item["label"] for item in items if item["type"] == "Section Break"] == ["Expense Reports"]
 	assert all(item["collapsible"] and item["keep_closed"] for item in items if item["type"] == "Section Break")
-	assert [item["child"] for item in items if item["type"] == "Link"] == [0, 0, 1, 1, 0]
+	assert [item["child"] for item in items if item["type"] == "Link"] == [0, 0, 1, 1, 1, 0]
+
+
+def test_cn_boot_does_not_depend_on_the_old_budget_source_switch():
+    from types import SimpleNamespace
+    setup = load_setup()
+    setup.frappe.get_installed_apps = lambda: ["budget", "deeplinkerp_branding"]
+    setup.frappe.db = SimpleNamespace(exists=lambda *args: True)
+    info = SimpleNamespace()
+    setup.boot_session(info)
+    assert info.cn_budget_workbench is True
+    setup.frappe.db.exists = lambda dt, name: name != "china-personnel-report"
+    setup.boot_session(info)
+    assert info.cn_budget_workbench is False
 
 
 def test_uninstall_reconciles_surviving_operating_navigation_after_sidebar_removal():
