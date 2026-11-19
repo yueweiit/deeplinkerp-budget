@@ -150,6 +150,11 @@ def apply_budget_nav() -> None:
 		for idx, item in enumerate(items, 1):
 			frappe.get_doc({"doctype": "Workspace Sidebar Item", "parent": sidebar.name,
 				"parenttype": "Workspace Sidebar", "parentfield": "items", "idx": idx, **item}).db_insert()
+	if regional_layout and "deeplinkerp_branding" in frappe.get_installed_apps():
+		# Also reconcile after first installation: branding may migrate before
+		# this optional sidebar exists. Standalone budget keeps its fallback.
+		from deeplinkerp_branding.operating_navigation import ensure_operating_navigation
+		ensure_operating_navigation()
 	frappe.clear_cache()
 
 
@@ -167,6 +172,10 @@ def restore_budget_nav() -> None:
 					frappe.delete_doc(doctype, "China Operating Expenses", ignore_permissions=True)
 				finally:
 					frappe.conf.developer_mode = developer_mode
+		if "deeplinkerp_branding" in frappe.get_installed_apps():
+			# Restore the surviving app's fallback without requiring migrate.
+			from deeplinkerp_branding.operating_navigation import ensure_operating_navigation
+			ensure_operating_navigation()
 	except Exception:
 		frappe.log_error(title="Budget 导航还原失败", message=frappe.get_traceback())
 	finally:

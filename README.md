@@ -8,9 +8,9 @@
 
 导航入口为“运营支出（CN）”（`China Operating Expenses`），包含预算台账、预算数据看板和预算配置；安装 `deeplinkerp_branding` 且已有运营支出工作台时，同时提供该页面入口。Sidebar、Desktop Icon 及每个 Page/DocType 仍按原生权限过滤，不额外授权业务数据。
 
-安装新版 `deeplinkerp_branding` 后，CN 默认进入与 MX 相同风格的支出概览，提供支出明细、统计报表（支出分析、薪酬人事分析）和数据核对，原有三个预算页面收在“预算管理”分组。审批表筛选为运营支出、预算、采购支出；本阶段只提供页面布局和导航，统计区域明确显示“待接入数据”，不读取 MX 统计或展示模拟金额，也不执行币种折算。旧运营办理页面通过工作台菜单进入，旧路由保留。
+安装新版 `deeplinkerp_branding` 后，CN 提供支出概览、支出明细、统计报表（支出分析、薪酬人事分析）和数据核对，原有三个预算页面收在“预算管理”分组。运营支出已复用中国财务原入口的申请、付款、核对和办理接口；预算、采购及薪酬统计仍显示待接入，不读取 MX 数据或模拟金额。详细统计口径和权限边界由品牌 App 的 `docs/operating-expenses-implementation.md` 维护。
 
-页面由品牌 App 的 `public/js/china_expenses.js`、`public/js/china_expenses_page.js` 和五个 `china_*` Page 定义承载，复用 MX 样式、日期范围、下拉框及 Tooltip 组件；CN 路由参数 `cn_filters` 和按用户保存的日期/审批表偏好与 MX 隔离，首次打开默认中国时区当月、CNY，重置恢复全部默认筛选。子公司只通过原生权限过滤接口读取中国非集团公司。`budget.setup.cn_navigation_items` 仅在五个 Page 均存在时启用新版侧栏，单独安装 budget 仍保留原入口。本阶段无需新增业务表，Page 与侧栏随站点 migrate 同步。
+页面由品牌 App 的 `public/js/china_expenses.js`、`public/js/china_operating_expenses.js`、`public/js/china_expenses_page.js` 和五个 `china_*` Page 承载；复用 MX 展示组件但保持独立路由、偏好及数据服务。`budget.setup.cn_navigation_items` 仅在五个 Page 均存在时启用新版侧栏；创建后调用品牌 App 的导航合并，移除中国财务系统管理的重复入口。旧运营 URL 和独立安装的回退入口保留。卸载预算 App 删除 CN 侧栏后，若品牌 App 仍存在，会立即恢复其原生备用入口，不依赖后续迁移。无需新增业务表。
 
 ERPNext 的“预算”恢复在“会计”文件夹下，保留原生 Budget、Cost Center、Accounting Dimension、Cost Center Allocation、Budget Variance 五个入口。本 App 的 `setup.apply_budget_nav` 在安装/迁移时清理旧导航挂载，同步独立 CN 入口；`public/js/budget_navigation.js` 只清理这三个定制页面旧的 Budget 侧栏记忆。旧 URL、DocType、台账数据及接口均保留，不把 MX 排除明细自动写入国内财务数据。导航定义见 `budget/workspace_sidebar/china_operating_expenses.json` 和 `budget/desktop_icon/china_operating_expenses.json`。
 
