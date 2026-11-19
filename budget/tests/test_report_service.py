@@ -173,3 +173,36 @@ def test_build_report_falls_back_to_department_column(patch_sources) -> None:
 	data = report_service.build_report("2026-11-01", "2026-11-30")
 
 	assert [row["deptName"] for row in data["execution"]] == ["财务中心"]
+
+
+def test_unavailable_expenses_preserve_budget_but_hide_expense_dependent_metrics(patch_sources, monkeypatch):
+	patch_sources([{"budget_kind": "non_production", "budget_month": "2026-11-01",
+		"amount": 1000, "department": "Finance"}], [])
+	def unavailable():
+		raise RuntimeError("source binding mismatch")
+	monkeypatch.setattr(report_service, "get_expense_source", unavailable)
+	data = report_service.build_report("2026-11-01", "2026-11-30")
+	assert data["availability"]["expenses"] is False
+	assert data["availability"]["approval"] is False
+	assert data["stats"]["nonProductionTotal"] == 1000
+	for key in ("approvedTotal", "budgetSubmittedApprovedTotal", "overallRate"):
+		assert data["stats"][key] is None
+	assert all(row["actualExpense"] is None for row in data["trend"])
+	assert all(row["expense"] is None for row in data["region_distribution"])
+	for key in ("execution", "execution_status", "dept_compare"):
+		assert data[key] == []
+	assert data["dept_distribution"]
+
+
+def test_unavailable_pending_expenses_do_not_become_unexecuted_budget(patch_sources, monkeypatch):
+	patch_sources([{"budget_kind": "non_production", "budget_month": "2026-11-01",
+		"amount": 1000, "department": "Finance"}], [])
+	def unavailable():
+		raise RuntimeError("pending expenses offline")
+	monkeypatch.setattr(report_service, "get_budget_expense_source", unavailable)
+	data = report_service.build_report("2026-11-01", "2026-11-30")
+	assert data["availability"]["expenses"] is True
+	assert data["availability"]["pending_expenses"] is False
+	assert data["stats"]["approvedTotal"] == 0
+	assert data["execution_status"] == []
+	assert data["execution"]  # Confirmed expenses remain readable.

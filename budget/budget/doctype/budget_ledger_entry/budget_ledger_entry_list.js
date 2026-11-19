@@ -581,6 +581,7 @@ var bd_echarts_loading = null;
 
 // 金额格式与源项目 fmtWan 一致：≥ 1 万折算成「万」，否则保留两位小数
 function format_wan(value) {
+	if (value === null) return "—";
 	const num = Number(value || 0);
 	return num >= 10000 ? `¥${(num / 10000).toFixed(2)}万` : `¥${num.toFixed(2)}`;
 }
@@ -779,7 +780,11 @@ function render_budget_detail(data) {
 			@media (max-width: 800px) { .bd-info { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 		</style>`).appendTo(document.head);
 
-	mount_detail_chart(dialog, budget, expense);
+	if (data.expense_available === false) {
+		dialog.$body.find("[data-detail-chart]").text(__("Expense data unavailable"));
+	} else {
+		mount_detail_chart(dialog, budget, expense);
+	}
 }
 
 // 预算 vs 支出：与源项目 detail 图表的 ECharts 配置逐项对齐（柱顶金额标签、万单位、图例置顶）

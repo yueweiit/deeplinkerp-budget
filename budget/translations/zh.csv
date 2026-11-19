@@ -143,5 +143,7 @@ Running,运行中
 Skipped,已跳过
 No eligible budget approvals were found. Existing ledger data was retained.,没有符合条件的预算审批，已保留现有台账数据。
 The expense source does not match the budget source. Expense amounts and balances are unavailable until the source binding is reviewed.,支出数据来源与预算来源不一致，请核对来源绑定；当前不显示支出金额及余额。
+Expense data unavailable,支出数据暂不可用
+Approval data unavailable,审批数据暂不可用
 Synchronization Run ID,同步运行编号
 Synchronization Reason Code,同步原因代码

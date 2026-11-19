@@ -284,7 +284,7 @@ class BudgetDashboard {
 				if (request !== this.request_id) return;
 				const data = response.message || {};
 				this.render_stats(data.stats || {});
-				this.render_approval(data.approval || {});
+				this.render_approval(data.approval || {}, data.availability?.approval !== false);
 				this.render_charts(data);
 				if ((data.warnings || []).length) {
 					this.show_warning(data.warnings.join("；"));
@@ -300,6 +300,7 @@ class BudgetDashboard {
 	}
 
 	money(value) {
+		if (value === null) return "—";
 		return Number(value || 0).toLocaleString("zh-CN", {
 			minimumFractionDigits: 2,
 			maximumFractionDigits: 2,
@@ -325,7 +326,8 @@ class BudgetDashboard {
 		});
 	}
 
-	render_approval(approval) {
+	render_approval(approval, available = true) {
+		this.$content.find("[data-approval]").text("—");
 		const summary = approval.summary || {};
 		this.$content
 			.find(".br-timeout")
@@ -345,7 +347,7 @@ class BudgetDashboard {
 		const rows = approval.byProcess || [];
 		if (!rows.length) {
 			this.$approval_body.html(
-				`<tr><td colspan="8" class="br-empty">${__("当前期间没有审批实例")}</td></tr>`
+				`<tr><td colspan="8" class="br-empty">${available ? __("当前期间没有审批实例") : __("Approval data unavailable")}</td></tr>`
 			);
 			return;
 		}
@@ -382,8 +384,8 @@ class BudgetDashboard {
 		this.charts.forEach((chart) => chart.resize());
 	}
 
-	empty_chart(name) {
-		this.$content.find(`[data-chart="${name}"]`).html(`<div class="br-empty">${__("没有数据")}</div>`);
+	empty_chart(name, message = __("没有数据")) {
+		this.$content.find(`[data-chart="${name}"]`).html(`<div class="br-empty">${frappe.utils.escape_html(message)}</div>`);
 	}
 
 	mount(echarts, name, option, height) {
@@ -437,6 +439,7 @@ class BudgetDashboard {
 
 	async render_charts(data) {
 		this.destroy_charts();
+		const expenseAvailable = data.availability?.expenses !== false;
 		let echarts;
 		try {
 			echarts = await load_echarts();
@@ -494,7 +497,7 @@ class BudgetDashboard {
 				.css("height", `${Math.max(260, region_dist.length * 72)}px`);
 			this.mount(echarts, "region-dist", {
 				tooltip: { ...TOOLTIP, trigger: "axis", axisPointer: { type: "shadow" }, valueFormatter: format_currency },
-				legend: { ...LEGEND, data: [__("预算"), __("支出")] },
+				legend: { ...LEGEND, data: expenseAvailable ? [__("预算"), __("支出")] : [__("预算")] },
 				grid: { left: 8, right: 40, top: 10, bottom: 40, containLabel: true },
 				xAxis: value_axis(format_currency, "#e5e7eb"),
 				yAxis: category_axis(
@@ -506,10 +509,10 @@ class BudgetDashboard {
 						barSize: 16,
 						borderRadius: [0, 2, 2, 0],
 					}),
-					bar_series("支出", region_dist.map((row) => row.expense || 0), CHART_COLORS.regionExpense, {
+					...(expenseAvailable ? [bar_series("支出", region_dist.map((row) => row.expense || 0), CHART_COLORS.regionExpense, {
 						barSize: 16,
 						borderRadius: [0, 2, 2, 0],
-					}),
+					})] : []),
 				],
 			});
 		} else {
@@ -606,7 +609,7 @@ class BudgetDashboard {
 				tooltip: { ...TOOLTIP, trigger: "axis", valueFormatter: format_currency },
 				legend: {
 					...LEGEND,
-					data: [__("实际支出"), __("生产预算"), __("非生产预算"), __("预算合计")],
+					data: [...(expenseAvailable ? [__("实际支出")] : []), __("生产预算"), __("非生产预算"), __("预算合计")],
 				},
 				grid: { left: 8, right: 24, top: 10, bottom: 40, containLabel: true },
 				xAxis: category_axis(
@@ -625,7 +628,7 @@ class BudgetDashboard {
 					),
 					line("生产预算", trend.map((row) => row.production || 0), CHART_COLORS.production, 2),
 					line("非生产预算", trend.map((row) => row.nonProduction || 0), CHART_COLORS.nonProduction, 2),
-					line("实际支出", trend.map((row) => row.actualExpense || 0), CHART_COLORS.expense, 2),
+					...(expenseAvailable ? [line("实际支出", trend.map((row) => row.actualExpense || 0), CHART_COLORS.expense, 2)] : []),
 				],
 			});
 		} else {
@@ -692,6 +695,12 @@ class BudgetDashboard {
 			this.empty_chart("compare");
 		}
 
+		if (!expenseAvailable) {
+			["rate", "compare"].forEach(name => this.empty_chart(name, __("Expense data unavailable")));
+		}
+		if (!expenseAvailable || data.availability?.pending_expenses === false) {
+			this.empty_chart("exec-status", __("Expense data unavailable"));
+		}
 		this.resize_charts();
 		// 侧边栏/容器宽度在加载完成后还会变一次，延迟再量一遍避免图表按旧宽度绘制
 		setTimeout(() => this.resize_charts(), 300);

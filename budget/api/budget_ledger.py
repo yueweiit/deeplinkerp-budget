@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 import frappe
 
-from ..integrations.budget_factory import get_expense_source, get_ledger_source
+from ..integrations.budget_factory import data_source_mode, get_expense_source, get_ledger_source
 from ..integrations.oa_approval_source import _runtime_config_value
 from ..services.budget_ledger_sync import sync_budget_entries as run_sync
 
@@ -643,6 +643,7 @@ def get_budget_entry_detail(form_no: str) -> dict:
 
 	expense = {key: 0.0 for key in EXPENSE_KEYS}
 	expense_details: list[dict] = []
+	expense_available = bool(month)
 	warning = ""
 	if month:
 		start_date, end_date = _month_bounds(month)
@@ -698,20 +699,30 @@ def get_budget_entry_detail(form_no: str) -> dict:
 				)
 			expense_details.sort(key=lambda item: (item["date"], item["business_id"]))
 		except Exception as exc:  # 支出库不可用时只影响支出区块
+			expense_available = False
 			warning = f"实际支出读取失败：{exc}"
 	expense["total"] = sum(expense[key] for key in EXPENSE_KEYS)
 	for key, value in list(budget.items()):
 		budget[key] = round(float(value or 0), 2)
 	for key, value in list(expense.items()):
-		expense[key] = round(float(value or 0), 2)
+		expense[key] = round(float(value or 0), 2) if expense_available else None
+	if not expense_available:
+		expense_details = []
+	if data_source_mode() == "local":
+		from ..services.ledger_sync_settings import current_source
+
+		corp_id = current_source()["corp_id"]
+	else:
+		corp_id = _runtime_config_value("budget_corp_id", "budget_oa_corp_id", "dingtalk_oa_corp_id")
 
 	return {
 		"entry": entry,
 		"budget": budget,
 		"expense": expense,
-		"remaining": round(budget["total"] - expense["total"], 2),
+		"remaining": round(budget["total"] - expense["total"], 2) if expense_available else None,
+		"expense_available": expense_available,
 		"dingtalk": _dingtalk_links(entry.get("process_instance_id")),
 		"expense_details": expense_details,
 		"warning": warning,
-		"corp_id": _runtime_config_value("budget_corp_id", "budget_oa_corp_id", "dingtalk_oa_corp_id"),
+		"corp_id": corp_id,
 	}

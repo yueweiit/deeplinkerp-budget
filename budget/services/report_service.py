@@ -265,6 +265,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 
 	# 支出库与审批库是独立连接，任一不可用时仍要出预算部分，避免整页报错
 	warnings: list[str] = []
+	availability = {"expenses": True, "pending_expenses": True, "approval": True}
 	# 趋势要画全年，所以支出按年取；KPI 仍只用筛选区间内的行
 	expense_start, expense_end = start_date, end_date
 	if trend_year:
@@ -272,6 +273,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 	try:
 		year_expenses = get_expense_source().list_approved_expenses(expense_start, expense_end)
 	except Exception as exc:  # 数据源不可用时降级
+		availability["expenses"] = False
 		year_expenses = []
 		warnings.append(f"实际支出读取失败：{exc}")
 	expenses = (
@@ -412,6 +414,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 				row.get("base_currency_amount") or 0
 			)
 	except Exception as exc:  # 审批库不可用时降级
+		availability["pending_expenses"] = False
 		warnings.append(f"审批中支出读取失败：{exc}")
 
 	# 各部门预算分布（Top 12）
@@ -498,10 +501,11 @@ def build_report(start_date: str, end_date: str) -> dict:
 		)
 		approval = _approval_efficiency({"instances": instances, "tasks": tasks})
 	except Exception as exc:  # OA 库不可用时降级
+		availability["approval"] = False
 		approval = {"timeoutHours": TIMEOUT_HOURS, "summary": {}, "byProcess": []}
 		warnings.append(f"审批效率读取失败：{exc}")
 
-	return {
+	result = {
 		"stats": {
 			"productionCount": int(details.get(PRODUCTION) or 0),
 			"operationCount": int(details.get(NON_PRODUCTION) or 0),
@@ -524,4 +528,18 @@ def build_report(start_date: str, end_date: str) -> dict:
 		"execution_status": execution_status[:10],
 		"approval": approval,
 		"warnings": warnings,
+		"availability": availability,
 	}
+	# Unknown expense data is not zero spending or unused budget. Preserve budget-only data.
+	if not availability["expenses"]:
+		for key in ("approvedTotal", "budgetSubmittedApprovedTotal", "overallRate"):
+			result["stats"][key] = None
+		for row in result["trend"]:
+			row["actualExpense"] = None
+		for row in result["region_distribution"]:
+			row["expense"] = None
+		result["execution"] = []
+		result["dept_compare"] = []
+	if not availability["expenses"] or not availability["pending_expenses"]:
+		result["execution_status"] = []
+	return result

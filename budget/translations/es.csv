@@ -143,5 +143,7 @@ Running,En ejecución
 Skipped,Omitido
 No eligible budget approvals were found. Existing ledger data was retained.,No se encontraron aprobaciones presupuestarias que cumplan los criterios. Se conservaron los datos existentes del registro.
 The expense source does not match the budget source. Expense amounts and balances are unavailable until the source binding is reviewed.,El origen de los gastos no coincide con el del presupuesto. Los importes y saldos no están disponibles hasta revisar la vinculación del origen.
+Expense data unavailable,Datos de gastos no disponibles
+Approval data unavailable,Datos de aprobaciones no disponibles
 Synchronization Run ID,Identificador de ejecución de sincronización
 Synchronization Reason Code,Código de motivo de sincronización
