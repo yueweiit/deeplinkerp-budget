@@ -277,3 +277,7 @@ Budget quota identity conflicts with existing data. Review the source first.,预
 Budget quota verification failed. Synchronization was rolled back.,预算额度核验失败，同步已回滚。
 Controls manual and scheduled synchronization. The shared OA source updates budget ledger entries and quotas together.,控制手动和定时同步；共用 OA 来源会同时更新预算台账和预算额度。
 Synchronize Budget Data,同步预算数据
+The shared OA source does not match every local budget quota. No source was changed.,共用 OA 来源与现有预算额度未能逐笔匹配，未切换来源。
+The shared OA source does not match local quota subjects. No source was changed.,共用 OA 来源与本地额度科目不一致，未切换来源。
+Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,已核对 {0} 笔预算台账和 {1} 笔额度，并切换至共用 OA 接口；同步保持停用。
+Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,已验证 {0} 笔预算台账和 {1} 笔额度；另有 {2} 笔审批待后续同步。

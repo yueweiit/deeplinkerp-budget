@@ -277,3 +277,7 @@ Budget quota identity conflicts with existing data. Review the source first.,La 
 Budget quota verification failed. Synchronization was rolled back.,La verificación de cuotas presupuestarias falló. Se revirtió la sincronización.
 Controls manual and scheduled synchronization. The shared OA source updates budget ledger entries and quotas together.,Controla la sincronización manual y programada. La fuente OA compartida actualiza conjuntamente el registro y las cuotas presupuestarias.
 Synchronize Budget Data,Sincronizar datos presupuestarios
+The shared OA source does not match every local budget quota. No source was changed.,El origen OA compartido no coincide con todas las cuotas presupuestarias locales. No se cambió el origen.
+The shared OA source does not match local quota subjects. No source was changed.,El origen OA compartido no coincide con los conceptos de las cuotas locales. No se cambió el origen.
+Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,Se verificaron {0} registros presupuestarios y {1} cuotas antes de cambiar a la API OA compartida. La sincronización sigue deshabilitada.
+Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,Se verificaron {0} registros presupuestarios y {1} cuotas; hay {2} aprobaciones adicionales pendientes de sincronizar.

@@ -89,7 +89,7 @@
 		dialog.hide = () => {if (!dialog.saving) hide();};
 		dialog.$wrapper.on("hide.bs.modal", event => {if (dialog.saving) event.preventDefault();});
 		dialog.get_close_btn().removeAttr("data-dismiss").off("click").on("click", () => dialog.hide());
-		if (settings.organization_review_ready !== false && settings.shared_oa_available && settings.profile !== "operating_oa" && settings.ledger_count > 0) {
+		if (settings.organization_review_ready !== false && settings.shared_oa_available && settings.profile !== "operating_oa" && (settings.ledger_count > 0 || settings.quota_count > 0)) {
 			dialog.add_custom_action(t("Verify and Switch OA Source"), () => {
 				if (!dialog.saving) openTransition(settings, async () => {dialog.hide(); await onSaved();});
 			});
@@ -136,7 +136,7 @@
 				try {
 					if (!proof) {
 						proof = (await root.frappe.call({method:endpoint + "preview_shared_source", args:{expected_version:settings.version}})).message;
-						dialog.fields_dict.status.$wrapper.text(t("Verified {0} existing budgets; {1} additional approvals await a later synchronization.", [proof.matched,proof.additional]));
+						dialog.fields_dict.status.$wrapper.text(t("Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.", [proof.matched,proof.matched_quotas ?? 0,proof.additional]));
 						dialog.get_primary_btn().text(t("Confirm Source Switch"));
 					} else {
 						await root.frappe.call({method:endpoint + "confirm_shared_source", args:{token:proof.token,expected_version:settings.version}});

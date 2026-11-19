@@ -20,7 +20,7 @@ function host(call) {
 		}
 		get_primary_btn() {return this.primary;}
 		get_close_btn() {return this.close;}
-		add_custom_action() {}
+		add_custom_action(label, action) {this.customActions ??= []; this.customActions.push({label,action});}
 		show() {this.visible = true;}
 		hide() {this.visible = false; this.$wrapper.events["hidden.bs.modal"]?.();}
 	}
@@ -156,7 +156,7 @@ test("source transition verifies first and switches only after a second action",
 	const requests = []; let refreshed = 0;
 	const api = create(host(async req => {
 		requests.push(req);
-		return {message:req.method.endsWith("preview_shared_source") ? {token:"verified",matched:5,additional:2} : {switched:true}};
+		return {message:req.method.endsWith("preview_shared_source") ? {token:"verified",matched:5,matched_quotas:7,additional:2} : {switched:true}};
 	}));
 	const dialog = api.openTransition(settings, () => refreshed++);
 	assert.equal(requests.length,0);
@@ -164,12 +164,24 @@ test("source transition verifies first and switches only after a second action",
 	assert.equal(requests.length,1);
 	assert.equal(refreshed,0);
 	assert.equal(dialog.primary.content,"Confirm Source Switch");
+	assert.match(dialog.fields_dict.status.$wrapper.content,/ledger entries and.*quotas/);
 	await dialog.primary_action();
 	assert.equal(requests.length,2);
 	assert.deepEqual(requests[1].args,{token:"verified",expected_version:"v1"});
 	assert.equal(refreshed,1);
 	assert.equal(dialog.visible,false);
 	assert.ok(requests.every(req => !req.method.includes("sync_from_oa")));
+});
+
+test("quota-only history offers verified source transition without starting sync", async () => {
+	const requests=[];
+	const api=create(host(async req=>{
+		requests.push(req.method);
+		return {message:{...settings,shared_oa_available:true,ledger_count:0,quota_count:2}};
+	}));
+	const dialog=await api.openSettings();
+	assert.deepEqual(dialog.customActions.map(action=>action.label),["Verify and Switch OA Source"]);
+	assert.deepEqual(requests,["budget.services.ledger_sync_settings.get_sync_settings"]);
 });
 
 test("failed source confirmation discards proof and requires a fresh verification", async () => {

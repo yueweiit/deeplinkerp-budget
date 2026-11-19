@@ -17,6 +17,8 @@ _verified = ContextVar("budget_verified_source_transition", default=None)
 TTL = 600
 FACT_FIELDS = ("form_no", "process_instance_id", "department_id", "budget_kind", "budget_month",
                "total_amount", "detail_amount", "oa_process_code")
+QUOTA_FIELDS = tuple(key for key in FACT_FIELDS if key != "budget_kind") + ("budget_type", "corp_id", "status")
+SUBJECT_FIELDS = ("quota_form_no", "subject_type", "subject_code", "subject_name", "amount")
 
 
 def transition_authorized(previous, source):
@@ -39,7 +41,7 @@ def facts(row):
     return result
 
 
-def verify_ledger(local, remote):
+def verify_ledger(local, remote, *, allow_empty=False):
     """Every saved approval must exist with the same identity and financial scope.
 
     Additional remote approvals are allowed, but are imported only by a later,
@@ -62,7 +64,7 @@ def verify_ledger(local, remote):
         if not key or key in seen or candidates.get(key) != facts(row):
             frappe.throw(_("The shared OA source does not match every local budget. No source was changed."))
         seen.add(key)
-    if not seen:
+    if not seen and not allow_empty:
         frappe.throw(_("The ledger is empty. Select the shared source in Sync Settings."))
     additional = sum(entry["process_instance_id"] not in seen for entry in dedupe_latest(parsed))
     return {"matched": len(seen), "additional": additional,
@@ -70,8 +72,64 @@ def verify_ledger(local, remote):
             "remote_digest": digest(candidates)}
 
 
+def verify_quotas(local, subjects, remote, source):
+    """Verify retained quota identities, financial scope and aggregated subjects.
+
+    Status may change when new approvals supersede old quotas; switching itself
+    preserves it. Both statuses and subjects are included in the confirmation proof.
+    """
+    from .oa_budget_quota import project, money
+    rows, remote_subjects = project(remote, {}, source)
+    candidates = {row["source_form_no"]: {**row, "form_no": row["source_form_no"],
+        "oa_process_code": row["source_process_code"]} for row in rows}
+
+    def financial(row):
+        return {**facts({**row, "budget_kind": row.get("budget_type")}), "corp_id": row.get("corp_id")}
+
+    def subject_facts(rows):
+        grouped = {}
+        for row in rows:
+            key = tuple(str(row.get(field) or "") for field in SUBJECT_FIELDS[:-1])
+            grouped[key] = grouped.get(key, Decimal(0)) + money(row.get("amount"))
+        return sorted([list(key) + [str(amount)] for key, amount in grouped.items()])
+
+    seen = set()
+    for row in local:
+        form = row.get("form_no")
+        if (not form or form in seen or form not in candidates
+                or financial(row) != financial(candidates[form])):
+            frappe.throw(_("The shared OA source does not match every local budget quota. No source was changed."))
+        seen.add(form)
+    projected = [{**row, "quota_form_no": row["quota_id"]} for row in remote_subjects if row["quota_id"] in seen]
+    local_subjects = subject_facts(subjects)
+    if local_subjects != subject_facts(projected):
+        frappe.throw(_("The shared OA source does not match local quota subjects. No source was changed."))
+    return {"matched_quotas": len(seen),
+            "quota_local_digest": digest({"rows": sorted([{**financial(row), "status": row.get("status")}
+                for row in local], key=lambda row: row["form_no"]), "subjects": local_subjects}),
+            "quota_remote_digest": digest({"rows": sorted([{**financial(row), "status": row.get("status")}
+                for row in candidates.values()], key=lambda row: row["form_no"]),
+                "subjects": subject_facts([{**row, "quota_form_no": row["quota_id"]} for row in remote_subjects])})}
+
+
+def _local_quotas(source, *, lock_rows):
+    from ..integrations.budget_quota_local_source import scope_filters, scope_sql
+    if lock_rows:
+        where, params = scope_sql(source)
+        quotas = frappe.db.sql("SELECT " + ", ".join("q." + field for field in QUOTA_FIELDS)
+            + f" FROM `tabBudget Quota` q WHERE {where} ORDER BY q.name FOR UPDATE", params, as_dict=True)
+        subjects = frappe.db.sql("SELECT " + ", ".join("s." + field for field in SUBJECT_FIELDS)
+            + f" FROM `tabBudget Quota Subject` s JOIN `tabBudget Quota` q ON q.name = s.quota_form_no"
+            + f" WHERE {where} ORDER BY q.name, s.name FOR UPDATE", params, as_dict=True)
+    else:
+        quotas = frappe.get_all("Budget Quota", filters=scope_filters(source), fields=list(QUOTA_FIELDS), limit_page_length=0)
+        subjects = (frappe.get_all("Budget Quota Subject", filters={"quota_form_no": ["in", [row["form_no"] for row in quotas]]},
+            fields=list(SUBJECT_FIELDS), limit_page_length=0) if quotas else [])
+    return quotas, subjects
+
+
 def _prepare(doc, expected_version, *, lock_rows=False):
-    from ..integrations.shared_operating_oa import instances
+    from ..integrations.shared_operating_oa import instances, ledger_eligible
     from .organization_mapping import require_schema
     require_schema()
     source = settings.resolve_source(doc)
@@ -86,15 +144,17 @@ def _prepare(doc, expected_version, *, lock_rows=False):
         frappe.throw(_("The shared OA API must allow the same corporation as the ledger."))
     local = (frappe.db.sql("SELECT " + ", ".join(FACT_FIELDS) + " FROM `tabBudget Ledger Entry` ORDER BY name FOR UPDATE", as_dict=True)
              if lock_rows else frappe.get_all("Budget Ledger Entry", fields=list(FACT_FIELDS), limit_page_length=0))
+    quotas, subjects = _local_quotas(source, lock_rows=lock_rows)
     deadline = time.monotonic() + 90
 
     def check_deadline():
         if time.monotonic() >= deadline:
             frappe.throw(_("Budget source verification timed out. No source was changed."))
 
-    remote = instances(candidate, check_deadline)
+    remote = instances(candidate, check_deadline, approved_only=False)
     check_deadline()
-    proof = verify_ledger(local, remote)
+    proof = verify_ledger(local, [row for row in remote if ledger_eligible(row)], allow_empty=bool(quotas))
+    proof.update(verify_quotas(quotas, subjects, remote, candidate))
     proof.update(version=source["version"], old=source["fingerprint"], new=candidate["fingerprint"], corp_id=source["corp_id"])
     return proof
 
@@ -112,7 +172,8 @@ def preview_shared_source(expected_version):
         proof = _prepare(frappe.get_doc(settings.SETTINGS), expected_version)
         token = uuid.uuid4().hex
         frappe.cache.set_value(_key(token), {"user": frappe.session.user, "proof": proof}, expires_in_sec=TTL)
-        return {"token": token, "matched": proof["matched"], "additional": proof["additional"]}
+        return {"token": token, "matched": proof["matched"], "additional": proof["additional"],
+                "matched_quotas": proof["matched_quotas"]}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -146,7 +207,7 @@ def _confirm(token, expected_version):
         doc.ledger_source_fingerprint = proof["new"]
         doc.ledger_sync_enabled = 0
         doc.save()
-        doc.add_comment("Info", _("Switched to the shared OA API after verifying {0} budget approvals. Synchronization remains disabled.").format(proof["matched"]))
+        doc.add_comment("Info", _("Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.").format(proof["matched"], proof["matched_quotas"]))
         frappe.cache.delete_value(_key(token))
         frappe.db.commit()
     finally:
