@@ -71,22 +71,24 @@ def test_mapping_uniqueness_and_explicit_corporation():
 
 
 def test_mapping_updates_and_removal_preserve_oa_facts_and_invalidate_digest(monkeypatch):
+    monkeypatch.setattr(settings, "resolve_source", lambda doc: {"corp_id": "corp-A"})
     entries = [Row(name="B1", department_id="org-1", dept_name="OA A", dept_path_names=None),
                Row(name="B2", department_id="org-1", dept_name="OA B", dept_path_names='["Root","Group","Original Company","Original Dept"]')]
     writes = []
     def get_all(doctype, filters, **kwargs):
+        if doctype == "Budget Quota": return []
         assert filters == {"department_id": ["in", ["org-1"]]}
         return entries
     monkeypatch.setattr(frappe, "get_all", get_all)
     monkeypatch.setattr(frappe, "db", SimpleNamespace(set_value=lambda *args: writes.append(args)))
-    doc = Row(organization_mappings=[assignment()], old=Row(organization_mappings=[]))
+    doc = Row(ledger_connection_profile="budget", ledger_corp_id="corp-A", organization_mappings=[assignment()], old=Row(organization_mappings=[]))
     mapping.apply_changes(doc)
     assert len(writes) == 2
     for _, _, update in writes:
         assert update == {"company": "Company A", "department": "Finance",
                           "reviewed_organization_level": "department", "source_digest": ""}
     writes.clear()
-    mapping.apply_changes(Row(organization_mappings=[], old=doc))
+    mapping.apply_changes(Row(ledger_connection_profile="budget", ledger_corp_id="corp-A", organization_mappings=[], old=doc))
     assert writes[0][2]["company"] == "待确认"
     assert writes[1][2]["company"] == "Original Company"
     assert writes[1][2]["department"] == "Original Dept"
@@ -101,6 +103,45 @@ def test_mapping_changes_invalidate_settings_version_without_needing_modified_ti
     new = settings.resolve_source(doc)
     assert old["version"] != new["version"]
     assert old["fingerprint"] == new["fingerprint"]
+
+
+def test_mapping_changes_update_scoped_quotas_and_restore_original_paths_without_changing_financial_facts(monkeypatch):
+    from budget.services.oa_budget_parser import BUDGET_PROCESS_CODE
+    monkeypatch.setattr(settings, "resolve_source", lambda doc: {"corp_id": "corp-A"})
+    entries = [Row(name="B1", department_id="org-1", dept_name="Original OA Label", dept_path_names=None)]
+    base = dict(corp_id="corp-A", oa_process_code=BUDGET_PROCESS_CODE, department_id="org-1",
+                total_amount=100, detail_amount=99, status="effective", process_instance_id="instance",
+                company_name="Old Company", department_name="Old Department", dept_path_ids=None, dept_path_names=None)
+    quotas = [Row(base, name="B1"), Row(base, name="B2",
+                dept_path_ids='["root","group","company","org-1"]',
+                dept_path_names='["Root","Group","Original Company","Original Department"]'),
+              Row(base, name="B3"), Row(base, name="foreign", corp_id="corp-B"),
+              Row(base, name="other-template", oa_process_code="other")]
+    original = deepcopy(quotas)
+    def get_all(doctype, filters, **kwargs):
+        if doctype == "Budget Ledger Entry": return entries
+        assert filters == {"corp_id": "corp-A", "oa_process_code": BUDGET_PROCESS_CODE, "department_id": ["in", ["org-1"]]}
+        return [row for row in quotas if row.corp_id == filters["corp_id"] and row.oa_process_code == filters["oa_process_code"]]
+    def set_value(doctype, name, changes):
+        row = next(row for row in (entries if doctype == "Budget Ledger Entry" else quotas) if row.name == name)
+        row.update(changes)
+    monkeypatch.setattr(frappe, "get_all", get_all)
+    monkeypatch.setattr(frappe, "db", SimpleNamespace(set_value=set_value))
+    doc = Row(organization_mappings=[assignment()], old=Row(organization_mappings=[]))
+    mapping.apply_changes(doc)
+    assert all(row.company_name == "Company A" and row.department_name == "Finance" for row in quotas[:3])
+    assert all(not row.company_dept_id and not row.department_is_company for row in quotas[:3])
+    company = Row(organization_mappings=[assignment(department="", organization_level="company")], old=doc)
+    mapping.apply_changes(company)
+    assert all(row.company_dept_id == "org-1" and row.department_is_company for row in quotas[:3])
+    mapping.apply_changes(Row(organization_mappings=[], old=company))
+    assert (quotas[0].company_name, quotas[0].department_name) == ("待确认", "Original OA Label")
+    assert (quotas[1].company_name, quotas[1].department_name, quotas[1].company_dept_id) == ("Original Company", "Original Department", "company")
+    assert (quotas[2].company_name, quotas[2].department_name, quotas[2].organization_is_current) == ("待确认", "", False)
+    assert quotas[3:] == original[3:]
+    for row, old in zip(quotas, original):
+        for field in ("total_amount", "detail_amount", "status", "process_instance_id", "dept_path_ids", "dept_path_names"):
+            assert row[field] == old[field]
 
 
 @pytest.mark.parametrize("endpoint,args", [(mapping.get_mapping_context, {"name": "X"}),
@@ -131,7 +172,7 @@ def test_review_save_is_versioned_locked_and_applies_to_existing_entries(monkeyp
     monkeypatch.setattr(frappe, "only_for", lambda *a: None)
     monkeypatch.setattr(frappe, "get_doc", lambda *a: doc)
     entry = Row(name="B1", department_id="org-1", dept_name="Old OA Name", dept_path_names=None)
-    monkeypatch.setattr(frappe, "get_all", lambda *a, **kw: [entry])
+    monkeypatch.setattr(frappe, "get_all", lambda doctype, **kw: [entry] if doctype == "Budget Ledger Entry" else [])
     monkeypatch.setattr(frappe, "db", SimpleNamespace(get_value=lambda *a, **kw: entry,
         set_value=lambda *a: writes.append(a), commit=lambda: events.append("commit"), rollback=lambda: events.append("rollback")))
     @contextmanager

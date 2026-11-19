@@ -75,14 +75,36 @@ def apply_changes(doc):
     if not changed:
         return
     require_schema()
-    for row in frappe.get_all("Budget Ledger Entry", filters={"department_id": ["in", changed]},
-            fields=["name", "department_id", "dept_name", "dept_path_names"], limit_page_length=0):
+    entries = frappe.get_all("Budget Ledger Entry", filters={"department_id": ["in", changed]},
+            fields=["name", "department_id", "dept_name", "dept_path_names"], limit_page_length=0)
+    for row in entries:
         mapping = after.get(row.department_id)
         company, department = ((mapping["company"], mapping["department"]) if mapping else
                               _presentation(row.dept_name or "", _json_list(row.dept_path_names)))
         frappe.db.set_value("Budget Ledger Entry", row.name, {"company": company, "department": department,
             "reviewed_organization_level": mapping["organization_level"] if mapping else "",
             "source_digest": ""})
+    from .oa_budget_quota import organization
+    from ..integrations.budget_quota_local_source import scope_filters
+    from .ledger_sync_settings import resolve_source
+    scope = scope_filters(resolve_source(doc))
+    original_names = {row.name: row.dept_name for row in entries}
+    for row in frappe.get_all("Budget Quota", filters={**scope, "department_id": ["in", changed]},
+            fields=["name", "department_id", "dept_path_ids", "dept_path_names"], limit_page_length=0):
+        path = {"ids": _json_list(row.dept_path_ids), "names": _json_list(row.dept_path_names)}
+        mapping = after.get(row.department_id)
+        if mapping:
+            path.update(reviewed_company=mapping["company"], reviewed_department=mapping["department"],
+                        reviewed_organization_level=mapping["organization_level"])
+        # A quota without a ledger/path cannot recover an original OA label after
+        # review removal. Clear that presentation instead of keeping a stale mapping.
+        presentation = organization({"dept_id": row.department_id,
+                                     "dept_name": original_names.get(row.name) or ""}, path)
+        fields = ("company_name", "company_dept_id", "department_name", "organization_is_current")
+        update = {key: presentation[key] for key in fields}
+        update["department_is_company"] = bool(row.department_id and
+                                                row.department_id == presentation["company_dept_id"])
+        frappe.db.set_value("Budget Quota", row.name, update)
 
 
 def _context(name, doc):
