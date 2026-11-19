@@ -5,6 +5,12 @@ import pytest
 from budget.services import report_service
 
 
+@pytest.fixture(autouse=True)
+def legacy_report_context(monkeypatch):
+	monkeypatch.setattr(report_service, "_", lambda text, *a, **kw: text)
+	monkeypatch.setattr(report_service, "current_report_source", lambda: None)
+
+
 class FakeLedger:
 	"""只提供 build_report 用到的两个方法。"""
 

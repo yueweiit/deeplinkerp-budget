@@ -25,6 +25,7 @@
   "detail_amount",
   "total_amount",
   "remark",
+  "reviewed_organization_level",
   "dept_path_ids",
   "dept_path_names",
   "oa_process_code",
@@ -188,6 +189,14 @@
    "label": "Source Digest",
    "length": 64,
    "read_only": 1
+  },
+  {
+   "fieldname": "reviewed_organization_level",
+   "fieldtype": "Select",
+   "label": "Reviewed Organization Level",
+   "options": "\ncompany\ndepartment",
+   "read_only": 1,
+   "hidden": 1
   }
  ],
  "index_web_pages_for_search": 0,

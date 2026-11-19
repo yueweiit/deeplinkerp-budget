@@ -9,6 +9,8 @@
   "ledger_corp_id",
   "ledger_connection_profile",
   "ledger_source_fingerprint",
+  "organization_mapping_section",
+  "organization_mappings",
   "filter_options_section",
   "company_options",
   "department_options",
@@ -37,7 +39,7 @@
    "fieldname": "ledger_connection_profile",
    "fieldtype": "Select",
    "label": "Connection Profile",
-   "options": "budget\nshared_oa",
+   "options": "budget\nshared_oa\noperating_oa",
    "default": "budget"
   },
   {
@@ -77,6 +79,17 @@
    "fieldtype": "Table",
    "label": "Execution Region Options",
    "options": "Budget Filter Option"
+  },
+  {
+   "fieldname": "organization_mapping_section",
+   "fieldtype": "Section Break",
+   "label": "Organization Mappings"
+  },
+  {
+   "fieldname": "organization_mappings",
+   "fieldtype": "Table",
+   "label": "Organization Mappings",
+   "options": "Budget Organization Mapping"
   }
  ],
  "index_web_pages_for_search": 0,
@@ -101,5 +114,6 @@
  ],
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "track_changes": 1
 }

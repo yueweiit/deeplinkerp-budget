@@ -1,0 +1,61 @@
+{
+ "doctype": "DocType",
+ "name": "Budget Organization Mapping",
+ "module": "Budget",
+ "istable": 1,
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "corp_id",
+  "department_id",
+  "company",
+  "department",
+  "organization_level"
+ ],
+ "fields": [
+  {
+   "fieldname": "corp_id",
+   "fieldtype": "Data",
+   "label": "OA Corporation ID",
+   "read_only": 1,
+   "length": 200
+  },
+  {
+   "fieldname": "department_id",
+   "fieldtype": "Data",
+   "label": "Organization ID",
+   "length": 64,
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company",
+   "length": 140,
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Data",
+   "label": "Department",
+   "length": 255,
+   "in_list_view": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "organization_level",
+   "fieldtype": "Select",
+   "label": "Organization Level",
+   "options": "department\ncompany",
+   "default": "department",
+   "reqd": 1,
+   "in_list_view": 1,
+   "columns": 2
+  }
+ ],
+ "permissions": []
+}

@@ -8,12 +8,26 @@ from budget.integrations import budget_factory
 @pytest.fixture(autouse=True)
 def clean_switch(monkeypatch):
 	import frappe
+	from budget.integrations import shared_operating_oa
+	monkeypatch.setattr(shared_operating_oa, "available", lambda: False)
 
 	monkeypatch.delenv("BUDGET_DATA_SOURCE", raising=False)
 	monkeypatch.delenv("BUDGET_OA_SOURCE", raising=False)
 	# 脱离站点运行（pytest 不带 site 上下文）时 frappe.local 未绑定，读 frappe.conf 会抛
 	# RuntimeError；这些用例只关心环境变量与默认值，给个空配置即可。
 	monkeypatch.setattr(frappe, "conf", frappe._dict(), raising=False)
+
+
+@pytest.mark.parametrize("mode", ["http", "postgres", "local"])
+def test_integrated_cn_uses_the_same_local_snapshot_for_every_budget_consumer(monkeypatch, mode):
+	from budget.integrations import shared_operating_oa
+	from budget.integrations.budget_ledger_local_source import BudgetLedgerLocalSource
+	from budget.integrations.budget_quota_local_source import BudgetQuotaLocalSource
+	monkeypatch.setattr(shared_operating_oa, "available", lambda: True)
+	monkeypatch.setenv("BUDGET_DATA_SOURCE", mode)
+	assert budget_factory.data_source_mode() == "local"
+	assert isinstance(budget_factory.get_ledger_source(), BudgetLedgerLocalSource)
+	assert isinstance(budget_factory.get_quota_source(), BudgetQuotaLocalSource)
 
 
 def test_local_switch_returns_local_sources(monkeypatch) -> None:

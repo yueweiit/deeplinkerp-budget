@@ -147,3 +147,71 @@ Expense data unavailable,Datos de gastos no disponibles
 Approval data unavailable,Datos de aprobaciones no disponibles
 Synchronization Run ID,Identificador de ejecución de sincronización
 Synchronization Reason Code,Código de motivo de sincronización
+Non-production Budget,Presupuesto no productivo
+Budget company is missing,Empresa del presupuesto por confirmar
+Budget department is missing,Departamento del presupuesto por confirmar
+Budget month is missing,Mes del presupuesto por confirmar
+Budget amount differs from detail total,El importe del presupuesto difiere del total detallado
+Invalid budget filters,Filtros de presupuesto no válidos
+Start date must not be after end date,La fecha inicial no puede ser posterior a la final
+Pending expense company scope is unavailable,No se puede determinar de forma fiable la empresa de los gastos pendientes
+Approval efficiency company scope is unavailable,La eficiencia de aprobación no está disponible por empresa
+Expense company ownership is incomplete; company execution amounts are unavailable,La asignación de gastos a empresas está incompleta; no se puede determinar el importe ejecutado de esta empresa
+Narrow the date range to export at most 10000 budget records,Reduzca el intervalo de fechas para exportar un máximo de 10000 registros
+Sync Settings,Configuración de sincronización
+Approval Number,Número de aprobación
+Subsidiary,Filial
+Amount,Importe
+Next,Siguiente
+Subject,Partida
+Retry,Reintentar
+Shared OA configuration changed. Reopen the sync settings.,La configuración de OA compartida ha cambiado. Vuelva a abrir la configuración de sincronización.
+OA approval snapshot changed. Retry synchronization.,La instantánea de aprobaciones OA ha cambiado. Reintente la sincronización.
+OA approval pagination returned duplicate records.,La paginación de aprobaciones OA devolvió registros duplicados.
+OA approval pagination did not advance.,La paginación de aprobaciones OA no avanzó.
+OA approval scan exceeded the page limit.,La lectura de aprobaciones OA superó el límite de páginas.
+"The shared OA source uses the approval API, not a separate budget database.",El origen OA compartido utiliza la API de aprobaciones y no requiere una base de datos presupuestaria independiente.
+Organization and approval metrics are not available from the shared OA API.,La API OA compartida aún no ofrece la estructura organizativa ni las métricas de aprobación.
+Legacy expense aggregates are not linked to the shared OA source.,Los agregados de gastos anteriores aún no están vinculados al origen OA compartido.
+Organization Mappings,Asignaciones de organizaciones
+Budget Organization Mapping,Asignación de organización presupuestaria
+Organization ID,ID de organización
+Organization Level,Nivel de organización
+Reviewed Organization Level,Nivel de organización verificado
+department,Departamento
+company,Empresa
+Organization mappings must belong to the configured OA corporation.,Las asignaciones deben pertenecer a la corporación OA configurada.
+"Enter a valid organization ID, company and department.","Introduzca un ID de organización, una empresa y un departamento válidos."
+Each organization ID can have only one mapping.,Cada ID de organización solo puede tener una asignación.
+Select the organization level.,Seleccione el nivel de organización.
+A department-level mapping requires a department name.,Una asignación de departamento requiere el nombre del departamento.
+A company-level mapping must leave the department name empty.,Una asignación de empresa debe dejar vacío el nombre del departamento.
+This budget has no organization ID. Correct the OA source first.,Este presupuesto no tiene ID de organización. Corrija primero los datos de origen OA.
+Review the ledger source binding before editing organization mappings.,Verifique la vinculación del origen del registro antes de editar las asignaciones.
+Invalid organization mappings.,Formato de asignaciones de organizaciones no válido.
+Budget source verification found invalid amounts.,La verificación del origen presupuestario encontró importes no válidos.
+Budget source verification found ambiguous approval identities.,La verificación encontró identificadores de aprobación ausentes o duplicados.
+The shared OA source does not match every local budget. No source was changed.,El origen OA compartido no coincide con todos los presupuestos locales. No se cambió el origen.
+The ledger is empty. Select the shared source in Sync Settings.,El registro está vacío. Seleccione el origen compartido en la configuración de sincronización.
+Review the current ledger source binding before switching to the shared API.,Verifique la vinculación del origen actual antes de cambiar a la API compartida.
+The shared OA API must allow the same corporation as the ledger.,La API OA compartida debe permitir la misma corporación que el registro.
+Budget source verification timed out. No source was changed.,Se agotó el tiempo de verificación. No se cambió el origen.
+The source verification expired. Verify again before switching.,La verificación del origen caducó. Verifique de nuevo antes de cambiar.
+The source or ledger changed after verification. Verify again before switching.,El origen o el registro cambió después de la verificación. Verifique de nuevo antes de cambiar.
+Switched to the shared OA API after verifying {0} budget approvals. Synchronization remains disabled.,Se verificaron {0} aprobaciones presupuestarias y se cambió a la API OA compartida. La sincronización sigue deshabilitada.
+Budget organization review requires a database update. Ask an administrator to complete the update.,La verificación de organizaciones presupuestarias requiere actualizar la base de datos. Solicite la actualización al administrador.
+Unlinked organization,Organización sin presupuesto vinculado
+CN Operating Expenses,Gastos operativos de China
+Review the budget OA source settings before loading approval statistics.,Revise la configuración del origen OA del presupuesto antes de consultar las estadísticas de aprobación.
+Some operating approvals lack source identities. Synchronize CN operating expenses first.,Algunas solicitudes operativas carecen de identidad de origen. Sincronice primero los gastos operativos de China.
+Synchronize CN operating expenses to refresh approval dates and task timings.,Sincronice los gastos operativos de China para actualizar las fechas de aprobación y los tiempos de las tareas.
+Some operating approval amounts or currencies require review; totals are unavailable.,Es necesario revisar los importes o las monedas de algunas solicitudes operativas; los totales no están disponibles.
+Month-start exchange rates are unavailable; converted approval totals cannot be calculated.,Los tipos de cambio del primer día del mes no están disponibles; no se pueden calcular los totales convertidos.
+Some approved applications lack valid completion dates. Synchronize and review their OA records.,Algunas solicitudes aprobadas carecen de fechas de finalización válidas. Sincronice y revise sus registros OA.
+Some approval timing records are incomplete. Synchronize and review their OA records.,Algunos registros de tiempos de aprobación están incompletos. Sincronice y revise sus registros OA.
+Approved expense data is unavailable. Review the source settings or try again later.,Los gastos aprobados no están disponibles. Revise la configuración del origen o inténtelo más tarde.
+Pending expense data is unavailable. Review the source settings or try again later.,Los gastos pendientes de aprobación no están disponibles. Revise la configuración del origen o inténtelo más tarde.
+Approval timing data is unavailable. Review the source settings or try again later.,Los tiempos de aprobación no están disponibles. Revise la configuración del origen o inténtelo más tarde.
+CN operating approvals only; procurement approvals are not included. Approved spending uses completion dates and month-start CNY rates; pending amounts use application-month rates. Approval is not proof of payment.,Solo se incluyen las aprobaciones operativas de China; las compras quedan excluidas. Los gastos aprobados se imputan a la fecha de finalización y se convierten a CNY al tipo de cambio del primer día de ese mes; los importes pendientes se estiman con el tipo del mes de solicitud. La aprobación no acredita el pago.
+Approval source configuration is unavailable. Budget data remains available; review the OA sync settings.,La configuración del origen de aprobaciones no está disponible. Los datos del presupuesto siguen disponibles; revise la configuración de sincronización de OA.
+Spending trend unavailable: {0},Tendencia de gastos no disponible: {0}

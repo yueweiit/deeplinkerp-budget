@@ -79,6 +79,7 @@ ENTRY_FIELDS = (
 	"company",
 	"department",
 	"department_id",
+	"reviewed_organization_level",
 	"creator_name",
 	"dept_name",
 	"dept_key",
@@ -109,6 +110,9 @@ def _oa_connection() -> dict:
 
 
 def _fetch_instances() -> list[dict]:
+	if sync_settings.current_source()["profile"] == "operating_oa":
+		from ..integrations.shared_operating_oa import instances
+		return instances(sync_settings.current_source(), _check_deadline)
 	return pg_fetch(
 		_oa_connection(),
 		INSTANCE_SQL,
@@ -128,6 +132,11 @@ def _json_list(value) -> list[str]:
 
 def _department_paths() -> dict[str, dict[str, list[str]]]:
 	"""``dept_id -> {"ids": [...], "names": [...]}``；读不到就退回 OA 的部门全名。"""
+	from .organization_mapping import overlay_paths
+	source = sync_settings.current_source()
+	if sync_settings.current_source()["profile"] == "operating_oa":
+		from ..integrations.shared_operating_oa import department_paths
+		return overlay_paths(department_paths(), source)
 	corp_id = _corp_id()
 	if not corp_id:
 		return {}
@@ -138,7 +147,7 @@ def _department_paths() -> dict[str, dict[str, list[str]]]:
 			"ids": _json_list(row.get("path_ids")),
 			"names": _json_list(row.get("path_names")),
 		}
-	return paths
+	return overlay_paths(paths, source)
 
 
 def _presentation(dept_name: str, path_names: list[str] | None) -> tuple[str, str]:
@@ -159,11 +168,15 @@ def _entry_values(
 	path_names = path.get("names") or []
 	path_ids = path.get("ids") or []
 	company, department = _presentation(entry.get("dept_name") or "", path_names)
+	level = path.get("reviewed_organization_level") or ""
+	if level:
+		company, department = path["reviewed_company"], path["reviewed_department"]
 
 	entry.update(
 		{
 			"company": company,
 			"department": department,
+			"reviewed_organization_level": level,
 			# 解析器产出 dept_id，DocType 字段叫 department_id，必须显式映射；
 			# 少了这一步台账的 department_id 会整列为空，部门维度筛选与关联全部失效
 			"department_id": dept_id or None,
@@ -270,6 +283,7 @@ LOG_COUNT_FIELDS = (
 )
 
 SKIP_REASONS = {
+	"schema_update_required": "Budget organization review requires a database update. Ask an administrator to complete the update.",
 	"running": "Budget synchronization is already running.",
 	"not_configured": "Budget synchronization is not configured. Open Sync Settings.",
 	"disabled": "Budget synchronization is disabled.",

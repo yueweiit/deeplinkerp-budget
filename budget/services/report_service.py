@@ -1,10 +1,11 @@
-"""可视化报表聚合：预算 + 实际支出 + 审批效率。
+"""可视化报表聚合：预算 + 支出 + 审批效率。
 
 口径对齐 ``dingtalk-budget``：
 
 - 预算行复用 ``BudgetLedgerSource.list_budget_entries``（已按部门+月份去重、
   已排除无效状态），金额取 ``total_amount``；
-- 支出取自 ``ExpenseSource``（六个分支，见 ``integrations/expense_source.py``）；
+- CN 共用来源从本地运营审批快照统计已审批金额，完成日期归期、月初汇率折算；
+  独立旧模式支出仍取自 ``ExpenseSource``（六个分支）；
 - 执行率 = 实际支出 / (生产预算 + 非生产预算)，与原系统
   ``chartHelpers.js: buildSummaryStats`` 一致；
 - 审批效率超时标准 24 小时，``services/approval-efficiency.js`` 口径。
@@ -16,6 +17,8 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timezone
 from typing import Any
 
+from frappe import _
+
 from ..integrations.budget_factory import (
 	get_budget_expense_source,
 	get_expense_source,
@@ -23,6 +26,7 @@ from ..integrations.budget_factory import (
 )
 from ..integrations.budget_ledger_source import NON_PRODUCTION, PRODUCTION
 from ..integrations.oa_factory import get_oa_source
+from ..integrations.cn_expense_report_source import current_report_source, ReportUnavailable
 
 TIMEOUT_HOURS = 24
 BATCH = 100
@@ -62,6 +66,12 @@ def _hours(start: Any, end: Any) -> float | None:
 def _average(values: Iterable[float]) -> float:
 	items = [value for value in values if value is not None]
 	return round(sum(items) / len(items), 2) if items else 0.0
+
+
+def _report_warning(error, fallback):
+	# Expected availability states are translated. Technical exception details
+	# must not leak connection strings or raw upstream responses into the page.
+	return _(str(error)) if isinstance(error, ReportUnavailable) else _(fallback)
 
 
 def _round(value: float) -> float:
@@ -148,7 +158,7 @@ def _match_budget_department(expense_department: str, budget_departments: list[s
 def _approval_efficiency(rows: dict, now: datetime | None = None) -> dict:
 	instances = rows.get("instances") or []
 	tasks = rows.get("tasks") or []
-	now = now or datetime.now()
+	now = now or datetime.now(UTC)
 
 	measured_instances = []
 	for row in instances:
@@ -241,11 +251,26 @@ def _approval_efficiency(rows: dict, now: datetime | None = None) -> dict:
 
 
 # ---------------------------------------------------------------- 主流程
-def build_report(start_date: str, end_date: str) -> dict:
+def build_report(start_date: str, end_date: str, *, company: str | None = None) -> dict:
 	start_month, end_month = _month_of(start_date), _month_of(end_date)
 	ledger = get_ledger_source()
 	# 趋势按自然年展示，所以保留全量行；KPI / 部门图再用区间过滤后的 rows
 	all_rows = _all_budget_rows(ledger)
+	department_companies = {}
+	for row in all_rows:
+		department_id = str(row.get("dept_id") or "").strip()
+		if department_id:
+			department_companies.setdefault(department_id, set()).add(row.get("company_display") or "")
+	shared, source_error = None, None
+	try:
+		shared = current_report_source()
+		if shared:
+			shared.set_scope(company, department_companies)
+	except Exception:
+		# Preserve the local budget and never fall back to a different source.
+		source_error = ReportUnavailable("Approval source configuration is unavailable. Budget data remains available; review the OA sync settings.")
+	if company:
+		all_rows = [row for row in all_rows if row.get("company_display") == company]
 	rows = [
 		row
 		for row in all_rows
@@ -261,26 +286,40 @@ def build_report(start_date: str, end_date: str) -> dict:
 	production_total = _round(sum(float(row.get("amount") or 0) for row in production_rows))
 	non_production_total = _round(sum(float(row.get("amount") or 0) for row in operation_rows))
 
-	details = ledger.count_detail_rows(start_month or None, end_month or None)
+	details = ledger.count_detail_rows(start_month or None, end_month or None, **({"company": company} if company else {}))
 
 	# 支出库与审批库是独立连接，任一不可用时仍要出预算部分，避免整页报错
 	warnings: list[str] = []
-	availability = {"expenses": True, "pending_expenses": True, "approval": True}
-	# 趋势要画全年，所以支出按年取；KPI 仍只用筛选区间内的行
+	availability = {"expenses": True, "trend_expenses": True, "pending_expenses": True, "approval": True}
+
+	def read_expenses(start, end):
+		if source_error:
+			raise source_error
+		items = (shared or get_expense_source()).list_approved_expenses(start, end)
+		return company_expenses(items, department_companies, company) if company and not shared else items
+
+	# A failed annual conversion must not disable valid current-period totals.
+	# Reuse the annual result on success, retry only the selected range on failure.
 	expense_start, expense_end = start_date, end_date
 	if trend_year:
 		expense_start, expense_end = f"{trend_year}-01-01", f"{trend_year}-12-31"
 	try:
-		year_expenses = get_expense_source().list_approved_expenses(expense_start, expense_end)
+		year_expenses = read_expenses(expense_start, expense_end)
+		expenses = [row for row in year_expenses if _date_in_range(row.get("accounting_date"), start_date, end_date)]
 	except Exception as exc:  # 数据源不可用时降级
-		availability["expenses"] = False
+		availability["trend_expenses"] = False
 		year_expenses = []
-		warnings.append(f"实际支出读取失败：{exc}")
-	expenses = (
-		[row for row in year_expenses if _date_in_range(row.get("accounting_date"), start_date, end_date)]
-		if trend_year
-		else year_expenses
-	)
+		try:
+			if source_error or (expense_start, expense_end) == (start_date, end_date):
+				raise exc
+			expenses = read_expenses(start_date, end_date)
+		except Exception as period_error:
+			availability["expenses"] = False
+			expenses = []
+			warnings.append(_report_warning(period_error, "Approved expense data is unavailable. Review the source settings or try again later."))
+		else:
+			warnings.append(_("Spending trend unavailable: {0}").format(
+				_report_warning(exc, "Approved expense data is unavailable. Review the source settings or try again later.")))
 	approved_total = _round(sum(float(row.get("amount") or 0) for row in expenses))
 
 	# 部门 → 预算金额（按期间），用于「有提交预算部门支出」与部门对比图
@@ -330,9 +369,9 @@ def build_report(start_date: str, end_date: str) -> dict:
 		# 先按部门 id 精确匹配（支出行带 department_id），匹配不到再退回名称包含匹配
 		expense_dept_id = str(row.get("department_id") or "").strip()
 		matched = budget_department_by_id.get(expense_dept_id) if expense_dept_id else None
-		if not matched:
+		if not matched and not row.get("exact_department_match"):
 			matched = _match_budget_department(row.get("department"), budget_departments)
-		key = matched or str(row.get("department") or "").strip() or "待确认"
+		key = matched or ((_("Unlinked organization") + ": ") if shared else "") + (str(row.get("department") or "").strip() or "待确认")
 		approved_by_department[key] = approved_by_department.get(key, 0.0) + amount
 		if matched and (matched, _month_of(row.get("accounting_date"))) in budget_pairs:
 			budget_submitted_approved += amount
@@ -405,17 +444,25 @@ def build_report(start_date: str, end_date: str) -> dict:
 	# 审批中支出（执行状态分布里的「审批中」）；读取失败只降级，不影响其它区块
 	pending_by_department: dict[str, float] = {}
 	try:
-		for row in get_budget_expense_source().load_pending_expenses():
+		if source_error:
+			raise source_error
+		if company and not shared:
+			# This legacy source has no reliable company/date relation. Do not display global totals as company totals.
+			raise ValueError(_("Pending expense company scope is unavailable"))
+		pending_rows = (shared.pending_expenses(start_date, end_date) if shared
+		                else get_budget_expense_source().load_pending_expenses())
+		for row in pending_rows:
 			# 没有部门的在途单据归到「待确认」，不能丢，否则审批中金额会少算
-			department = str(row.get("applicant_department") or "").strip() or "待确认"
-			matched = _match_budget_department(department, budget_departments)
-			key = matched or department
+			department = str(row.get("department" if shared else "applicant_department") or "").strip() or "待确认"
+			matched = (budget_department_by_id.get(row.get("department_id")) if shared
+			           else _match_budget_department(department, budget_departments))
+			key = matched or ((_("Unlinked organization") + ": ") if shared else "") + department
 			pending_by_department[key] = pending_by_department.get(key, 0.0) + float(
-				row.get("base_currency_amount") or 0
+				row.get("amount" if shared else "base_currency_amount") or 0
 			)
 	except Exception as exc:  # 审批库不可用时降级
 		availability["pending_expenses"] = False
-		warnings.append(f"审批中支出读取失败：{exc}")
+		warnings.append(_report_warning(exc, "Pending expense data is unavailable. Review the source settings or try again later."))
 
 	# 各部门预算分布（Top 12）
 	dept_distribution = [
@@ -462,8 +509,9 @@ def build_report(start_date: str, end_date: str) -> dict:
 
 	# 预算执行状态分布（Top 10）：未执行 = 预算 - 已执行 - 审批中
 	execution_status = []
-	for department, stats in dept_stats.items():
-		budget_amount = stats["production"] + stats["nonProduction"]
+	for department in dict.fromkeys([*dept_stats, *approved_by_department, *pending_by_department]):
+		stats = dept_stats.get(department, {})
+		budget_amount = stats.get("production", 0.0) + stats.get("nonProduction", 0.0)
 		executed = approved_by_department.get(department, 0.0)
 		in_progress = pending_by_department.get(department, 0.0)
 		execution_status.append(
@@ -476,34 +524,24 @@ def build_report(start_date: str, end_date: str) -> dict:
 				"unexecuted": _round(max(0.0, budget_amount - executed - in_progress)),
 			}
 		)
-	# 审批中但没有预算的部门也占一行（源项目里显示为「待确认」），total 记 0，
-	# 排序后排在预算部门之后，正好补满 Top 10。
-	known_departments = set(dept_stats)
-	for department, in_progress in pending_by_department.items():
-		if department in known_departments:
-			continue
-		execution_status.append(
-			{
-				"deptName": department,
-				"shortName": _short_department(department),
-				"total": 0.0,
-				"executed": 0.0,
-				"inProgress": _round(in_progress),
-				"unexecuted": 0.0,
-			}
-		)
-
 	execution_status.sort(key=lambda row: row["total"], reverse=True)
 
 	try:
-		instances, tasks = get_oa_source().list_approval_efficiency_rows(
+		if source_error:
+			raise source_error
+		if company and not shared:
+			raise ValueError(_("Approval efficiency company scope is unavailable"))
+		instances, tasks = (shared or get_oa_source()).list_approval_efficiency_rows(
 			start_date=start_date, end_date=end_date
 		)
 		approval = _approval_efficiency({"instances": instances, "tasks": tasks})
+		if shared:
+			for row in approval["byProcess"]:
+				row["processName"] = _(row["processName"])
 	except Exception as exc:  # OA 库不可用时降级
 		availability["approval"] = False
 		approval = {"timeoutHours": TIMEOUT_HOURS, "summary": {}, "byProcess": []}
-		warnings.append(f"审批效率读取失败：{exc}")
+		warnings.append(_report_warning(exc, "Approval timing data is unavailable. Review the source settings or try again later."))
 
 	result = {
 		"stats": {
@@ -513,7 +551,7 @@ def build_report(start_date: str, end_date: str) -> dict:
 			"nonProductionTotal": non_production_total,
 			"approvedTotal": approved_total,
 			"budgetSubmittedApprovedTotal": _round(budget_submitted_approved),
-			"overallRate": f"{overall_rate}%",
+			"overallRate": None if shared and not budget_total else f"{overall_rate}%",
 		},
 		"execution": execution[:10],
 		"trend": trend_rows,
@@ -527,19 +565,35 @@ def build_report(start_date: str, end_date: str) -> dict:
 		"type_distribution": type_distribution,
 		"execution_status": execution_status[:10],
 		"approval": approval,
-		"warnings": warnings,
+		"warnings": list(dict.fromkeys(warnings)),
+		"expense_basis": "approved" if shared or source_error else "legacy",
+		"scope_notice": _("CN operating approvals only; procurement approvals are not included. Approved spending uses completion dates and month-start CNY rates; pending amounts use application-month rates. Approval is not proof of payment.") if shared else "",
 		"availability": availability,
 	}
 	# Unknown expense data is not zero spending or unused budget. Preserve budget-only data.
 	if not availability["expenses"]:
 		for key in ("approvedTotal", "budgetSubmittedApprovedTotal", "overallRate"):
 			result["stats"][key] = None
-		for row in result["trend"]:
-			row["actualExpense"] = None
 		for row in result["region_distribution"]:
 			row["expense"] = None
 		result["execution"] = []
 		result["dept_compare"] = []
+	if not availability["trend_expenses"]:
+		for row in result["trend"]:
+			row["actualExpense"] = None
 	if not availability["expenses"] or not availability["pending_expenses"]:
 		result["execution_status"] = []
+	return result
+
+
+def company_expenses(rows, department_companies, company):
+	"""Scope expenses only when department ownership is complete and unambiguous."""
+	result = []
+	for row in rows:
+		owners = department_companies.get(str(row.get("department_id") or "").strip(), set())
+		if len(owners) != 1 or not next(iter(owners)) or "待确认" in owners:
+			from frappe import _
+			raise ValueError(_("Expense company ownership is incomplete; company execution amounts are unavailable"))
+		if company in owners:
+			result.append(row)
 	return result

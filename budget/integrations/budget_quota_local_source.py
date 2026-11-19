@@ -52,6 +52,10 @@ class BudgetQuotaLocalSource:
 		department_id=None,
 		budget_type=None,
 		subject_name=None,
+		start_month=None,
+		end_month=None,
+		company_name=None,
+		keyword=None,
 	) -> tuple[str, dict]:
 		conditions = ["q.status = %(status)s"]
 		values: dict = {"status": EFFECTIVE}
@@ -69,6 +73,17 @@ class BudgetQuotaLocalSource:
 			if text:
 				conditions.append(f"q.{column} = %(filter_{column})s")
 				values[f"filter_{column}"] = text
+		for column, operator, value in (("budget_month", ">=", start_month), ("budget_month", "<=", end_month)):
+			if value:
+				key = "range_start" if operator == ">=" else "range_end"
+				conditions.append(f"q.{column} {operator} %({key})s")
+				values[key] = _month_start(value)
+		if company_name:
+			conditions.append("q.company_name = %(company_name)s")
+			values["company_name"] = company_name
+		if keyword:
+			conditions.append("(q.form_no LIKE %(keyword_like)s OR q.department_name LIKE %(keyword_like)s)")
+			values["keyword_like"] = "%" + str(keyword) + "%"
 		month = _month_start(budget_month)
 		if month:
 			conditions.append("q.budget_month = %(budget_month)s")

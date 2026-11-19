@@ -1,6 +1,7 @@
 """预算数据源选择。
 
-三种模式（``budget_data_source``，环境变量或 ``frappe.conf``）::
+集成 CN/MX 的站点统一读取 OA 同步后的本地快照，不再受旧模式开关限制。
+独立安装保留三种模式（``budget_data_source``，环境变量或 ``frappe.conf``）::
 
     local      默认。预算台账读站点 MariaDB（由 OA 归档同步而来）
     postgres   应急回退：直连外部 PostgreSQL
@@ -8,7 +9,8 @@
 
 优先级：``budget_data_source`` > 旧键 ``budget_oa_source`` > ``local``。
 
-注意：实际支出、部门树尚未本地化，``local`` 模式下这些仍然走 PostgreSQL；
+注意：实际支出、部门树尚未全部本地化；共享 OA API 未提供的指标明确标记不可用。
+独立安装的 ``local`` 模式仍按明确绑定的 PostgreSQL 来源读取这些指标；
 预算台账与预算额度是纯本地读取（分别由 ``oa_budget_sync`` / ``quota_sync`` 同步）。
 """
 
@@ -25,6 +27,12 @@ DEFAULT_MODE = "local"
 
 
 def data_source_mode() -> str:
+	# CN and MX share the OA archive. Once integrated, every budget consumer
+	# (including report drill-down and detail) reads the synchronized ERP snapshot.
+	# Legacy mode switches remain available only for standalone installations.
+	from .shared_operating_oa import available
+	if available():
+		return "local"
 	for key in ("budget_data_source", "budget_oa_source"):
 		value = (_runtime_config_value(key) or "").strip().lower()
 		if not value:

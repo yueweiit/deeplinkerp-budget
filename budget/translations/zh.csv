@@ -147,3 +147,71 @@ Expense data unavailable,支出数据暂不可用
 Approval data unavailable,审批数据暂不可用
 Synchronization Run ID,同步运行编号
 Synchronization Reason Code,同步原因代码
+Non-production Budget,非生产预算
+Budget company is missing,预算公司待确认
+Budget department is missing,预算部门待确认
+Budget month is missing,预算月份待确认
+Budget amount differs from detail total,预算金额与明细合计不一致
+Invalid budget filters,预算筛选条件无效
+Start date must not be after end date,开始日期不能晚于结束日期
+Pending expense company scope is unavailable,审批中支出暂不支持可靠的公司归属核对
+Approval efficiency company scope is unavailable,审批效率暂不支持按公司统计
+Expense company ownership is incomplete; company execution amounts are unavailable,支出公司归属不完整，暂无法确定该公司的执行金额
+Narrow the date range to export at most 10000 budget records,请缩小日期范围，每次最多导出 10000 条预算记录
+Sync Settings,同步设置
+Approval Number,审批单号
+Subsidiary,子公司
+Amount,金额
+Next,下一页
+Subject,科目
+Retry,重试
+Shared OA configuration changed. Reopen the sync settings.,共用 OA 配置已变更，请重新打开同步设置。
+OA approval snapshot changed. Retry synchronization.,OA 审批快照已变更，请重新同步。
+OA approval pagination returned duplicate records.,OA 审批分页返回了重复记录。
+OA approval pagination did not advance.,OA 审批分页未向后推进。
+OA approval scan exceeded the page limit.,OA 审批读取超过分页上限。
+"The shared OA source uses the approval API, not a separate budget database.",共用 OA 来源通过审批接口读取，无需单独连接预算数据库。
+Organization and approval metrics are not available from the shared OA API.,共用 OA 接口尚未提供组织树和审批统计指标。
+Legacy expense aggregates are not linked to the shared OA source.,旧支出汇总尚未与共用 OA 来源关联。
+Organization Mappings,组织归属映射
+Budget Organization Mapping,预算组织归属映射
+Organization ID,组织 ID
+Organization Level,组织层级
+Reviewed Organization Level,已核对组织层级
+department,部门
+company,公司
+Organization mappings must belong to the configured OA corporation.,组织映射必须属于当前配置的 OA 企业。
+"Enter a valid organization ID, company and department.",请填写有效的组织 ID、公司和部门。
+Each organization ID can have only one mapping.,每个组织 ID 只能配置一条映射。
+Select the organization level.,请选择组织层级。
+A department-level mapping requires a department name.,部门层级映射必须填写部门名称。
+A company-level mapping must leave the department name empty.,公司层级映射请将部门名称留空。
+This budget has no organization ID. Correct the OA source first.,该预算缺少组织 ID，请先修正 OA 来源数据。
+Review the ledger source binding before editing organization mappings.,请先核对台账来源绑定，再维护组织映射。
+Invalid organization mappings.,组织映射格式无效。
+Budget source verification found invalid amounts.,预算来源验证发现无效金额。
+Budget source verification found ambiguous approval identities.,预算来源验证发现审批标识缺失或重复。
+The shared OA source does not match every local budget. No source was changed.,共用 OA 来源与现有台账未能逐笔匹配，未切换来源。
+The ledger is empty. Select the shared source in Sync Settings.,台账为空，请在同步设置中直接选择共用来源。
+Review the current ledger source binding before switching to the shared API.,切换共用接口前，请先核对当前台账的来源绑定。
+The shared OA API must allow the same corporation as the ledger.,共用 OA 接口必须允许读取台账当前所属企业。
+Budget source verification timed out. No source was changed.,预算来源验证超时，未切换来源。
+The source verification expired. Verify again before switching.,来源验证已失效，请重新验证后再切换。
+The source or ledger changed after verification. Verify again before switching.,验证后来源或台账发生变化，请重新验证后再切换。
+Switched to the shared OA API after verifying {0} budget approvals. Synchronization remains disabled.,已核对 {0} 笔预算审批并切换至共用 OA 接口，同步保持停用。
+Budget organization review requires a database update. Ask an administrator to complete the update.,预算组织归属核对需要更新数据库结构，请联系管理员完成更新。
+Unlinked organization,未关联预算组织
+CN Operating Expenses,国内运营支出
+Review the budget OA source settings before loading approval statistics.,请先核对预算的 OA 来源设置，再读取审批统计。
+Some operating approvals lack source identities. Synchronize CN operating expenses first.,部分运营审批缺少来源标识，请先同步国内运营支出。
+Synchronize CN operating expenses to refresh approval dates and task timings.,请同步国内运营支出，补充审批完成日期和节点耗时。
+Some operating approval amounts or currencies require review; totals are unavailable.,部分运营审批的金额或币种待核对，暂无法汇总。
+Month-start exchange rates are unavailable; converted approval totals cannot be calculated.,月初汇率暂不可用，暂无法计算审批金额的折算合计。
+Some approved applications lack valid completion dates. Synchronize and review their OA records.,部分已通过申请缺少有效的审批完成日期，请同步并核对 OA 原单。
+Some approval timing records are incomplete. Synchronize and review their OA records.,部分审批耗时记录不完整，请同步并核对 OA 原单。
+Approved expense data is unavailable. Review the source settings or try again later.,已审批支出暂不可用，请核对来源设置或稍后重试。
+Pending expense data is unavailable. Review the source settings or try again later.,审批中支出暂不可用，请核对来源设置或稍后重试。
+Approval timing data is unavailable. Review the source settings or try again later.,审批耗时数据暂不可用，请核对来源设置或稍后重试。
+CN operating approvals only; procurement approvals are not included. Approved spending uses completion dates and month-start CNY rates; pending amounts use application-month rates. Approval is not proof of payment.,仅统计国内运营审批，采购审批尚未纳入。已审批支出按审批完成日期归期并按该月月初汇率折算人民币；审批中金额按申请月份月初汇率暂估。审批通过不代表已经付款。
+Approval source configuration is unavailable. Budget data remains available; review the OA sync settings.,审批来源配置不可用，预算数据仍可查看，请核对 OA 同步设置。
+Spending trend unavailable: {0},支出趋势暂不可用：{0}

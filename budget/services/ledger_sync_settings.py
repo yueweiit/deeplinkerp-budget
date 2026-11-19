@@ -29,6 +29,21 @@ _saving = ContextVar("budget_ledger_settings_save", default=False)
 
 def resolve_source(doc) -> dict:
 	profile = doc.get("ledger_connection_profile") or "budget"
+	from ..integrations import shared_operating_oa
+	# Unconfigured CN installations reuse the existing CN/MX source, without
+	# enabling synchronization or changing an already bound ledger automatically.
+	if (profile == "budget" and not doc.get("ledger_sync_enabled")
+		and not doc.get("ledger_corp_id") and not doc.get("ledger_source_fingerprint")
+		and not doc.get("organization_mappings")
+		and not _runtime_config_value(*CORP_KEYS) and not _runtime_config_value(*_SHARED_DB_KEYS["host"])
+		and shared_operating_oa.available() and not frappe.db.count("Budget Ledger Entry")):
+		profile = "operating_oa"
+	if profile == "operating_oa":
+		url, corp, valid_corp = shared_operating_oa.configuration(doc.get("ledger_corp_id"))
+		connection = {"url": url}
+		identity = {"url": url, "corp_id": corp, "region": "CN"}
+		configured = valid_corp
+		return _source_values(doc, profile, connection, corp, configured, valid_corp, identity)
 	if profile == "shared_oa":
 		connection = {key: _runtime_config_value(f"overseas_costing_oa_db_{suffix}") for key, suffix in (
 			("host", "host"), ("database", "name"), ("port", "port"), ("user", "user"),
@@ -51,20 +66,30 @@ def resolve_source(doc) -> dict:
 		configured = False
 	identity = {key: connection.get(key) for key in ("host", "port", "database")}
 	identity["corp_id"] = corp
+	return _source_values(doc, profile, connection, corp, configured, valid_corp, identity)
+
+
+def _source_values(doc, profile, connection, corp, configured, valid_corp, identity):
+	from .organization_mapping import values
+	mappings = values(doc.get("organization_mappings"))
 	fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 	version = hashlib.sha256(json.dumps({
 		"identity": fingerprint, "profile": profile, "modified": str(doc.get("modified")),
 		"enabled": bool(doc.get("ledger_sync_enabled")),
+		"organization_mappings": mappings,
 	}, sort_keys=True).encode()).hexdigest()
 	return {"corp_id": corp, "profile": profile, "connection": connection,
 		"connection_configured": bool(configured), "scope_configured": valid_corp,
 		"configured": bool(configured and valid_corp), "enabled": bool(doc.get("ledger_sync_enabled")),
-		"fingerprint": fingerprint, "version": version,
+		"fingerprint": fingerprint, "version": version, "organization_mappings": mappings,
 		"bound_fingerprint": doc.get("ledger_source_fingerprint") or ""}
 
 
 def current_source() -> dict:
-	return _active_source.get() or resolve_source(frappe.get_doc(SETTINGS))
+	if _active_source.get() is not None:
+		return _active_source.get()
+	from .organization_mapping import schema_state
+	return resolve_source(frappe.get_doc(SETTINGS)) | {"organization_review_ready": schema_state()["ready"]}
 
 
 @contextmanager
@@ -81,20 +106,32 @@ def blocked_reason(source) -> str | None:
 		return "not_configured"
 	if not source["enabled"]:
 		return "disabled"
+	if source.get("organization_review_ready") is False:
+		return "schema_update_required"
 	if source["bound_fingerprint"] and source["bound_fingerprint"] != source["fingerprint"]:
 		return "source_changed"
 	return None
 
 
 def public_settings(source):
+	from ..integrations.shared_operating_oa import available
+	from .organization_mapping import schema_state
+	# Saved documents are resolved without runtime schema state. Match the read
+	# response instead of treating an absent readiness flag as a migrated site.
+	if "organization_review_ready" not in source:
+		source = source | {"organization_review_ready": schema_state()["ready"]}
 	return {key: source[key] for key in ("corp_id", "profile", "connection_configured",
-		"scope_configured", "configured", "enabled", "version")} | {"blocked_by": blocked_reason(source)}
+		"scope_configured", "configured", "enabled", "version")} | {
+		"blocked_by": blocked_reason(source), "shared_oa_available": available(),
+		"organization_review_ready": source["organization_review_ready"]}
 
 
 def connection_kwargs(source=None):
 	source = source or current_source()
 	if not source["configured"]:
 		frappe.throw(_("Budget synchronization is not configured. Open Sync Settings."))
+	if source["profile"] == "operating_oa":
+		raise LedgerReadSourceError(_("The shared OA source uses the approval API, not a separate budget database."))
 	values = source["connection"]
 	kwargs = {"host": values["host"], "port": int(values["port"]), "dbname": values["database"],
 		"user": values["user"], "password": values["password"], "connect_timeout": 8,
@@ -121,6 +158,8 @@ def checked_read_source():
 def get_ledger_oa_source():
 	"""Organization and approval reads share the exact source used by synchronization."""
 	source = checked_read_source()
+	if source["profile"] == "operating_oa":
+		raise LedgerReadSourceError(_("Organization and approval metrics are not available from the shared OA API."))
 	from ..integrations.pg import fetch
 
 	class LedgerOAReadSource(OAApprovalSource):
@@ -137,6 +176,8 @@ def validate_expense_source():
 	still match. Do not point aggregate-table queries at a different OA database by guessing.
 	"""
 	source = checked_read_source()
+	if source["profile"] == "operating_oa":
+		raise LedgerReadSourceError(_("Legacy expense aggregates are not linked to the shared OA source."))
 	legacy = shared_db_config()
 	connection = source["connection"]
 	matching_server = all(str(legacy.get(key) or "").strip() == str(connection.get(key) or "").strip()
@@ -177,34 +218,42 @@ def acquire_settings_transaction_lock():
 
 def validate_settings(doc):
 	old = doc.get_doc_before_save()
-	if old and doc.get("ledger_source_fingerprint") != old.get("ledger_source_fingerprint"):
+	from . import organization_mapping
+	from .ledger_source_transition import transition_authorized
+	source = resolve_source(doc)
+	previous = resolve_source(old) if old else None
+	verified_switch = transition_authorized(previous, source)
+	organization_mapping.validate(doc, source["corp_id"])
+	if old and doc.get("ledger_source_fingerprint") != old.get("ledger_source_fingerprint") and not verified_switch:
 		frappe.throw(_("The ledger source fingerprint is managed by synchronization."))
 	fields = ("ledger_corp_id", "ledger_connection_profile", "ledger_sync_enabled")
-	if old and all(doc.get(key) == old.get(key) for key in fields):
+	if (old and all(doc.get(key) == old.get(key) for key in fields)
+		and organization_mapping.values(doc.get("organization_mappings")) == organization_mapping.values(old.get("organization_mappings"))):
 		return
-	if doc.get("ledger_connection_profile") not in (None, "", "budget", "shared_oa"):
+	if doc.get("ledger_connection_profile") not in (None, "", "budget", "shared_oa", "operating_oa"):
 		frappe.throw(_("Invalid budget connection profile."))
-	source = resolve_source(doc)
 	if source["corp_id"] and not source["scope_configured"]:
 		frappe.throw(_("Enter a valid OA corporation ID."))
 	if source["enabled"] and not source["configured"]:
 		frappe.throw(_("Complete the corporation scope and server connection before enabling synchronization."))
-	previous = resolve_source(old) if old else None
-	bound = source["bound_fingerprint"] or (previous["fingerprint"] if previous else "")
-	if bound and bound != source["fingerprint"] and frappe.db.count("Budget Ledger Entry"):
+	bound = (previous["bound_fingerprint"] or previous["fingerprint"]) if previous else source["bound_fingerprint"]
+	if (bound and bound != source["fingerprint"] and not verified_switch
+		and (frappe.db.count("Budget Ledger Entry") or (previous or {}).get("organization_mappings"))):
 		frappe.throw(_("The ledger contains data. Its corporation and database cannot be changed here."))
-	if bound != source["fingerprint"]:
+	if bound != source["fingerprint"] and not verified_switch:
 		doc.ledger_source_fingerprint = ""
 
 
 @frappe.whitelist()
 def get_sync_settings():
 	frappe.only_for("System Manager")
-	return public_settings(current_source())
+	source = current_source()
+	return public_settings(source) | {"organization_mappings": source["organization_mappings"],
+		"ledger_count": frappe.db.count("Budget Ledger Entry")}
 
 
 @frappe.whitelist(methods=["POST"])
-def save_sync_settings(corp_id, profile, enabled, expected_version):
+def save_sync_settings(corp_id, profile, enabled, expected_version, organization_mappings=None):
 	frappe.only_for("System Manager")
 	with sync_lock(LOCK_NAME) as acquired:
 		if not acquired:
@@ -215,11 +264,21 @@ def save_sync_settings(corp_id, profile, enabled, expected_version):
 		doc.ledger_corp_id = str(corp_id or "").strip()
 		doc.ledger_connection_profile = profile
 		doc.ledger_sync_enabled = int(str(enabled) in ("1", "true", "True"))
+		if organization_mappings is not None:
+			from .organization_mapping import values, require_schema
+			require_schema()
+			rows = frappe.parse_json(organization_mappings) if isinstance(organization_mappings, str) else organization_mappings
+			if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+				frappe.throw(_("Invalid organization mappings."))
+			doc.set("organization_mappings", values(rows))
 		token = _saving.set(True)
 		try:
 			doc.save()
 			# Publish the new configuration before releasing the worker's mutex.
 			frappe.db.commit()
+		except Exception:
+			frappe.db.rollback()
+			raise
 		finally:
 			_saving.reset(token)
 		return public_settings(resolve_source(doc))

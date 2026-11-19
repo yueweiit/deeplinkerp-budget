@@ -77,7 +77,7 @@ def _json_list(value) -> list:
 
 def _row_to_api(row: dict) -> dict:
 	"""把本地表行转成与 PG 版一致的字段名，业务层无需感知来源。"""
-	amount = float(row.get("total_amount") or row.get("amount") or 0)
+	amount = float((row.get("total_amount") if row.get("total_amount") is not None else row.get("amount")) or 0)
 	return {
 		"id": row.get("name"),
 		"form_no": row.get("form_no"),
@@ -255,10 +255,13 @@ class BudgetLedgerLocalSource:
 		return {str(row.get("form_no")): str(row.get("remark")) for row in rows}
 
 	def count_detail_rows(
-		self, start_month: str | None = None, end_month: str | None = None
+		self, start_month: str | None = None, end_month: str | None = None, company: str | None = None
 	) -> dict[str, int]:
 		conditions = ["1=1"]
 		values: dict = {}
+		if company:
+			conditions.append("e.company = %(company)s")
+			values["company"] = company
 		if start_month:
 			conditions.append("e.budget_month >= %(start_month)s")
 			values["start_month"] = _month_start(start_month)

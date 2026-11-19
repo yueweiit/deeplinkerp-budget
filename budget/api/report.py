@@ -15,10 +15,15 @@ READ_ROLES = ("System Manager", "Accounts Manager")
 
 
 @frappe.whitelist()
-def get_report_data(start_date: str | None = None, end_date: str | None = None) -> dict:
+def get_report_data(start_date: str | None = None, end_date: str | None = None, company: str | None = None) -> dict:
 	"""区间报表；不传日期时按当月。"""
 	frappe.only_for(READ_ROLES)
 	today = getdate()
 	start = getdate(start_date) if start_date else get_first_day(today)
 	end = getdate(end_date) if end_date else get_last_day(today)
-	return build_report(start.isoformat(), end.isoformat())
+	if start > end:
+		frappe.throw(frappe._("Start date must not be after end date"))
+	if company:
+		from .cn_workbench import _check
+		_check()
+	return build_report(start.isoformat(), end.isoformat(), company=company)

@@ -22,3 +22,8 @@ class BudgetSettings(Document):
 		from budget.services.ledger_sync_settings import validate_settings
 
 		validate_settings(self)
+
+	def on_update(self):
+		from budget.services.organization_mapping import apply_changes
+
+		apply_changes(self)

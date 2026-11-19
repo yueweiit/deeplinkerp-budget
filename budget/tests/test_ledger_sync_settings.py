@@ -5,6 +5,7 @@ import pytest
 
 from budget.services import ledger_sync_settings as settings
 from budget.services import oa_budget_sync as sync
+from budget.services import organization_mapping
 
 
 @pytest.fixture
@@ -18,6 +19,7 @@ def configured(monkeypatch):
 	monkeypatch.setattr(settings, "_", lambda text: text)
 	monkeypatch.setattr(settings.frappe, "only_for", lambda roles: None)
 	monkeypatch.setattr(settings.frappe, "throw", lambda message: (_ for _ in ()).throw(ValueError(message)))
+	monkeypatch.setattr(organization_mapping, "schema_state", lambda: {"level_column": True, "ready": True})
 	return {"ledger_corp_id":"corp-1", "ledger_connection_profile":"budget", "ledger_sync_enabled":1, "modified":"v1"}
 
 
@@ -142,6 +144,26 @@ def test_save_only_persists_configuration(configured, monkeypatch):
 	assert calls == ["commit"]
 	with pytest.raises(ValueError, match="changed"):
 		settings.save_sync_settings("corp-3", "budget", 0, version)
+
+
+@pytest.mark.parametrize("ready", [False, True])
+@pytest.mark.parametrize("enabled", [0, 1])
+def test_saved_and_read_settings_share_schema_readiness(configured, monkeypatch, ready, enabled):
+	doc = Doc(configured, old=Doc(configured))
+	version = settings.resolve_source(doc)["version"]
+	commits = []
+	monkeypatch.setattr(organization_mapping, "schema_state", lambda: {"level_column": ready, "ready": ready})
+	monkeypatch.setattr(settings.frappe, "get_doc", lambda *args: doc)
+	monkeypatch.setattr(settings.frappe, "db", SimpleNamespace(commit=lambda: commits.append(True), count=lambda *a: 0))
+	monkeypatch.setattr(settings, "sync_lock", acquired)
+	monkeypatch.setattr(settings.frappe, "enqueue", lambda *a, **kw: pytest.fail("save must not enqueue"))
+
+	saved = settings.save_sync_settings("corp-1", "budget", enabled, version)
+	loaded = settings.get_sync_settings()
+	assert saved == {key: loaded[key] for key in saved}
+	assert saved["organization_review_ready"] is ready
+	assert saved["blocked_by"] == ("disabled" if not enabled else None if ready else "schema_update_required")
+	assert commits == [True]
 
 
 def test_existing_ledger_blocks_scope_switch(configured, monkeypatch):
