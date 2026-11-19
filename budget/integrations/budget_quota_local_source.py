@@ -1,8 +1,7 @@
 """预算额度的本地读取源（MariaDB）。
 
 与 ``QuotaSource``（PostgreSQL 直连）同名同签名，数据来自站点自己的
-``Budget Quota`` / ``Budget Quota Subject``，由 ``services.quota_sync`` 从外部
-``budget_system.budget_effective_quota`` 同步而来。
+``Budget Quota`` / ``Budget Quota Subject``，由共用 OA 审批同步在同一事务内生成。
 
 口径与 PG 版逐条对齐：
 
@@ -20,6 +19,25 @@ SUBJECT_DOCTYPE = "Budget Quota Subject"
 
 EFFECTIVE = "effective"
 PENDING_NAME = "待确认"
+
+
+def scope_filters(source=None):
+	"""Bind all local quota reads to the server's corporation and budget template."""
+	from ..services.ledger_sync_settings import current_source
+	from ..services.oa_budget_parser import BUDGET_PROCESS_CODE
+	source = source if source is not None else current_source()
+	filters = {"corp_id": source.get("corp_id") or "", "oa_process_code": BUDGET_PROCESS_CODE}
+	if (not filters["corp_id"] or (source.get("bound_fingerprint")
+		and source["bound_fingerprint"] != source.get("fingerprint"))):
+		# A missing configuration must not expose unbound historical rows.
+		filters["name"] = ["is", "not set"]
+	return filters
+
+
+def scope_sql(source=None):
+	values = scope_filters(source)
+	where = "q.corp_id <> '' AND q.corp_id = %(corp_id)s AND q.oa_process_code = %(oa_process_code)s"
+	return where + (" AND 1 = 0" if "name" in values else ""), values
 
 
 def _month_start(value: str | None) -> str | None:
@@ -57,8 +75,9 @@ class BudgetQuotaLocalSource:
 		company_name=None,
 		keyword=None,
 	) -> tuple[str, dict]:
-		conditions = ["q.status = %(status)s"]
-		values: dict = {"status": EFFECTIVE}
+		scope, values = scope_sql()
+		conditions = [scope, "q.status = %(status)s"]
+		values["status"] = EFFECTIVE
 
 		if str(budget_year or "").strip():
 			conditions.append("q.budget_year = %(budget_year)s")
@@ -99,30 +118,31 @@ class BudgetQuotaLocalSource:
 	# ------------------------------------------------------------ 选项
 	def get_options(self) -> dict:
 		"""筛选下拉候选值；组织类选项只取 ``organization_is_current = 1``。"""
+		where, values = self._filters()
 
 		def _values(sql: str) -> list:
-			return [row[0] for row in frappe.db.sql(sql, {"status": EFFECTIVE})]
+			return [row[0] for row in frappe.db.sql(sql, values)]
 
 		years = _values(
 			f"""SELECT DISTINCT q.budget_year FROM `tab{QUOTA_DOCTYPE}` q
-			     WHERE q.status = %(status)s AND q.budget_year IS NOT NULL
+			     WHERE {where} AND q.budget_year IS NOT NULL
 			     ORDER BY q.budget_year DESC"""
 		)
 		months = _values(
 			f"""SELECT DISTINCT LEFT(q.budget_month, 7) AS value FROM `tab{QUOTA_DOCTYPE}` q
-			     WHERE q.status = %(status)s AND q.budget_month IS NOT NULL
+			     WHERE {where} AND q.budget_month IS NOT NULL
 			     ORDER BY value"""
 		)
 		budget_types = _values(
 			f"""SELECT DISTINCT q.budget_type FROM `tab{QUOTA_DOCTYPE}` q
-			     WHERE q.status = %(status)s AND NULLIF(TRIM(q.budget_type), '') IS NOT NULL
+			     WHERE {where} AND NULLIF(TRIM(q.budget_type), '') IS NOT NULL
 			     ORDER BY q.budget_type"""
 		)
 		subjects = _values(
 			f"""SELECT DISTINCT s.subject_name
 			      FROM `tab{SUBJECT_DOCTYPE}` s
 			      JOIN `tab{QUOTA_DOCTYPE}` q ON q.name = s.quota_form_no
-			     WHERE q.status = %(status)s AND NULLIF(TRIM(s.subject_name), '') IS NOT NULL
+			     WHERE {where} AND NULLIF(TRIM(s.subject_name), '') IS NOT NULL
 			     ORDER BY s.subject_name"""
 		)
 
@@ -138,12 +158,12 @@ class BudgetQuotaLocalSource:
 				f"""SELECT DISTINCT NULLIF(TRIM(q.{id_field}), '') AS id,
 				           {_name_sql(f"q.{name_field}")} AS name
 				      FROM `tab{QUOTA_DOCTYPE}` q
-				     WHERE q.status = %(status)s
+				     WHERE {where}
 				       AND q.organization_is_current = 1
 				       AND NULLIF(TRIM(q.{id_field}), '') IS NOT NULL
 				       {extra}
 				     ORDER BY name""",
-				{"status": EFFECTIVE},
+				values,
 				as_dict=True,
 			)
 			return [{"id": row.get("id"), "name": row.get("name")} for row in rows]

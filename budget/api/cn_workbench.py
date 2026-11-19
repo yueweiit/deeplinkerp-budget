@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, get_first_day, get_last_day, getdate
 
-from budget.integrations.budget_quota_local_source import BudgetQuotaLocalSource
+from budget.integrations.budget_quota_local_source import BudgetQuotaLocalSource, scope_filters
 from budget.services.oa_budget_sync import COMPANY_LEVEL_INDEX, _json_list
 from budget.services.organization_mapping import schema_state
 
@@ -84,7 +84,7 @@ def get_options():
     companies = {row.company for row in frappe.get_list("Budget Ledger Entry", fields=["company"], group_by="company", limit_page_length=0) if row.company}
     quota = frappe.session.user == "Administrator" or "System Manager" in frappe.get_roles()
     if quota:
-        companies.update(row.company_name for row in frappe.get_list("Budget Quota", fields=["company_name"], group_by="company_name", filters={"status": "effective"}, limit_page_length=0) if row.company_name)
+        companies.update(row.company_name for row in frappe.get_list("Budget Quota", fields=["company_name"], group_by="company_name", filters={**scope_filters(), "status": "effective"}, limit_page_length=0) if row.company_name)
     ready = schema_state()["ready"]
     return {"companies": sorted(companies), "can_read_quota": quota,
             "can_review_organization": quota and ready, "organization_review_ready": ready}

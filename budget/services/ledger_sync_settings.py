@@ -36,7 +36,8 @@ def resolve_source(doc) -> dict:
 		and not doc.get("ledger_corp_id") and not doc.get("ledger_source_fingerprint")
 		and not doc.get("organization_mappings")
 		and not _runtime_config_value(*CORP_KEYS) and not _runtime_config_value(*_SHARED_DB_KEYS["host"])
-		and shared_operating_oa.available() and not frappe.db.count("Budget Ledger Entry")):
+		and shared_operating_oa.available() and not frappe.db.count("Budget Ledger Entry")
+		and not frappe.db.count("Budget Quota")):
 		profile = "operating_oa"
 	if profile == "operating_oa":
 		url, corp, valid_corp = shared_operating_oa.configuration(doc.get("ledger_corp_id"))
@@ -238,7 +239,8 @@ def validate_settings(doc):
 		frappe.throw(_("Complete the corporation scope and server connection before enabling synchronization."))
 	bound = (previous["bound_fingerprint"] or previous["fingerprint"]) if previous else source["bound_fingerprint"]
 	if (bound and bound != source["fingerprint"] and not verified_switch
-		and (frappe.db.count("Budget Ledger Entry") or (previous or {}).get("organization_mappings"))):
+		and (frappe.db.count("Budget Ledger Entry") or frappe.db.count("Budget Quota")
+			or (previous or {}).get("organization_mappings"))):
 		frappe.throw(_("The ledger contains data. Its corporation and database cannot be changed here."))
 	if bound != source["fingerprint"] and not verified_switch:
 		doc.ledger_source_fingerprint = ""
@@ -246,10 +248,12 @@ def validate_settings(doc):
 
 @frappe.whitelist()
 def get_sync_settings():
+	from ..integrations.budget_quota_local_source import scope_filters
 	frappe.only_for("System Manager")
 	source = current_source()
 	return public_settings(source) | {"organization_mappings": source["organization_mappings"],
-		"ledger_count": frappe.db.count("Budget Ledger Entry")}
+		"ledger_count": frappe.db.count("Budget Ledger Entry"),
+		"quota_count": frappe.db.count("Budget Quota", scope_filters(source))}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -337,5 +341,8 @@ def get_sync_state():
 	elif last:
 		state = {"Success": "success", "Failed": "failed", "Skipped": "skipped"}.get(last["status"], "unknown")
 		reason = last.get("reason_code")
-	return {"settings": public_settings(current_source()), "state": state,
-		"reason": reason, "last": last, "ledger_count": frappe.db.count("Budget Ledger Entry")}
+	from ..integrations.budget_quota_local_source import scope_filters
+	source = current_source()
+	return {"settings": public_settings(source), "state": state,
+		"reason": reason, "last": last, "ledger_count": frappe.db.count("Budget Ledger Entry"),
+		"quota_count": frappe.db.count("Budget Quota", {**scope_filters(source), "status": "effective"})}

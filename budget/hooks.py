@@ -28,13 +28,12 @@ before_uninstall = ["budget.setup.restore_budget_nav"]
 after_request = ["budget.integrations.pg.close_all"]
 
 # 每天从钉钉 OA 归档解析预算单并写入 Budget Ledger Entry / Budget Ledger Detail；
-# 同时把外部 budget_system 的预算额度同步成本地 Budget Quota / Budget Quota Subject。
+# 共用 OA 来源在同一事务内更新 Budget Quota / Budget Quota Subject。
 # 需要立刻更新时分别调 budget.api.budget_ledger.sync_budget_entries 与
 # budget.services.quota_sync.run_quota_sync。
 scheduler_events = {
 	"daily_long": [
 		"budget.services.budget_ledger_sync.sync_budget_entries",
-		"budget.services.quota_sync.sync_quotas",
 	],
 }
 

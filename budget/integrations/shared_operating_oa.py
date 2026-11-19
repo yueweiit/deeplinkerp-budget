@@ -24,7 +24,7 @@ def configuration(corp_id=""):
     return url, corp, corp in corps
 
 
-def instances(source, check_deadline):
+def instances(source, check_deadline, *, approved_only=True):
     from budget.services.oa_budget_parser import BUDGET_PROCESS_CODE, parse_budget_instance
 
     http = client()
@@ -44,7 +44,7 @@ def instances(source, check_deadline):
             if identity in seen:
                 frappe.throw(_("OA approval pagination returned duplicate records."))
             seen.add(identity)
-            if row.get("deleted_at") or row.get("status") != "COMPLETED" or row.get("result") != "agree":
+            if approved_only and not ledger_eligible(row):
                 continue
             region = "".join(str(parse_budget_instance(row)["entry"].get("execution_region") or "").split()).casefold()
             if region in {"中国", "中国china", "china", "cn"}:
@@ -56,6 +56,10 @@ def instances(source, check_deadline):
             frappe.throw(_("OA approval pagination did not advance."))
         cursors.add(cursor)
     frappe.throw(_("OA approval scan exceeded the page limit."))
+
+
+def ledger_eligible(row):
+    return not row.get("deleted_at") and row.get("status") == "COMPLETED" and row.get("result") == "agree"
 
 
 def department_paths():

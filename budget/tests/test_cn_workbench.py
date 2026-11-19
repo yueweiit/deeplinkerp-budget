@@ -6,12 +6,14 @@ import pytest
 
 from budget.api import cn_workbench as api
 from budget.integrations.budget_quota_local_source import BudgetQuotaLocalSource
-from budget.services import report_service
+from budget.services import report_service, ledger_sync_settings
+from budget.services.oa_budget_parser import BUDGET_PROCESS_CODE
 from budget.services.oa_budget_sync import _entry_values
 
 
 @pytest.fixture(autouse=True)
 def translations(monkeypatch):
+    monkeypatch.setattr(ledger_sync_settings, "current_source", lambda: {"corp_id": "corp-A"})
     monkeypatch.setattr(frappe, "_", lambda text, *a, **kw: text)
     monkeypatch.setattr(report_service, "_", lambda text, *a, **kw: text)
     monkeypatch.setattr(report_service, "current_report_source", lambda: None)
@@ -68,6 +70,8 @@ def test_quota_list_totals_and_export_keep_the_department_scope(monkeypatch):
     queries = []
     def sql(query, params, **kwargs):
         queries.append((query, params))
+        assert "q.corp_id = %(corp_id)s" in query and params["corp_id"] == "corp-A"
+        assert "q.oa_process_code = %(oa_process_code)s" in query and params["oa_process_code"] == BUDGET_PROCESS_CODE
         assert "q.department_id = %(filter_department_id)s" in query
         assert params["filter_department_id"] == "dept-A"
         assert params["company_name"] == "Company A"
@@ -97,11 +101,42 @@ def test_quota_department_name_fallback_stays_parameterized():
 
 def test_quota_range_keeps_effective_only_and_does_not_use_single_month():
     where, params = BudgetQuotaLocalSource()._filters(start_month="2026-09",end_month="2026-11",company_name="A")
-    assert params == {"status":"effective","range_start":"2026-09-01","range_end":"2026-11-01","company_name":"A"}
+    assert params == {"corp_id": "corp-A", "oa_process_code": BUDGET_PROCESS_CODE, "status":"effective","range_start":"2026-09-01","range_end":"2026-11-01","company_name":"A"}
     assert "q.status = %(status)s" in where
     assert "q.company_name = %(company_name)s" in where
     assert "q.budget_month >= %(range_start)s" in where
     assert "q.budget_month <= %(range_end)s" in where
+
+
+def test_every_quota_option_and_cn_company_option_uses_current_corporation_and_template(monkeypatch):
+    queries = []
+    def sql(query, params, **kwargs):
+        assert "q.corp_id = %(corp_id)s" in query and params["corp_id"] == "corp-A"
+        assert "q.oa_process_code = %(oa_process_code)s" in query and params["oa_process_code"] == BUDGET_PROCESS_CODE
+        assert "q.status = %(status)s" in query and params["status"] == "effective"
+        queries.append(query)
+        return []
+    monkeypatch.setattr(frappe, "db", SimpleNamespace(sql=sql))
+    BudgetQuotaLocalSource().get_options()
+    assert len(queries) == 7
+    monkeypatch.setattr(api, "_check", lambda *a: None)
+    monkeypatch.setattr(frappe, "get_roles", lambda: ["System Manager"])
+    monkeypatch.setattr(frappe, "session", SimpleNamespace(user="Administrator"))
+    def get_list(doctype, **kwargs):
+        if doctype == "Budget Quota":
+            assert kwargs["filters"] == {"corp_id": "corp-A", "oa_process_code": BUDGET_PROCESS_CODE, "status": "effective"}
+        return []
+    monkeypatch.setattr(frappe, "get_list", get_list)
+    api.get_options()
+
+
+@pytest.mark.parametrize("source", [{"corp_id": ""}, {"corp_id": "corp-A", "bound_fingerprint": "old", "fingerprint": "changed"}])
+def test_unbound_or_changed_quota_scope_cannot_read_any_historical_rows(monkeypatch, source):
+    from budget.integrations.budget_quota_local_source import scope_filters
+    monkeypatch.setattr(ledger_sync_settings, "current_source", lambda: source)
+    where, _ = BudgetQuotaLocalSource()._filters()
+    assert "1 = 0" in where
+    assert scope_filters()["name"] == ["is", "not set"]
 
 
 @pytest.mark.parametrize("endpoint,kwargs,roles", [(api.get_options,{},api.READ_ROLES),(api.get_data,{},api.READ_ROLES),(api.get_data,{"tab":"quota"},("System Manager",)),(api.export_data,{"tab":"quota"},("System Manager",))])

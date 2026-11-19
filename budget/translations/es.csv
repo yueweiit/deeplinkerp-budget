@@ -272,3 +272,8 @@ Approval timing data is unavailable. Review the source settings or try again lat
 CN operating approvals only; procurement approvals are not included. Approved spending uses completion dates and month-start CNY rates; pending amounts use application-month rates. Approval is not proof of payment.,Solo se incluyen las aprobaciones operativas de China; las compras quedan excluidas. Los gastos aprobados se imputan a la fecha de finalización y se convierten a CNY al tipo de cambio del primer día de ese mes; los importes pendientes se estiman con el tipo del mes de solicitud. La aprobación no acredita el pago.
 Approval source configuration is unavailable. Budget data remains available; review the OA sync settings.,La configuración del origen de aprobaciones no está disponible. Los datos del presupuesto siguen disponibles; revise la configuración de sincronización de OA.
 Spending trend unavailable: {0},Tendencia de gastos no disponible: {0}
+Budget quotas require the shared OA approval source.,Las cuotas presupuestarias requieren la fuente compartida de aprobaciones OA.
+Budget quota identity conflicts with existing data. Review the source first.,La identidad de la cuota presupuestaria entra en conflicto con los datos existentes. Revise primero la fuente.
+Budget quota verification failed. Synchronization was rolled back.,La verificación de cuotas presupuestarias falló. Se revirtió la sincronización.
+Controls manual and scheduled synchronization. The shared OA source updates budget ledger entries and quotas together.,Controla la sincronización manual y programada. La fuente OA compartida actualiza conjuntamente el registro y las cuotas presupuestarias.
+Synchronize Budget Data,Sincronizar datos presupuestarios

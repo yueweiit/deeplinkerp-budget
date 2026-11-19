@@ -51,6 +51,14 @@ def test_shared_scan_is_paginated_and_keeps_only_cn_approved_budgets(shared):
     assert len(deadlines) == 2
 
 
+def test_quota_snapshot_includes_inactive_cn_approvals_for_reconciliation(shared):
+    shared.read_template_page = lambda *a, **kw: ([row(), row("terminated", status="TERMINATED"),
+        row("running", status="RUNNING"), row("deleted", deleted_at="2026-11-01"),
+        row("mx", "墨西哥Mexico")], {"hasMore": False, "syncUntil": "snapshot"})
+    assert [r["process_instance_id"] for r in source.instances(binding(), lambda: None, approved_only=False)] == [
+        "one", "terminated", "running", "deleted"]
+
+
 @pytest.mark.parametrize("failure", ["snapshot", "duplicate", "cursor", "limit"])
 def test_incomplete_scans_raise_before_any_snapshot_can_be_written(shared, failure):
     count = 0

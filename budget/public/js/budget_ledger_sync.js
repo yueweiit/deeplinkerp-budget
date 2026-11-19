@@ -25,6 +25,7 @@
 		settings_changed:"Settings changed after this task was queued. Start synchronization again.",
 		running:"Budget synchronization is already running.",
 		no_source_records:"No eligible budget approvals were found. Existing ledger data was retained.",
+		shared_oa_required:"Budget quotas require the shared OA approval source.",
 	};
 	function statusHTML(data) {
 		const settings = data.settings || {}, last = data.last;
@@ -35,7 +36,8 @@
 			${data.state === "failed" ? `<p class="text-danger">${esc(t("The last synchronization failed. Existing ledger data was retained. Open the sync log for details."))}</p>` : ""}
 			${last ? `<p class="text-muted">${esc(t("Last Run"))}: ${esc(last.started_at || "—")} · ${esc(t(last.status))}</p>` : ""}
 			${last?.status === "Success" ? `<p>${esc(t("Created"))}: ${esc(last.created ?? 0)} · ${esc(t("Updated"))}: ${esc(last.updated ?? 0)} · ${esc(t("Unchanged"))}: ${esc(last.unchanged ?? 0)} · ${esc(t("Removed"))}: ${esc(last.removed ?? 0)}</p>` : ""}
-			<p>${esc(t("Local Ledger Entries"))}: ${esc(data.ledger_count ?? 0)}</p></div>`;
+			<p>${esc(t("Local Ledger Entries"))}: ${esc(data.ledger_count ?? 0)}</p>
+			<p>${esc(t("Effective Quotas"))}: ${esc(data.quota_count ?? 0)}</p></div>`;
 	}
 	function canStart(data) {
 		return !!data?.settings?.configured && !!data.settings.enabled && !data.settings.blocked_by && !["queued", "running"].includes(data.state);
@@ -49,7 +51,7 @@
 					options:`<p class="text-warning">${esc(t(reasons.schema_update_required))}</p>`},
 				{fieldtype:"HTML", options:`<p class="text-muted">${esc(t("Saving settings does not start synchronization. Database credentials are managed on the server and are never returned to this page."))}</p>`},
 				{fieldname:"enabled", fieldtype:"Check", label:t("Enable Budget Synchronization"), default:settings.enabled ? 1 : 0,
-					description:t("Controls manual and scheduled budget ledger synchronization.")},
+					description:t("Controls manual and scheduled synchronization. The shared OA source updates budget ledger entries and quotas together.")},
 				{fieldname:"corp_id", fieldtype:"Data", label:t("OA Corporation ID"), default:settings.corp_id},
 				{fieldname:"profile", fieldtype:"Select", label:t("Connection Profile"), reqd:1, default:settings.profile,
 					options:[...(settings.shared_oa_available ? [{value:"operating_oa", label:t("Shared CN/MX OA approval API")}] : []),

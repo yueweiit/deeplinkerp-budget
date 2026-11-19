@@ -549,12 +549,28 @@ def _run_sync(*, trigger: str, force: bool, run_id: str | None = None) -> dict:
 
 
 def _sync_from_oa(*, force: bool = False) -> dict:
-	rows = _fetch_instances()
+	source = sync_settings.current_source()
+	if source["profile"] == "operating_oa":
+		from ..integrations.shared_operating_oa import instances, ledger_eligible
+		from .quota_sync import apply_approval_snapshot
+
+		# One complete OA snapshot supplies both projections; no quota database.
+		all_rows = instances(source, _check_deadline, approved_only=False)
+		if not all_rows:
+			return {"skipped": True, "reason_code": "no_source_records", "remote_total": 0}
+		paths = _department_paths()
+		result = _sync_ledger_rows([row for row in all_rows if ledger_eligible(row)], paths, force=force, allow_empty=True)
+		quota = apply_approval_snapshot(all_rows, paths, source)
+		return {**result, "quota": quota}
+	return _sync_ledger_rows(_fetch_instances(), None, force=force)
+
+
+def _sync_ledger_rows(rows, paths, *, force=False, allow_empty=False):
 	_check_deadline()
-	if not rows:
+	if not rows and not allow_empty:
 		return {"skipped": True, "reason_code": "no_source_records", "reason": "OA 归档没有符合条件的预算单", "remote_total": 0}
 
-	paths = _department_paths()
+	paths = _department_paths() if paths is None else paths
 	_check_deadline()
 	synced_at = frappe.utils.now()
 
@@ -607,8 +623,8 @@ def _sync_from_oa(*, force: bool = False) -> dict:
 		names.append(form_no)
 
 	removed = 0
-	if names:
-		stale = frappe.get_all(ENTRY_DOCTYPE, filters={"form_no": ["not in", names]}, pluck="name")
+	if names or allow_empty:
+		stale = frappe.get_all(ENTRY_DOCTYPE, filters={"form_no": ["not in", names]} if names else {}, pluck="name")
 		for name in stale:
 			frappe.db.delete(DETAIL_DOCTYPE, {"form_no": name})
 			frappe.delete_doc(ENTRY_DOCTYPE, name, ignore_permissions=True, force=True)
@@ -626,7 +642,7 @@ def _sync_from_oa(*, force: bool = False) -> dict:
 		# 成整表重建重跑一次；全量仍对不上才是真的失败，照常抛给外层回滚。
 		if force or not unchanged:
 			raise
-		result = _sync_from_oa(force=True)
+		result = _sync_ledger_rows(rows, paths, force=True, allow_empty=allow_empty)
 		result["escalated"] = True
 		return result
 

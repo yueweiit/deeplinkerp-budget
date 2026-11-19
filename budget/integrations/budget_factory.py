@@ -11,7 +11,7 @@
 
 注意：实际支出、部门树尚未全部本地化；共享 OA API 未提供的指标明确标记不可用。
 独立安装的 ``local`` 模式仍按明确绑定的 PostgreSQL 来源读取这些指标；
-预算台账与预算额度是纯本地读取（分别由 ``oa_budget_sync`` / ``quota_sync`` 同步）。
+预算台账与预算额度是纯本地读取；共用 OA 模式由 ``oa_budget_sync`` 同事务同步。
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def get_ledger_source() -> Any:
 
 
 def get_quota_source() -> Any:
-	"""预算额度：默认读本地表（由 ``services.quota_sync`` 从 budget_system 同步）。"""
+	"""预算额度：默认读本地审批快照；独立安装的显式旧读取模式保留兼容。"""
 	mode = data_source_mode()
 	if mode == "http":
 		from .quota_api_source import QuotaAPISource
