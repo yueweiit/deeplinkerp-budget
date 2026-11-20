@@ -143,16 +143,19 @@ def apply_budget_nav() -> None:
 	branding_installed = "deeplinkerp_branding" in frappe.get_installed_apps()
 	items = cn_navigation_items(lambda route: frappe.db.exists("Page", route)) if branding_installed else []
 	regional_layout = bool(items)
-	if branding_installed and not items and frappe.db.exists("Page", "operating-expenses"):
-		items = [dict(type="Link", label="Operating Expenses", link_type="Page",
-			link_to="operating-expenses", icon="receipt-text", child=0)]
+	if not regional_layout:
+		# Compatibility belongs only to incomplete / standalone installations.
+		# The standard CN metadata itself must never seed the retired menu.
+		items = [dict(type="Link", label=label, link_type=item["link_type"],
+			link_to=item["link_to"], icon=item["icon"], child=0)
+			for label, item in zip(("Budget Ledger", "Budget Dashboard", "Budget Configuration"), ITEMS, strict=True)]
+		if branding_installed and frappe.db.exists("Page", "operating-expenses"):
+			items.insert(0, dict(type="Link", label="Operating Expenses", link_type="Page",
+				link_to="operating-expenses", icon="receipt-text", child=0))
 	if items:
 		sidebar = frappe.get_doc("Workspace Sidebar", "China Operating Expenses")
 		for item in sidebar.items:
-			if regional_layout:
-				frappe.db.delete("Workspace Sidebar Item", {"name": item.name})
-			else:
-				_set(item.name, {"idx": item.idx + len(items), "child": 0})
+			frappe.db.delete("Workspace Sidebar Item", {"name": item.name})
 		for idx, item in enumerate(items, 1):
 			frappe.get_doc({"doctype": "Workspace Sidebar Item", "parent": sidebar.name,
 				"parenttype": "Workspace Sidebar", "parentfield": "items", "idx": idx, **item}).db_insert()

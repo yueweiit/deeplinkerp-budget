@@ -4,40 +4,79 @@
  "header_icon": "receipt-text",
  "items": [
   {
-   "type": "Link",
-   "label": "Budget Ledger",
-   "link_type": "DocType",
-   "link_to": "Budget Ledger Entry",
-   "icon": "list",
+   "type": "Section Break",
+   "label": "Budget and Expenditure",
+   "icon": "layout-dashboard",
    "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "show_arrow": 0
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1
   },
   {
    "type": "Link",
-   "label": "Budget Dashboard",
+   "label": "Management Overview",
    "link_type": "Page",
-   "link_to": "budget-dashboard",
+   "link_to": "china-expenses",
+   "icon": "layout-dashboard",
+   "child": 1
+  },
+  {
+   "type": "Link",
+   "label": "Budget Execution",
+   "link_type": "Page",
+   "link_to": "china-budget-execution",
+   "icon": "chart-no-axes-combined",
+   "child": 1
+  },
+  {
+   "type": "Section Break",
+   "label": "Management Analysis",
    "icon": "chart-no-axes-combined",
    "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "show_arrow": 0
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1
   },
   {
    "type": "Link",
-   "label": "Budget Configuration",
+   "label": "Expenditure Analysis",
    "link_type": "Page",
-   "link_to": "budget-config",
-   "icon": "settings",
+   "link_to": "china-expense-reports",
+   "icon": "chart-no-axes-combined",
+   "child": 1
+  },
+  {
+   "type": "Link",
+   "label": "Management Reports",
+   "link_type": "Page",
+   "link_to": "china-management-reports",
+   "icon": "table",
+   "child": 1
+  },
+  {
+   "type": "Section Break",
+   "label": "Details and Review",
+   "icon": "list",
    "child": 0,
-   "collapsible": 0,
-   "indent": 0,
-   "keep_closed": 0,
-   "show_arrow": 0
+   "collapsible": 1,
+   "indent": 1,
+   "keep_closed": 1
+  },
+  {
+   "type": "Link",
+   "label": "Approval Register",
+   "link_type": "Page",
+   "link_to": "china-expense-details",
+   "icon": "list",
+   "child": 1
+  },
+  {
+   "type": "Link",
+   "label": "Data Review",
+   "link_type": "Page",
+   "link_to": "china-expense-review",
+   "icon": "clipboard-check",
+   "child": 1
   }
  ],
  "module": "Budget",

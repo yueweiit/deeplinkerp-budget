@@ -10,7 +10,7 @@
 
 联合安装新版 `deeplinkerp_branding` 时，CN 采用全新的**只读审批工作台**：经营总览、预算执行、支出分析、报表中心、审批台账、数据核对。覆盖预算申报、运营支出、采购支出三类单据，保留审批原单入口。查看页面和刷新不会办理付款、记账、修改 OA 审批或同步预算台账。
 
-页面实现位于 `public/js/cn_approval_workbench.js`、`public/js/cn_approval_management.js`、`public/css/cn_approval_workbench.css`，品牌 App 的 `china_expenses_page.js` 只负责选择并加载资源。复用四个现有 Page，Budget 新增预算执行与报表中心两个 Page；未新增会计业务表。`budget.setup.cn_navigation_items` 仅在六个 Page 都存在时启用新侧栏；品牌 App 的导航合并不会给新只读工作台插入手工日记账。独立安装 Budget、品牌 App 的备用页面及既有财务服务保留各自入口和权限。侧栏种子文件始终保留预算台账、看板、配置三项默认入口；安装/迁移只在品牌 App 已安装且六个 CN Page 完整时替换为新工作台，品牌 App 未安装时也不会使用残留 Page 记录。
+页面实现位于 `public/js/cn_approval_workbench.js`、`public/js/cn_approval_management.js`、`public/css/cn_approval_workbench.css`，品牌 App 的 `china_expenses_page.js` 只负责选择并加载资源。复用四个现有 Page，Budget 新增预算执行与报表中心两个 Page；未新增会计业务表。`budget.setup.cn_navigation_items` 仅在六个 Page 都存在时启用新侧栏；品牌 App 的导航合并不会给新只读工作台插入手工日记账。侧栏种子文件直接定义新版六个页面与三个可折叠分组，避免标准元数据同步重新写入旧三项菜单。仅独立安装或 CN 页面尚未安装完整时，安装/迁移钩子显式生成兼容入口；品牌 App 未安装时不使用残留 CN Page 记录。独立 Budget、品牌 App 备用页面及既有财务服务保留各自权限。
 
 ERPNext 的“预算”恢复在“会计”文件夹下，保留原生 Budget、Cost Center、Accounting Dimension、Cost Center Allocation、Budget Variance 五个入口。本 App 的 `setup.apply_budget_nav` 在安装/迁移时清理旧导航挂载，同步独立 CN 入口；`public/js/budget_navigation.js` 只清理这三个定制页面旧的 Budget 侧栏记忆。旧 URL、DocType、台账数据及接口均保留，不把 MX 排除明细自动写入国内财务数据。导航定义见 `budget/workspace_sidebar/china_operating_expenses.json` 和 `budget/desktop_icon/china_operating_expenses.json`。
 

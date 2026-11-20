@@ -25,6 +25,17 @@ def test_optional_cn_pages_are_required_before_showing_new_navigation():
 	assert [item["child"] for item in items if item["type"] == "Link"] == [1, 1, 1, 1, 1, 1]
 
 
+def test_standard_sidebar_cannot_restore_retired_cn_menu_during_metadata_sync():
+	import json
+	setup = load_setup()
+	path = Path(__file__).resolve().parents[1] / "workspace_sidebar" / "china_operating_expenses.json"
+	items = json.loads(path.read_text())["items"]
+	assert items == setup.cn_navigation_items(lambda route: True)
+	assert not {"budget-dashboard", "budget-config", "Budget Ledger Entry"}.intersection(
+		item.get("link_to") for item in items
+	)
+
+
 def test_cn_boot_does_not_depend_on_the_old_budget_source_switch():
     from types import SimpleNamespace
     setup = load_setup()
