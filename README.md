@@ -224,7 +224,7 @@ bench --site <site> clear-cache
 
 新版 CN 启用后，`/desk/budget-dashboard` 和 `/desk/budget-config` 退役为 `/desk/china-budget-execution` 的地址别名，`/desk/china-personnel-report` 转到 `/desk/china-management-reports` 的人事报表。全局导航在原生 Page 渲染前跳转，保留当前 `cn_approval_filters`、其他查询参数和锚点；移除已废弃的 `cn_filters` 参数，替换当前浏览器历史项，避免返回键绕回旧页面。初次打开、缓存 Desk 页签和前进/后退走同一入口。旧页面不再挂载 CN 工作台；`/desk/budget-ledger-entry` 的原生列表、原单详情及独立 Budget 页面不受重定向影响。旧 `budget_data_source` / `budget_oa_source` 不再切换 CN 来源或限制导航。`after_install` / `after_migrate` 调用 `budget.setup.apply_budget_nav` 重放导航，不更改 ERPNext 原生 Budget 菜单及业务数据。更新代码后，已打开的浏览器须完整刷新一次以加载新版全局导航脚本。
 
-旧链接的 `cn_approval_filters` 同时支持直接打开时的对象，以及 Desk 原生点击处理再次序列化后的 JSON 文本；跳转前统一为对象，无效文本不传入工作台。
+旧链接的 `cn_approval_filters` 同时支持直接打开时的对象，以及 Desk 原生点击处理再次序列化后的 JSON 文本；跳转前统一为对象，无效文本不传入工作台。CN 页签迁移监听 `custom_filters` 的 `custom-filters:desk-tabs-restored` 事件，在原生恢复后将三个退役页面并入新版入口；重复目标合并并保留原位置、固定状态和最近访问时间，当前页签标识同步更新。其他模块、原生台账和表单草稿不参与迁移；独立 Budget 模式不启用此处理。该修复须同时更新 Budget 导航脚本与 Custom Filters 页签脚本，已打开页面完整刷新后生效，无数据库迁移。
 
 ### 历史预算台账集成（2026-11-19，兼容服务）
 
