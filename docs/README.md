@@ -13,8 +13,8 @@
 ## 一句话定位
 
 `budget` 是预算域的独立 app：**数据由上游 `yueweiit/dingtalk-oa` 拉取，本 app 只消费**，
-把审批数据映射到 ERPNext 的 `Budget` / `Budget Account` / `Budget Distribution`。
-与经营费用（`deeplinkerp_branding`）只在**前端做合并展示**，代码保持独立。
+保留预算台账与额度同步服务，并承载 CN 预算/运营/采购只读审批工作台。
+新版 CN 复用 `deeplinkerp_branding` 的共享审批 HTTP 客户端、字段及分类工具，投影、权限与页面在 Budget 内实现；不复制 MX 会计口径。详见 [工作台入口与口径](../README.md#cn-只读审批工作台2026-11-20)。
 
 ## 开发约定
 

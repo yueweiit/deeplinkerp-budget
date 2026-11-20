@@ -32,6 +32,7 @@ after_request = ["budget.integrations.pg.close_all"]
 # 需要立刻更新时分别调 budget.api.budget_ledger.sync_budget_entries 与
 # budget.services.quota_sync.run_quota_sync。
 scheduler_events = {
+	"cron": {"*/15 * * * *": ["budget.services.cn_approval_sync.scheduled_sync"]},
 	"daily_long": [
 		"budget.services.budget_ledger_sync.sync_budget_entries",
 	],
@@ -41,3 +42,4 @@ scheduler_events = {
 # 调 scheduled_sync（部署侧的 ofelia 覆盖层见 frappe_docker 仓库
 # overrides/compose.budget-sync-cron.yaml）。同步入口均检查配置和启用状态；
 # 台账页面只读，不再因打开页面而自动入队。
+# CN 审批工作台独立使用上述 cron；页面可异步提交过期快照更新。

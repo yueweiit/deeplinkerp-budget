@@ -281,3 +281,372 @@ The shared OA source does not match every local budget quota. No source was chan
 The shared OA source does not match local quota subjects. No source was changed.,El origen OA compartido no coincide con los conceptos de las cuotas locales. No se cambió el origen.
 Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,Se verificaron {0} registros presupuestarios y {1} cuotas antes de cambiar a la API OA compartida. La sincronización sigue deshabilitada.
 Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,Se verificaron {0} registros presupuestarios y {1} cuotas; hay {2} aprobaciones adicionales pendientes de sincronizar.
+APPROVAL WORKSPACE,ESPACIO DE APROBACIONES
+CN Approval Workspace,Gastos operativos (CN)
+Budgets and expenditure,Presupuestos y gastos
+"Budget declarations, operating expenditure and purchase expenditure in one place.","Consulte las declaraciones presupuestarias, los gastos operativos y las compras en un solo lugar."
+Budget declaration,Declaración presupuestaria
+Operating expenditure,Gasto operativo
+Purchase expenditure,Gasto de compras
+Overview,Resumen
+Approval register,Registro de aprobaciones
+Classification analysis,Análisis por categoría
+Data review,Revisión de datos
+Approval Overview,Resumen de aprobaciones
+Approval Register,Registro de aprobaciones
+Classification Analysis,Análisis por categoría
+Workspace views,Vistas del espacio de trabajo
+Approval does not confirm payment,La aprobación no confirma el pago
+All approvals,Todas las aprobaciones
+Approval filters,Filtros de aprobaciones
+Approval form,Tipo de formulario
+Source organization,Organización de origen
+From month,Mes inicial
+To month,Mes final
+Approval status,Estado de aprobación
+Approved,Aprobado
+In progress,En curso
+Rejected,Rechazado
+Terminated,Terminado
+Withdrawn,Retirado
+Unknown,Desconocido
+Search approvals,Buscar aprobaciones
+"Number, applicant or description","Número, solicitante o descripción"
+Reset,Restablecer
+Budgets use the budget month; operating and purchase approvals use the application date. Amounts stay in their original currencies.,"Los presupuestos se agrupan por mes presupuestario; los gastos operativos y las compras, por fecha de solicitud. Los importes se muestran en su moneda original."
+Updated {0},Actualizado: {0}
+Read-only approval data,Datos de aprobaciones de solo lectura
+Loading approvals…,Cargando aprobaciones…
+Refresh approvals,Actualizar aprobaciones
+Reading approval data…,Leyendo datos de aprobaciones…
+No data loaded,No se han cargado datos
+Approvals could not be loaded. Retry or ask an administrator to check the source.,No se pudieron cargar las aprobaciones. Reintente o solicite al administrador que revise el origen.
+The previous result is still displayed. Its filters may differ from your current selection.,Se mantiene el resultado anterior. Sus filtros pueden diferir de la selección actual.
+"Only approvals explicitly marked for China are included. Correct source discrepancies in the original approval, then refresh.",Solo se incluyen aprobaciones cuya región de ejecución sea explícitamente China. Corrija las discrepancias en la aprobación original y actualice.
+Approved application amount,Importe de solicitudes aprobadas
+No approved amounts,Sin importes aprobados
+Incomplete amounts,Importes incompletos
+approvals,aprobaciones
+{0} approvals,{0} aprobaciones
+{0} in progress,{0} en curso
+To review,Pendiente de revisión
+Approvals with detected issues,Aprobaciones con incidencias detectadas
+"Inspect amounts, periods and organizations","Revise importes, períodos y organizaciones"
+Recent applications,Solicitudes recientes
+One row per approval; detail tables are not counted again.,Cada fila representa una aprobación; los detalles no se suman de nuevo.
+View register,Ver registro
+Monthly approved applications,Solicitudes aprobadas por mes
+Separate amounts by approval form,Importes separados por tipo de aprobación
+No approved amounts in this period,No hay importes aprobados en este período
+Approved amounts by category,Importes aprobados por categoría
+Select a category to inspect its approvals,Seleccione una categoría para consultar sus aprobaciones
+categories,categorías
+Unclassified,Sin clasificar
+Review queue,Lista de revisión
+Approval / applicant,Aprobación / solicitante
+Reporting period,Período
+Business classification,Clasificación de negocio
+Application amount,Importe solicitado
+Review,Revisión
+Unspecified organization,Organización no indicada
+Company not matched,Empresa sin asignar
+Unassigned period,Sin período asignado
+Unknown currency,Moneda pendiente de revisión
+{0} issues,{0} incidencias
+No detected issues,Sin incidencias detectadas
+No approvals match these filters,No hay aprobaciones que coincidan con estos filtros
+"Adjust the period or filters, then try again.",Ajuste el período o los filtros y vuelva a intentarlo.
+Export Excel,Exportar Excel
+DATA QUALITY,CALIDAD DE DATOS
+{0} approvals need attention,{0} aprobaciones requieren revisión
+Review source discrepancies without changing approval or accounting records.,Revise las discrepancias del origen sin modificar aprobaciones ni registros contables.
+Undated approvals appear here only and are excluded from period totals.,Las aprobaciones sin período solo aparecen aquí y no se incluyen en los totales del período.
+All issues,Todas las incidencias
+Monthly breakdown,Desglose mensual
+Reporting month,Mes del informe
+Approvals,Aprobaciones
+Export failed. Retry with a smaller selection.,La exportación falló. Reduzca la selección e inténtelo de nuevo.
+Approval detail,Detalle de aprobación
+Close,Cerrar
+This approval is unavailable or you do not have permission to view it.,Esta aprobación no está disponible o no tiene permiso para verla.
+Open original approval,Abrir aprobación original
+Original approval link is unavailable,El enlace a la aprobación original no está disponible
+Review issues,Incidencias por revisar
+Applicant,Solicitante
+Application date,Fecha de solicitud
+Description,Descripción
+Budget snapshot in the approval,Resumen presupuestario al solicitar
+Values entered when applying; these are not the current budget balance.,Estos valores se introdujeron al solicitar y no representan el saldo presupuestario actual.
+Budget amount in form,Presupuesto indicado en el formulario
+Used amount in form,Importe utilizado indicado en el formulario
+Supporting details; not added to the application amount.,Detalles de apoyo; no se suman al importe solicitado.
+Detail row,Fila de detalle
+Detail total,Total de detalles
+Supporting files,Archivos de apoyo
+Open the original approval to view its attachments.,Abra la aprobación original para consultar sus archivos adjuntos.
+rows,filas
+Form fields are ambiguous or incomplete,Los campos del formulario son ambiguos o incompletos
+Application amount is missing or invalid,El importe solicitado falta o no es válido
+Currency is missing or unrecognized,La moneda falta o no se reconoce
+Reporting month or application date is missing,Falta el mes presupuestario o la fecha de solicitud
+Business classification needs review,La clasificación de negocio requiere revisión
+Organization has not been matched to a company,La organización de origen no está asignada a una empresa
+Detail amounts are incomplete,Los importes de los detalles están incompletos
+Detail total differs from the application amount,El total de detalles difiere del importe solicitado
+Approval status needs review,El estado de aprobación requiere revisión
+Production type,Tipo de producción
+Request type,Tipo de solicitud
+Payroll type,Tipo de nómina
+Payment terms,Condiciones de pago
+Planned payment date,Fecha prevista de pago
+Delivery date,Fecha de entrega
+Payee,Beneficiario
+Project,Proyecto
+Invoice declared,Factura declarada en la solicitud
+CN approval templates are not configured correctly.,Las plantillas de aprobaciones de China no están configuradas correctamente.
+CN company mappings are ambiguous. Ask an administrator to review them.,Las asignaciones de empresas de China son ambiguas. Solicite una revisión al administrador.
+The approval scan is too large or timed out. Narrow the configured templates and retry.,La consulta de aprobaciones es demasiado grande o agotó el tiempo. Reduzca las plantillas configuradas y reintente.
+Invalid CN approval filters.,Los filtros de aprobaciones de China no son válidos.
+Invalid approval identity.,La identidad de aprobación no es válida.
+Export exceeds 10000 approvals. Narrow the filters.,La exportación supera las 10000 aprobaciones. Reduzca los filtros.
+Approval number,Número de aprobación
+Needs review,Requiere revisión
+Detail and application currencies differ; amounts cannot be compared directly,Las monedas del detalle y de la solicitud son distintas; los importes no se pueden comparar directamente
+Approval data is being refreshed. Please retry shortly.,Los datos de aprobaciones se están actualizando. Inténtelo de nuevo en breve.
+The concurrent approval refresh did not complete. Please retry.,La actualización de aprobaciones de otra solicitud no se completó. Inténtelo de nuevo.
+Approval Management,Gestión de aprobaciones
+Analysis and Review,Análisis y revisión
+Data Review,Revisión de datos
+Month Range,Rango de meses
+Converted amount,Importe convertido
+Original amount,Importe original
+Exchange rate,Tipo de cambio
+Exchange rate date,Fecha del tipo de cambio
+Exchange rate basis,Criterio de fecha del tipo de cambio
+Budget month,Mes del presupuesto
+Application month,Mes de solicitud
+Currency or reporting month cannot be converted,No se puede convertir la moneda o el mes del informe
+You do not have permission to view this subsidiary.,No tiene permiso para consultar esta filial.
+Converted at month-start rates: budget month for budgets; application month for operating and purchase approvals. Original amounts are retained.,Conversión al tipo de cambio del primer día del mes: mes presupuestado para presupuestos y mes de solicitud para gastos operativos y compras. Se conservan los importes originales.
+Subsidiaries could not be loaded. Retry.,No se pudieron cargar las filiales. Inténtelo de nuevo.
+CN Approval Snapshot,Instantánea de aprobaciones CN
+Source Configuration Key,Clave de configuración de origen
+Snapshot ID,ID de instantánea
+Last Successful Sync,Última sincronización correcta
+Snapshot Data,Datos de la instantánea
+Synchronization Status,Estado de sincronización
+Synchronization Token,Identificador de sincronización
+Queued At,Fecha de puesta en cola
+Started At,Fecha de inicio
+Heartbeat At,Última actividad
+Finished At,Fecha de finalización
+Completed Templates,Plantillas completadas
+Template Count,Total de plantillas
+Page Count,Páginas leídas
+Error Code,Código de error
+CN approval storage is not installed. Ask an administrator to run the Budget migration.,El almacenamiento de aprobaciones CN no está instalado. Pida a un administrador que ejecute la migración de Budget.
+CN approval background synchronization is disabled.,La sincronización en segundo plano de aprobaciones CN está deshabilitada.
+No local approval snapshot is available yet. Wait for synchronization before exporting.,Aún no hay una instantánea local de aprobaciones. Espere a que finalice la sincronización antes de exportar.
+Synchronization status could not be loaded. Retrying shortly.,No se pudo cargar el estado de sincronización. Se reintentará en breve.
+Synchronization could not be queued. Retry.,No se pudo poner la sincronización en cola. Vuelva a intentarlo.
+"Synchronizing approvals: {0} of {1} templates, {2} pages read.","Sincronizando aprobaciones: {0} de {1} plantillas, {2} páginas leídas."
+Synchronizing approvals…,Sincronizando aprobaciones…
+Waiting for the first approval synchronization,Esperando la primera sincronización de aprobaciones
+Approvals will appear after a complete synchronization. You can leave this page while it runs.,Las aprobaciones aparecerán cuando termine una sincronización completa. Puede salir de esta página mientras se ejecuta.
+Approval synchronization is queued.,La sincronización de aprobaciones está en cola.
+Synchronization timed out. Retry synchronization.,La sincronización agotó el tiempo de espera. Vuelva a sincronizar.
+Synchronization failed. Retry synchronization.,La sincronización falló. Vuelva a sincronizar.
+Approval synchronization is disabled.,La sincronización de aprobaciones está deshabilitada.
+The last complete snapshot remains available.,La última instantánea completa sigue disponible.
+A System Manager with access to all subsidiaries is required to configure CN approvals.,Se requiere un administrador del sistema con acceso a todas las subsidiarias para configurar las aprobaciones CN.
+Add mapping,Agregar asignación
+An existing template cannot change approval form,No se puede cambiar el tipo de aprobación de una plantilla existente
+Approval templates,Plantillas de aprobación
+CN Approval Company Map,Asignación de empresas de aprobaciones CN
+CN Approval Settings,Configuración de aprobaciones CN
+CN Approval Synchronization,Sincronización de aprobaciones de China
+CN Approval Template,Plantilla de aprobación CN
+CN approval settings can only be changed through the workbench.,La configuración de aprobaciones CN solo se puede modificar desde el área de trabajo.
+CN approval settings could not be loaded or saved. Retry.,No se pudo cargar o guardar la configuración de aprobaciones CN. Inténtelo de nuevo.
+CN approval settings require a site migration.,La configuración de aprobaciones CN requiere una migración del sitio.
+CN approval settings saved.,Se guardó la configuración de aprobaciones CN.
+Classification fields,Campos de clasificación
+Company mappings,Asignaciones de empresas
+Configuration Version,Versión de configuración
+Corporation ID,ID de empresa de origen
+Disable historical templates instead of removing them,Desactive las plantillas históricas en lugar de eliminarlas
+Duplicate source entity mapping,Asignación duplicada de una organización de origen
+Enable CN approval synchronization,Habilitar sincronización de aprobaciones de China
+Enabled,Habilitado
+Field mapping,Asignación de campos
+Initialized,Inicializado
+Invalid CN approval settings.,La configuración de aprobaciones CN no es válida.
+Invalid subsidiary mappings,Las asignaciones de subsidiarias no son válidas
+Loading preview…,Cargando vista previa…
+Match the corporation and source organization exactly. Multiple historical names may map to the same subsidiary. Changes take effect only after saving.,La empresa y la organización de origen deben coincidir exactamente. Varios nombres históricos pueden corresponder a la misma subsidiaria. Los cambios se aplican al guardar.
+No unmapped organizations in the current local snapshot.,No hay organizaciones sin asignar en la instantánea local actual.
+Only approvals explicitly marked for China are included. Budget month and application month rules remain unchanged.,Solo se incluyen aprobaciones marcadas explícitamente para China. Se mantienen las reglas del mes presupuestario y del mes de solicitud.
+Optional JSON array of levels; each level is an array of component IDs. Applies to operating and purchase approvals.,Opcional: matriz JSON de niveles; cada nivel es una matriz de IDs de componentes. Se aplica a aprobaciones operativas y de compras.
+"Optional JSON: logical field names mapped to arrays of component IDs. For budget declarations, only region overrides are supported.",Opcional: objeto JSON que asigna nombres lógicos de campos a matrices de IDs de componentes. Las declaraciones presupuestarias solo admiten personalizar region.
+Preview selected template,Vista previa de la plantilla seleccionada
+Process code,Código de proceso
+Sample approvals: {0}; included in CN: {1}.,Aprobaciones de muestra: {0}; incluidas en CN: {1}.
+Save settings,Guardar configuración
+Select exactly one template to preview.,Seleccione exactamente una plantilla para ver la vista previa.
+Select one template to preview. Disable saved templates instead of deleting them. Disabled templates leave the current reporting scope; stored snapshots are retained.,Seleccione una plantilla para ver la vista previa. Desactive las plantillas guardadas en lugar de eliminarlas. Las plantillas desactivadas se excluyen del alcance actual; las instantáneas guardadas se conservan.
+Settings changed; reload and try again,La configuración ha cambiado; vuelva a cargar e inténtelo de nuevo
+Synchronization settings,Configuración de sincronización
+Template name,Nombre de plantilla
+This sample does not represent a complete synchronization. Review the data after synchronization.,Esta muestra no representa una sincronización completa. Revise los datos después de sincronizar.
+This source organization is already in the mapping table.,Esta organización de origen ya está en la tabla de asignaciones. Edite la fila existente.
+Unmapped source organizations,Organizaciones de origen sin asignar
+{0} source organizations,{0} organizaciones de origen
+Add row,Agregar fila
+Management Overview,Resumen de gestión
+Management Reports,Centro de informes
+Budget and Expenditure,Presupuesto y gastos
+Management Analysis,Análisis de gestión
+Details and Review,Detalle y revisión
+Approval-based budget execution,Ejecución presupuestaria según aprobaciones
+Allocated detail lines are shown once; header totals are not added again.,Las líneas distribuidas se contabilizan una vez; no se vuelve a sumar el total de la solicitud.
+Applications needing review,Solicitudes pendientes de revisión
+Approved applications,Solicitudes aprobadas
+Approved budget occupation,Presupuesto comprometido aprobado
+Approved expenditure in this period,Gastos aprobados del período
+Approved operating and purchase applications,Solicitudes operativas y de compra aprobadas
+Approved operating expenditure,Gastos operativos aprobados
+Approved purchase expenditure,Gastos de compra aprobados
+Attention,Aspectos a revisar
+Bonuses,Bonificaciones
+Budget and approved occupation,Presupuesto y compromisos aprobados
+Budget category variance report,Informe de desviaciones por categoría presupuestaria
+Budget details do not reconcile to the approved total,El detalle presupuestario no coincide con el total aprobado
+Budget difference,Diferencia presupuestaria
+Budget execution by company and month,Ejecución presupuestaria por empresa y mes
+Budget execution rate,Porcentaje de ejecución presupuestaria
+Budget risks are separate from data quality issues.,Los riesgos presupuestarios se muestran por separado de los problemas de calidad de datos.
+Budget warning percentage,Umbral de alerta presupuestaria (%)
+CN management analysis exceeds 50000 detail lines. Narrow the configured scope.,El análisis CN supera las 50000 líneas. Reduzca el alcance configurado.
+Companies over budget,Empresas con exceso de presupuesto
+Company allocation or detail total needs review,La distribución por empresa o el total del detalle requiere revisión
+Company budget execution,Comparación presupuestaria por empresa
+Company budget execution report,Informe de ejecución presupuestaria por empresa
+Compare budgets and expenditure across subsidiaries.,Compare presupuestos y gastos entre filiales.
+"Compare companies and expense categories, then open the underlying applications.",Compare empresas y categorías de gasto y consulte las solicitudes correspondientes.
+"Compare salaries, insurance, bonuses and employee benefits.","Compare salarios, seguridad social, bonificaciones y prestaciones laborales."
+Complete company and category mappings,Completar asignaciones de empresas y categorías
+Complete company mappings before assessing company budget risks.,Complete las asignaciones de empresas para evaluar sus riesgos presupuestarios.
+Data coverage,Cobertura de datos
+Difference if all pending applications pass,Diferencia si se aprueban todas las solicitudes pendientes
+Duplicate CN category mapping.,Hay una asignación de categoría CN duplicada.
+Effective budget,Presupuesto vigente
+Effective budget minus approved occupation,Presupuesto vigente menos compromisos aprobados
+Employee benefits,Prestaciones laborales
+Expenditure by company,Gastos por empresa
+Expenditure by management category,Gastos por categoría de gestión
+Expenditure without a budget,Gastos sin presupuesto disponible
+Export report,Exportar informe
+Finance expenses,Gastos financieros
+Find the categories responsible for budget differences.,Identifique las categorías que originan las desviaciones presupuestarias.
+Hide companies without activity,Ocultar empresas sin actividad
+IT and software,Tecnología de la información y software
+Incomplete data,Datos incompletos
+Internet and communications,Internet y comunicaciones
+Invalid CN category mapping.,La asignación de categoría CN no es válida.
+Invalid CN management report.,El informe de gestión CN no es válido.
+Invalid CN management rules.,Las reglas de gestión CN no son válidas.
+Inventory purchases,Compras de inventario
+Investment purchases,Compras de inversión
+Largest expenditure lines,Líneas de gasto de mayor importe
+Latest approved budget per company and month; all approved operating and purchase applications occupy the budget.,Se usa el último presupuesto aprobado por empresa y mes; todas las solicitudes operativas y de compra aprobadas comprometen el presupuesto.
+Latest approved version per company and month,Última versión aprobada por empresa y mes
+Loading unmapped categories…,Cargando categorías sin asignar…
+Maintenance and consumables,Mantenimiento y consumibles
+Management attention,Alertas de gestión
+Management category,Categoría de gestión
+Management category is not mapped,La categoría de gestión no está asignada
+Management category mappings,Asignaciones de categorías de gestión
+Management classification,Clasificación de gestión
+Map budget items and expenditure categories to the same management category. Unmapped items remain visible and are never treated as zero.,Asigne partidas presupuestarias y gastos a una misma categoría de gestión. Las partidas sin asignar se muestran por separado y no se consideran cero.
+Monthly budget and expenditure report,Informe mensual de presupuestos y gastos
+Monthly expenditure,Evolución mensual de gastos
+Near the budget limit,Cerca del límite presupuestario
+No activity,Sin actividad
+No budget alerts in the selected period.,No hay alertas presupuestarias en el período seleccionado.
+No budget or expenditure activity in this period,No hay registros presupuestarios ni de gastos en este período
+No company activity in this period,No hay actividad empresarial en este período
+No unmapped management categories.,No hay categorías de gestión pendientes de asignación.
+Not available,No disponible
+Not yet included in approved occupation,Aún no incluido en los compromisos aprobados
+Office expenses,Gastos de oficina
+Office rent,Alquiler de oficinas
+Only the latest approved budget for each company and month is effective. Older versions remain available for review.,Solo está vigente el último presupuesto aprobado por empresa y mes. Las versiones anteriores siguen disponibles para revisión.
+Operating and purchase applications,Solicitudes operativas y de compra
+Other classified expenses,Otros gastos clasificados
+Over budget,Presupuesto excedido
+Pending applications are shown separately and do not reduce the approved budget difference.,Las solicitudes pendientes se muestran por separado y no reducen la diferencia presupuestaria aprobada.
+Pending applications exceed the budget,Se excederá el presupuesto al aprobar lo pendiente
+Pending expenditure applications,Solicitudes de gasto pendientes
+Personnel expenditure report,Informe de gastos de personal
+Professional services,Servicios profesionales
+Purchase expenditure report,Informe de gastos de compra
+"Reports and drilldowns use the same calculation. A dash means unavailable, not zero. Approval does not confirm payment.","Los informes y su detalle usan el mismo cálculo. Un guion indica un dato no disponible, no cero. La aprobación no confirma el pago."
+"Review monthly budgets, expenditure and pending applications.","Revise presupuestos, gastos y solicitudes pendientes de cada mes."
+"Review purchases by subsidiary, category and project.","Revise compras por filial, categoría y proyecto."
+Salaries,Salarios
+Sales expenses,Gastos de venta
+Select a company to inspect its monthly budget; select an amount to view the underlying detail lines.,Seleccione una empresa para ver su presupuesto mensual o un importe para consultar el detalle.
+Select at most 60 months for CN management reports.,Seleccione como máximo 60 meses para los informes de gestión CN.
+Show {0} companies without activity,Mostrar {0} empresas sin actividad
+Social insurance and housing fund,Seguridad social y fondo de vivienda
+Source category path,Ruta de categoría de origen
+Taxes and fees,Impuestos y tasas
+The budget warning percentage must be between 1 and 100.,El umbral de alerta presupuestaria debe estar entre 1 y 100.
+The latest approved budget cannot be determined,No se puede determinar el último presupuesto aprobado
+This category path is already in the mapping table.,Esta ruta de categoría ya está en la tabla de asignaciones.
+Travel expenses,Gastos de viaje
+Unassigned amounts are listed separately. Company budget differences are incomplete until allocation is confirmed.,Los importes sin empresa se muestran por separado. Las diferencias presupuestarias están incompletas hasta confirmar la asignación.
+Unmapped management categories,Categorías de gestión sin asignar
+Utilities,Servicios de agua y electricidad
+Vehicle expenses,Gastos de vehículos
+View data issues,Ver problemas de datos
+View effective budget,Ver presupuesto vigente
+View superseded budgets ({0}),Ver presupuestos sustituidos ({0})
+Within budget,Dentro del presupuesto
+{0} approvals; {1} without a company; {2} without a management category.,{0} aprobaciones; {1} sin empresa; {2} sin categoría de gestión.
+{0} more may exceed the budget if pending applications pass.,Otras {0} empresas podrían exceder el presupuesto al aprobar lo pendiente.
+{0} source categories,{0} categorías de origen
+Personnel budget,Presupuesto de personal
+Office premises budget,Presupuesto de oficinas
+Operating budget,Partidas del presupuesto operativo
+Unitemized budget,Presupuesto sin desglose
+CN management classification rules,Reglas de clasificación de gestión CN
+Expenditure applications,Solicitudes de gasto
+Superseded budget,Presupuesto sustituido
+Budget declarations,Declaraciones presupuestarias
+Budget version,Versión presupuestaria
+Detail item,Partida de detalle
+Data updated at,Datos actualizados el
+Unassigned approvals,Aprobaciones sin empresa asignada
+Unclassified approvals,Aprobaciones sin categoría de gestión
+CN report export exceeds 20000 rows. Narrow the period or company.,La exportación CN supera las 20000 filas. Reduzca el período o el alcance de empresas.
+Historical CN snapshots exceed the lookup limit. Ask an administrator to review the archive.,El archivo histórico CN supera el límite de consulta. Solicite su revisión al administrador.
+{0} detail lines,{0} líneas de detalle
+{0} detail lines need attention,{0} líneas de detalle requieren revisión
+No effective budget,Sin presupuesto vigente
+Some disabled templates have no verified local history,Algunas plantillas desactivadas no tienen historial local verificado
+Missing historical templates,Plantillas sin historial
+{0} disabled templates have no verified local snapshot. Amounts may be incomplete; budget differences are unavailable.,{0} plantillas desactivadas no tienen instantáneas locales verificadas. Los importes pueden estar incompletos; las diferencias presupuestarias no están disponibles.
+Disabled templates use their last synchronized data; later OA changes are not included.,Las plantillas desactivadas conservan su última sincronización; no incluyen cambios posteriores en OA.
+Not specified,Sin especificar
+Approval completion time,Fecha y hora de finalización de la aprobación
+Select completed months to compare periods. An incomplete current month is not compared with a full prior month.,Seleccione meses completos para comparar períodos. Un mes en curso no se compara con un mes anterior completo.
+Comparable history is unavailable.,No hay datos históricos comparables.
+Year-on-year expenditure change,Variación interanual del gasto
+Previous-period expenditure change,Variación del gasto respecto al período anterior
+Comparison period,Período de comparación
+Expenditure changes and contributors,Variación del gasto y factores principales
+Comparisons use the current approval status in completed periods. Missing historical data is not treated as zero.,Se compara el estado actual de aprobación de períodos completos. La ausencia de historial no se considera cero.
+Marketing expenses,Gastos de marketing
+Historical exchange rates are unavailable. Current-period amounts remain available.,Los tipos de cambio históricos no están disponibles. Los importes del período actual siguen disponibles.
+Template history state,Estado del historial de la plantilla

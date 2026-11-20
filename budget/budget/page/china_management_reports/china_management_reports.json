@@ -1,0 +1,16 @@
+{
+ "doctype": "Page",
+ "name": "china-management-reports",
+ "page_name": "china-management-reports",
+ "module": "Budget",
+ "title": "Management Reports",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  }
+ ]
+}

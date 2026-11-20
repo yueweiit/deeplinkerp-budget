@@ -1,0 +1,46 @@
+{
+ "doctype": "DocType",
+ "name": "CN Approval Company Map",
+ "module": "Budget",
+ "engine": "InnoDB",
+ "istable": 1,
+ "issingle": 0,
+ "field_order": [
+  "corp_id",
+  "source_name",
+  "company"
+ ],
+ "fields": [
+  {
+   "fieldname": "corp_id",
+   "fieldtype": "Data",
+   "label": "Corporation ID",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "source_name",
+   "fieldtype": "Small Text",
+   "label": "Source organization",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Subsidiary",
+   "options": "Company",
+   "reqd": 1,
+   "in_list_view": 1
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "allow_rename": 0,
+ "index_web_pages_for_search": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}
