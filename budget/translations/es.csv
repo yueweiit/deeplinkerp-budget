@@ -281,3 +281,51 @@ The shared OA source does not match every local budget quota. No source was chan
 The shared OA source does not match local quota subjects. No source was changed.,El origen OA compartido no coincide con los conceptos de las cuotas locales. No se cambió el origen.
 Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,Se verificaron {0} registros presupuestarios y {1} cuotas antes de cambiar a la API OA compartida. La sincronización sigue deshabilitada.
 Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,Se verificaron {0} registros presupuestarios y {1} cuotas; hay {2} aprobaciones adicionales pendientes de sincronizar.
+Budget declaration,Declaración presupuestaria
+Operating expenditure,Gasto operativo
+Purchase expenditure,Gasto de compras
+Approval form,Tipo de formulario
+Source organization,Organización de origen
+Approval status,Estado de aprobación
+Approved,Aprobado
+In progress,En curso
+Rejected,Rechazado
+Terminated,Terminado
+Withdrawn,Retirado
+Unknown,Desconocido
+categories,categorías
+Business classification,Clasificación de negocio
+Application amount,Importe solicitado
+Reporting month,Mes del informe
+This approval is unavailable or you do not have permission to view it.,Esta aprobación no está disponible o no tiene permiso para verla.
+Review issues,Incidencias por revisar
+Application date,Fecha de solicitud
+rows,filas
+Form fields are ambiguous or incomplete,Los campos del formulario son ambiguos o incompletos
+Application amount is missing or invalid,El importe solicitado falta o no es válido
+Currency is missing or unrecognized,La moneda falta o no se reconoce
+Reporting month or application date is missing,Falta el mes presupuestario o la fecha de solicitud
+Business classification needs review,La clasificación de negocio requiere revisión
+Organization has not been matched to a company,La organización de origen no está asignada a una empresa
+Detail amounts are incomplete,Los importes de los detalles están incompletos
+Detail total differs from the application amount,El total de detalles difiere del importe solicitado
+Approval status needs review,El estado de aprobación requiere revisión
+Production type,Tipo de producción
+Request type,Tipo de solicitud
+Payroll type,Tipo de nómina
+Payment terms,Condiciones de pago
+Planned payment date,Fecha prevista de pago
+Delivery date,Fecha de entrega
+Payee,Beneficiario
+Project,Proyecto
+Invoice declared,Factura declarada en la solicitud
+CN approval templates are not configured correctly.,Las plantillas de aprobaciones de China no están configuradas correctamente.
+CN company mappings are ambiguous. Ask an administrator to review them.,Las asignaciones de empresas de China son ambiguas. Solicite una revisión al administrador.
+The approval scan is too large or timed out. Narrow the configured templates and retry.,La consulta de aprobaciones es demasiado grande o agotó el tiempo. Reduzca las plantillas configuradas y reintente.
+Invalid CN approval filters.,Los filtros de aprobaciones de China no son válidos.
+Invalid approval identity.,La identidad de aprobación no es válida.
+Export exceeds 10000 approvals. Narrow the filters.,La exportación supera las 10000 aprobaciones. Reduzca los filtros.
+Approval number,Número de aprobación
+Detail and application currencies differ; amounts cannot be compared directly,Las monedas del detalle y de la solicitud son distintas; los importes no se pueden comparar directamente
+Approval data is being refreshed. Please retry shortly.,Los datos de aprobaciones se están actualizando. Inténtelo de nuevo en breve.
+The concurrent approval refresh did not complete. Please retry.,La actualización de aprobaciones de otra solicitud no se completó. Inténtelo de nuevo.

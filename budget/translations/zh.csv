@@ -281,3 +281,51 @@ The shared OA source does not match every local budget quota. No source was chan
 The shared OA source does not match local quota subjects. No source was changed.,共用 OA 来源与本地额度科目不一致，未切换来源。
 Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,已核对 {0} 笔预算台账和 {1} 笔额度，并切换至共用 OA 接口；同步保持停用。
 Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,已验证 {0} 笔预算台账和 {1} 笔额度；另有 {2} 笔审批待后续同步。
+Budget declaration,预算申报
+Operating expenditure,运营支出
+Purchase expenditure,采购支出
+Approval form,审批类型
+Source organization,来源组织
+Approval status,审批状态
+Approved,已通过
+In progress,审批中
+Rejected,已拒绝
+Terminated,已终止
+Withdrawn,已撤回
+Unknown,未知
+categories,个分类
+Business classification,业务分类
+Application amount,申请金额
+Reporting month,归属月份
+This approval is unavailable or you do not have permission to view it.,此审批不可用，或您没有查看权限。
+Review issues,待核对事项
+Application date,申请日期
+rows,行
+Form fields are ambiguous or incomplete,表单字段存在歧义或结构不完整
+Application amount is missing or invalid,申请金额缺失或无效
+Currency is missing or unrecognized,币种缺失或无法识别
+Reporting month or application date is missing,预算月份或申请日期缺失
+Business classification needs review,业务分类需要核对
+Organization has not been matched to a company,来源组织尚未对应公司
+Detail amounts are incomplete,明细金额不完整
+Detail total differs from the application amount,明细合计与申请金额不一致
+Approval status needs review,审批状态需要核对
+Production type,生产属性
+Request type,申请类型
+Payroll type,薪酬类型
+Payment terms,付款条件
+Planned payment date,计划付款日期
+Delivery date,交付日期
+Payee,收款人
+Project,归属项目
+Invoice declared,填单时是否有发票
+CN approval templates are not configured correctly.,国内审批模板配置不正确，请联系管理员核对。
+CN company mappings are ambiguous. Ask an administrator to review them.,国内公司映射存在歧义，请联系管理员核对。
+The approval scan is too large or timed out. Narrow the configured templates and retry.,审批扫描超出范围或已超时，请缩小模板范围后重试。
+Invalid CN approval filters.,国内审批筛选条件无效。
+Invalid approval identity.,审批标识无效。
+Export exceeds 10000 approvals. Narrow the filters.,导出超过 10000 笔审批，请缩小筛选范围。
+Approval number,审批单号
+Detail and application currencies differ; amounts cannot be compared directly,明细与申请币种不同，金额不能直接比较
+Approval data is being refreshed. Please retry shortly.,审批数据正在刷新，请稍后重试。
+The concurrent approval refresh did not complete. Please retry.,其他请求的审批刷新未完成，请重试。
