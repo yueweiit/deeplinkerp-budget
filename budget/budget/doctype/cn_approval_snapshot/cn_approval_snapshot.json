@@ -1,0 +1,127 @@
+{
+ "doctype": "DocType",
+ "name": "CN Approval Snapshot",
+ "module": "Budget",
+ "autoname": "field:source_key",
+ "naming_rule": "By fieldname",
+ "engine": "InnoDB",
+ "field_order": [
+  "source_key",
+  "snapshot_id",
+  "last_success_at",
+  "snapshot_json",
+  "sync_status",
+  "sync_token",
+  "queued_at",
+  "started_at",
+  "heartbeat_at",
+  "finished_at",
+  "completed_templates",
+  "template_count",
+  "page_count",
+  "error_code"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_key",
+   "fieldtype": "Data",
+   "label": "Source Configuration Key",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "snapshot_id",
+   "fieldtype": "Data",
+   "label": "Snapshot ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_success_at",
+   "fieldtype": "Datetime",
+   "label": "Last Successful Sync",
+   "read_only": 1
+  },
+  {
+   "fieldname": "snapshot_json",
+   "fieldtype": "Long Text",
+   "label": "Snapshot Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sync_status",
+   "fieldtype": "Select",
+   "label": "Synchronization Status",
+   "read_only": 1,
+   "options": "idle\nqueued\nrunning\nsuccess\nfailed",
+   "default": "idle"
+  },
+  {
+   "fieldname": "sync_token",
+   "fieldtype": "Data",
+   "label": "Synchronization Token",
+   "read_only": 1
+  },
+  {
+   "fieldname": "queued_at",
+   "fieldtype": "Datetime",
+   "label": "Queued At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "heartbeat_at",
+   "fieldtype": "Datetime",
+   "label": "Heartbeat At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "finished_at",
+   "fieldtype": "Datetime",
+   "label": "Finished At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_templates",
+   "fieldtype": "Int",
+   "label": "Completed Templates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "template_count",
+   "fieldtype": "Int",
+   "label": "Template Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "page_count",
+   "fieldtype": "Int",
+   "label": "Page Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "error_code",
+   "fieldtype": "Data",
+   "label": "Error Code",
+   "read_only": 1
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "index_web_pages_for_search": 0,
+ "track_changes": 0,
+ "allow_rename": 0,
+ "creation": "2026-11-20 00:00:00.000000",
+ "modified": "2026-11-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "owner": "Administrator"
+}

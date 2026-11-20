@@ -1,0 +1,63 @@
+{
+ "doctype": "DocType",
+ "name": "CN Approval Settings",
+ "module": "Budget",
+ "engine": "InnoDB",
+ "istable": 0,
+ "issingle": 1,
+ "field_order": [
+  "initialized",
+  "enabled",
+  "config_version",
+  "templates",
+  "company_mappings",
+  "management_rules"
+ ],
+ "fields": [
+  {
+   "fieldname": "initialized",
+   "fieldtype": "Check",
+   "label": "Initialized",
+   "read_only": 1
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable CN approval synchronization"
+  },
+  {
+   "fieldname": "config_version",
+   "fieldtype": "Data",
+   "label": "Configuration Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "templates",
+   "fieldtype": "Table",
+   "label": "Approval templates",
+   "options": "CN Approval Template"
+  },
+  {
+   "fieldname": "company_mappings",
+   "fieldtype": "Table",
+   "label": "Company mappings",
+   "options": "CN Approval Company Map"
+  },
+  {
+   "fieldname": "management_rules",
+   "fieldtype": "Code",
+   "options": "JSON",
+   "label": "CN management classification rules",
+   "read_only": 1
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "allow_rename": 0,
+ "index_web_pages_for_search": 0,
+ "track_changes": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

@@ -4,3 +4,6 @@
 
 [post_model_sync]
 # 改表结构/回填数据一律写 patch 并在此登记，禁止直接 ALTER TABLE。
+budget.patches.add_cn_approval_snapshot
+budget.patches.add_cn_approval_settings
+budget.patches.add_cn_template_history_state

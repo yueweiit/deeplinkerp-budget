@@ -46,6 +46,8 @@ def sample(kind="operating", **changes):
 
 @pytest.fixture(autouse=True)
 def runtime(monkeypatch):
+	monkeypatch.setattr(service.settings, "read_saved", lambda: None)
+	monkeypatch.setattr(service.settings, "can_manage", lambda *a: False)
 	from deeplinkerp_branding.services import operating_expense_contract
 	monkeypatch.setattr(operating_expense_contract, "_", lambda text: text)
 	monkeypatch.setattr(source, "_", lambda text: text)
@@ -155,7 +157,7 @@ def test_invalid_filters_are_rejected(changes):
 		service.filters(changes)
 
 
-@pytest.mark.parametrize("method,kwargs", [(api.get_data, {}), (api.refresh_data, {}), (api.get_detail, {"key": "a"*64}), (api.export_data, {})])
+@pytest.mark.parametrize("method,kwargs", [(api.get_data, {}), (api.refresh_data, {}), (api.enqueue_sync, {}), (api.get_sync_status, {}), (api.get_detail, {"key": "a"*64}), (api.export_data, {})])
 def test_api_checks_roles_before_reading_any_approval(monkeypatch, method, kwargs):
 	monkeypatch.setattr(frappe, "only_for", lambda *a: (_ for _ in ()).throw(PermissionError()))
 	monkeypatch.setattr(source, "get_snapshot", lambda **kw: pytest.fail("unauthorized read"))
@@ -205,14 +207,15 @@ def test_template_configuration_rejects_foreign_scope_and_invalid_fields(monkeyp
 		source.configuration()
 
 
-def test_failed_refresh_preserves_previous_complete_snapshot(monkeypatch):
-	previous={'rows':['existing']};writes=[]
-	monkeypatch.setattr(source,'configuration',lambda:('url',[]))
-	monkeypatch.setattr(frappe,'cache',SimpleNamespace(get_value=lambda key,**kw:previous,make_key=lambda key:key,lock=lambda *a,**kw:SimpleNamespace(acquire=lambda **kw:True,release=lambda:None),set_value=lambda *a,**kw:writes.append(a)))
-	monkeypatch.setattr(source,'load_snapshot',lambda *a:(_ for _ in ()).throw(RuntimeError('source unavailable')))
+def test_refresh_enqueues_without_loading_upstream_and_returns_previous_snapshot(monkeypatch):
+	from budget.services import cn_approval_sync as sync
+	previous={'rows':['existing']};requests=[]
+	monkeypatch.setattr(sync,'request_sync',lambda:requests.append(True))
+	monkeypatch.setattr(sync,'read_snapshot',lambda:previous)
+	monkeypatch.setattr(source,'load_snapshot',lambda *a,**kw:pytest.fail('upstream read during page request'))
 	assert source.get_snapshot() is previous
-	with pytest.raises(RuntimeError):source.get_snapshot(refresh=True)
-	assert writes==[]
+	assert source.get_snapshot(refresh=True) is previous
+	assert requests==[True]
 
 
 def test_detail_cannot_reveal_a_row_outside_permission_scope(monkeypatch):
