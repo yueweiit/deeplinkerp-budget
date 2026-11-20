@@ -78,7 +78,7 @@ Total Budget Amount,Importe total presupuestado
 Unit,Unidad
 Unit Price,Precio unitario
 Value,Valor
-China Operating Expenses,Gastos operativos (CN)
+China Operating Expenses,Gastos (CN)
 Operating Expenses,Gastos operativos
 Budget Dashboard,Panel de presupuestos
 Budget Configuration,Configuración de presupuestos
@@ -282,7 +282,7 @@ The shared OA source does not match local quota subjects. No source was changed.
 Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,Se verificaron {0} registros presupuestarios y {1} cuotas antes de cambiar a la API OA compartida. La sincronización sigue deshabilitada.
 Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,Se verificaron {0} registros presupuestarios y {1} cuotas; hay {2} aprobaciones adicionales pendientes de sincronizar.
 APPROVAL WORKSPACE,ESPACIO DE APROBACIONES
-CN Approval Workspace,Gastos operativos (CN)
+CN Approval Workspace,Gastos (CN)
 Budgets and expenditure,Presupuestos y gastos
 "Budget declarations, operating expenditure and purchase expenditure in one place.","Consulte las declaraciones presupuestarias, los gastos operativos y las compras en un solo lugar."
 Budget declaration,Declaración presupuestaria

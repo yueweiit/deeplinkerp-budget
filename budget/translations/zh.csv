@@ -78,7 +78,7 @@ Total Budget Amount,预算合计金额
 Unit,单位
 Unit Price,单价
 Value,候选值
-China Operating Expenses,运营支出（CN）
+China Operating Expenses,支出（CN）
 Operating Expenses,运营支出
 Budget Dashboard,预算数据看板
 Budget Configuration,预算配置
@@ -282,7 +282,7 @@ The shared OA source does not match local quota subjects. No source was changed.
 Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,已核对 {0} 笔预算台账和 {1} 笔额度，并切换至共用 OA 接口；同步保持停用。
 Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,已验证 {0} 笔预算台账和 {1} 笔额度；另有 {2} 笔审批待后续同步。
 APPROVAL WORKSPACE,审批工作台
-CN Approval Workspace,运营支出（CN）
+CN Approval Workspace,支出（CN）
 Budgets and expenditure,预算与支出工作台
 "Budget declarations, operating expenditure and purchase expenditure in one place.",集中查看预算申报、运营支出与采购支出。
 Budget declaration,预算申报
