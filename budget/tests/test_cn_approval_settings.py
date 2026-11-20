@@ -137,7 +137,7 @@ def test_finance_and_company_restricted_managers_cannot_read_or_write_settings(r
 	monkeypatch.setattr(frappe, "get_roles", lambda: ["System Manager"])
 	monkeypatch.setattr(workbench, "allowed_companies", lambda: {"Allowed Co"})
 	for fn in (settings.get_settings, lambda: settings.save_settings(1, [], [], ""),
-		lambda: settings.preview_template({})):
+		lambda: settings.preview_template({}), settings.get_unmapped_sources):
 		with pytest.raises(ValueError, match="access to all subsidiaries"):
 			fn()
 
@@ -168,6 +168,19 @@ def test_preview_is_bounded_and_does_not_expose_raw_samples(runtime, monkeypatch
 	assert result == {"sample_count": 2, "cn_count": 1, "issues": []}
 	assert runtime.http.read_template_page.call_args.kwargs == {"limit": 3}
 	assert runtime.saved is None
+
+
+def test_unmapped_sources_only_use_local_authorized_projection_and_paginate(runtime, monkeypatch):
+	rows = [{"key": str(i), "kind": "budget", "corp_id": "corp-A", "entity": f"Org {i:03}", "company": ""} for i in range(55)]
+	rows += [{**rows[0], "key": "another"}, {"key": "mapped", "kind": "budget", "corp_id": "corp-A", "entity": "Mapped", "company": "Allowed Co"}]
+	context = {"aliases": {("corp-A", "Mapped"): "Allowed Co"}, "known_companies": {"Allowed Co"}}
+	from budget.integrations import cn_approval_history
+	monkeypatch.setattr(cn_approval_history, "read_snapshot", lambda: {"rows": rows})
+	monkeypatch.setattr(workbench, "access_context", lambda: context)
+	first, last = settings.get_unmapped_sources(), settings.get_unmapped_sources(50)
+	assert first["total"] == 55 and len(first["rows"]) == 50
+	assert first["rows"][0]["count"] == 2 and len(last["rows"]) == 5
+	runtime.http.read_template_page.assert_not_called()
 
 
 def test_template_history_lifecycle_is_server_owned_and_drafts_do_not_change_snapshot(runtime):

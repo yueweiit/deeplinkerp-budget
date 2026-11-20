@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from deeplinkerp_branding.services import mexico_expense_templates as templates
@@ -70,6 +70,15 @@ def iso_date(value, *, month=False):
 			value += "-01"
 		return date.fromisoformat(value).isoformat()[:7 if month else 10]
 	except ValueError:
+		return None
+
+
+def approval_finished_at(raw):
+	"""Only the source completion instant may order approved budget versions."""
+	try:
+		value = datetime.fromisoformat(str(raw.get("finishTime") or ""))
+		return value.astimezone(timezone.utc).isoformat() if value.tzinfo else None
+	except (ValueError, TypeError):
 		return None
 
 
@@ -170,7 +179,7 @@ def project(row, template):
 		is_amount = (field.get("id") in BUDGET_TABLES or any(text(field.get("name")).startswith(p)
 			for p in ("人资预算", "办公场地预算", "预算项目"))) if family == "budget" else field.get("id") in ALLOCATION_TABLES
 		rows = _table(field, family, issues, is_amount=is_amount)
-		tables.append({"label": text(field.get("name")), "group": BUDGET_TABLES.get(field.get("id")),
+		tables.append({"label": text(field.get("name")), "source_table_id": field.get("id"), "group": BUDGET_TABLES.get(field.get("id")),
 			"is_amount": is_amount, "rows": rows})
 	monetary = [detail for table in tables if table["is_amount"] for detail in table["rows"]]
 	detail_total = None
@@ -219,7 +228,8 @@ def project(row, template):
 		"number": text(row.get("business_id") or raw.get("businessId") or row["process_instance_id"]),
 		"applicant": text(row.get("originator_user_name")), "entity": entity, "entity_id": entity_id,
 		"department_id": text(row.get("originator_dept_id")), "department": text(row.get("originator_dept_name")),
-		"application_date": applied, "month": period, "status": status, "amount": total, "currency": unit,
+		"application_date": applied, "month": period, "status": status, "approved_at": approval_finished_at(raw) if status == "approved" else None,
+		"amount": total, "currency": unit,
 		"category": category, "classification": [node["label"] for node in path],
 		"description": description[:12000], "facts": facts, "tables": tables, "detail_total": detail_total,
 		"detail_currency": "CNY" if monetary else None,

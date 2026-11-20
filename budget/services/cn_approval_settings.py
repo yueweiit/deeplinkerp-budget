@@ -220,3 +220,44 @@ def preview_template(template):
 	projected = [item for row in rows if (item := project(row, clean)) is not None]
 	issues = sorted({issue for item in projected for issue in item["issues"]})
 	return {"sample_count": len(rows), "cn_count": len(projected), "issues": [_(ISSUES[key]) for key in issues]}
+
+
+def get_unmapped_sources(start=0):
+	require_manager()
+	from .cn_approval_workbench import access_context
+	from ..integrations.cn_approval_history import read_snapshot
+	from .cn_approval_management import allocation_sources, company_for
+	try:
+		start = int(start)
+	except (ValueError, TypeError):
+		frappe.throw(_("Invalid CN approval filters."))
+	if not 0 <= start <= 20000:
+		frappe.throw(_("Invalid CN approval filters."))
+	rows, _context = read_snapshot()["rows"], access_context()
+	counts = {}
+	for row in rows:
+		for entity in {row.get("entity", ""), *allocation_sources(row)} - {""}:
+			if not company_for({**row, "entity": entity, "entity_id": row.get("entity_id") if entity == row.get("entity") else ""}, _context):
+				key = (row["corp_id"], entity)
+				counts.setdefault(key, set()).add(row["key"])
+	items = [{"corp_id": corp, "source_name": name, "count": len(keys)} for (corp, name), keys in sorted(counts.items())]
+	return {"rows": items[start:start + 50], "total": len(items), "start": start, "page_length": 50}
+
+
+def get_unmapped_categories(start=0):
+	require_manager()
+	from .cn_approval_management import load_lines
+	try:
+		start = int(start)
+	except (ValueError, TypeError):
+		frappe.throw(_("Invalid CN approval filters."))
+	if not 0 <= start <= 50000:
+		frappe.throw(_("Invalid CN approval filters."))
+	_snapshot, rows, _context, _rules = load_lines()
+	groups = {}
+	for row in rows:
+		if not row["management_category"]:
+			key = (row["kind"], tuple(row["source_path"]))
+			groups.setdefault(key, set()).add(row["source_key"])
+	items = [{"kind": kind, "source_path": list(path), "count": len(keys)} for (kind, path), keys in sorted(groups.items()) if path]
+	return {"rows": items[start:start + 50], "total": len(items), "start": start}
