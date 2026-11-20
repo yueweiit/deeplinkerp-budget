@@ -12,10 +12,7 @@ frappe.pages["budget-config"].on_page_load = function (wrapper) {
 };
 
 frappe.pages["budget-config"].on_page_show = function () {
-	if (frappe.boot?.cn_budget_workbench) {
-		frappe.set_route("china-expense-details", {cn_filters:JSON.stringify({approval_type:"budget",budget_tab:"quota"})});
-		return;
-	}
+	if (frappe.boot?.cn_budget_workbench) return;
 	frappe.utils.set_title(__("Budget Quotas"));
 };
 

@@ -12,7 +12,7 @@
 
 页面实现位于 `public/js/cn_approval_workbench.js`、`public/js/cn_approval_management.js`、`public/css/cn_approval_workbench.css`，品牌 App 的 `china_expenses_page.js` 只负责选择并加载资源。复用四个现有 Page，Budget 新增预算执行与报表中心两个 Page；未新增会计业务表。`budget.setup.cn_navigation_items` 仅在六个 Page 都存在时启用新侧栏；品牌 App 的导航合并不会给新只读工作台插入手工日记账。侧栏种子文件直接定义新版六个页面与三个可折叠分组，避免标准元数据同步重新写入旧三项菜单。仅独立安装或 CN 页面尚未安装完整时，安装/迁移钩子显式生成兼容入口；品牌 App 未安装时不使用残留 CN Page 记录。独立 Budget、品牌 App 备用页面及既有财务服务保留各自权限。
 
-ERPNext 的“预算”恢复在“会计”文件夹下，保留原生 Budget、Cost Center、Accounting Dimension、Cost Center Allocation、Budget Variance 五个入口。本 App 的 `setup.apply_budget_nav` 在安装/迁移时清理旧导航挂载，同步独立 CN 入口；`public/js/budget_navigation.js` 只清理这三个定制页面旧的 Budget 侧栏记忆。旧 URL、DocType、台账数据及接口均保留，不把 MX 排除明细自动写入国内财务数据。导航定义见 `budget/workspace_sidebar/china_operating_expenses.json` 和 `budget/desktop_icon/china_operating_expenses.json`。
+ERPNext 的“预算”恢复在“会计”文件夹下，保留原生 Budget、Cost Center、Accounting Dimension、Cost Center Allocation、Budget Variance 五个入口。本 App 的 `setup.apply_budget_nav` 在安装/迁移时清理旧导航挂载，同步独立 CN 入口；`public/js/budget_navigation.js` 清理定制页面旧的 Budget 侧栏记忆，并在 CN 启用时于 Page 渲染前处理退役地址。旧菜单与 CN 旧页面挂载逻辑移除，旧收藏链接只转入新版，不在旧地址下展示新正文。DocType、台账数据及接口保留，不把 MX 排除明细自动写入国内财务数据。导航定义见 `budget/workspace_sidebar/china_operating_expenses.json` 和 `budget/desktop_icon/china_operating_expenses.json`。
 
 模块文档：[docs/README.md](docs/README.md) — 分层、接口清单、配置、错误处理、时序。
 
@@ -222,7 +222,9 @@ bench --site <site> build --app budget      # 生成 /assets/budget（Page 脚�
 bench --site <site> clear-cache
 ```
 
-旧页面兼容实现中，“预算执行分析”沿用 `/desk/budget-dashboard`；旧 `/desk/budget-config` 转到预算明细的额度页签，`/desk/budget-ledger-entry` 仍可直接打开原生列表，原单详情保留。CN 集成时列表、报表、详情及额度均读取同步后的本地数据，旧 `budget_data_source` / `budget_oa_source` 不再切换 CN 来源或限制导航；独立 Budget 安装仍保留原模式及原组件。`after_install` / `after_migrate` 调用 `budget.setup.apply_budget_nav` 重放导航，不更改 ERPNext 原生 Budget 菜单及业务数据。
+新版 CN 启用后，`/desk/budget-dashboard` 和 `/desk/budget-config` 退役为 `/desk/china-budget-execution` 的地址别名，`/desk/china-personnel-report` 转到 `/desk/china-management-reports` 的人事报表。全局导航在原生 Page 渲染前跳转，保留当前 `cn_approval_filters`、其他查询参数和锚点；移除已废弃的 `cn_filters` 参数，替换当前浏览器历史项，避免返回键绕回旧页面。初次打开、缓存 Desk 页签和前进/后退走同一入口。旧页面不再挂载 CN 工作台；`/desk/budget-ledger-entry` 的原生列表、原单详情及独立 Budget 页面不受重定向影响。旧 `budget_data_source` / `budget_oa_source` 不再切换 CN 来源或限制导航。`after_install` / `after_migrate` 调用 `budget.setup.apply_budget_nav` 重放导航，不更改 ERPNext 原生 Budget 菜单及业务数据。更新代码后，已打开的浏览器须完整刷新一次以加载新版全局导航脚本。
+
+旧链接的 `cn_approval_filters` 同时支持直接打开时的对象，以及 Desk 原生点击处理再次序列化后的 JSON 文本；跳转前统一为对象，无效文本不传入工作台。
 
 ### 历史预算台账集成（2026-11-19，兼容服务）
 

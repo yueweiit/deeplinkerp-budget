@@ -9,7 +9,7 @@
 	const KINDS = {budget:"Budget declaration", operating:"Operating expenditure", purchase:"Purchase expenditure"};
 	const STATUSES = {approved:"Approved", pending:"In progress", rejected:"Rejected", terminated:"Terminated", withdrawn:"Withdrawn", unknown:"Unknown"};
 	const VIEWS = {overview:"Management Overview", budget:"Budget Execution", register:"Approval Register", analysis:"Expenditure Analysis", reports:"Management Reports", review:"Data Review"};
-	const ROUTES = {"china-expenses":"overview", "china-expense-details":"register", "china-expense-reports":"analysis", "china-personnel-report":"reports", "china-expense-review":"review", "china-budget-execution":"budget", "china-management-reports":"reports"};
+	const ROUTES = {"china-expenses":"overview", "china-expense-details":"register", "china-expense-reports":"analysis", "china-expense-review":"review", "china-budget-execution":"budget", "china-management-reports":"reports"};
 	const VIEW_ROUTES = {overview:"china-expenses", register:"china-expense-details", analysis:"china-expense-reports", review:"china-expense-review", budget:"china-budget-execution", reports:"china-management-reports"};
 	const GROUPS = {overview:"Budget and Expenditure", budget:"Budget and Expenditure", analysis:"Management Analysis", reports:"Management Analysis", register:"Details and Review", review:"Details and Review"};
 	const FX_BASES = {budget:"Budget month", application:"Application month"};
@@ -125,7 +125,7 @@
 		constructor(wrapper, route) {
 			this.wrapper=wrapper; this.route=route; this.view=ROUTES[route] || "overview"; this.seq=0; this.detailSeq=0;
 			this.filters=this.defaultFilters();
-			this.reportId=route==="china-personnel-report"?"hr":"company";
+			this.reportId="company";
 			this.start=0; this.data=null; this.active=true; this.loading=false;
 			installNavigation();
 			this.page=root.frappe.ui.make_app_page({parent:wrapper,title:t(VIEWS[this.view]),single_column:true});
