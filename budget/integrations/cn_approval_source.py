@@ -15,6 +15,7 @@ from ..services.oa_budget_parser import BUDGET_PROCESS_CODE
 
 MAX_ROWS = 20000
 MAX_PAGES = 250
+SNAPSHOT_VERSION = 4
 
 
 def configuration():
@@ -72,8 +73,19 @@ def normalize_templates(configured, corps, *, allow_empty=False):
 
 
 def cache_key(url, templates):
-	identity = json.dumps([url, templates], sort_keys=True).encode()
-	return "cn-approval-workbench:v3:" + hashlib.sha256(identity).hexdigest()
+	# Keep saved legacy bindings intact, but changes to ignored region bindings
+	# must neither invalidate local data nor supersede a queued/running scan.
+	effective_templates = []
+	for template in templates:
+		mapping = template.get("field_mapping") or {}
+		if isinstance(mapping, str):
+			mapping = json.loads(mapping)
+		mapping = {key: ids for key, ids in mapping.items() if key != "region"}
+		effective_templates.append({**template, "field_mapping": json.dumps(mapping, sort_keys=True)})
+	# Durable storage uses the digest, not the prefix. Include the projection
+	# version so region-filtered snapshots cannot stand in for the new scope.
+	identity = json.dumps([SNAPSHOT_VERSION, url, effective_templates], sort_keys=True).encode()
+	return f"cn-approval-workbench:v{SNAPSHOT_VERSION}:" + hashlib.sha256(identity).hexdigest()
 
 
 def load_snapshot(url, templates, *, http=None, clock=time.monotonic, progress=None):

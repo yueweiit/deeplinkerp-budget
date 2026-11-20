@@ -322,7 +322,7 @@ Reading approval data…,Leyendo datos de aprobaciones…
 No data loaded,No se han cargado datos
 Approvals could not be loaded. Retry or ask an administrator to check the source.,No se pudieron cargar las aprobaciones. Reintente o solicite al administrador que revise el origen.
 The previous result is still displayed. Its filters may differ from your current selection.,Se mantiene el resultado anterior. Sus filtros pueden diferir de la selección actual.
-"Only approvals explicitly marked for China are included. Correct source discrepancies in the original approval, then refresh.",Solo se incluyen aprobaciones cuya región de ejecución sea explícitamente China. Corrija las discrepancias en la aprobación original y actualice.
+"Approvals are included by enabled template without filtering by execution region. Correct source discrepancies in the original approval, then refresh.",Se incluyen aprobaciones según las plantillas habilitadas sin filtrar por región de ejecución. Corrija las discrepancias en la aprobación original y actualice.
 Approved application amount,Importe de solicitudes aprobadas
 No approved amounts,Sin importes aprobados
 Incomplete amounts,Importes incompletos
@@ -485,9 +485,9 @@ Invalid subsidiary mappings,Las asignaciones de subsidiarias no son válidas
 Loading preview…,Cargando vista previa…
 Match the corporation and source organization exactly. Multiple historical names may map to the same subsidiary. Changes take effect only after saving.,La empresa y la organización de origen deben coincidir exactamente. Varios nombres históricos pueden corresponder a la misma subsidiaria. Los cambios se aplican al guardar.
 No unmapped organizations in the current local snapshot.,No hay organizaciones sin asignar en la instantánea local actual.
-Only approvals explicitly marked for China are included. Budget month and application month rules remain unchanged.,Solo se incluyen aprobaciones marcadas explícitamente para China. Se mantienen las reglas del mes presupuestario y del mes de solicitud.
+Approvals are included by enabled template without filtering by execution region. Budgets use the budget month; operating and purchase approvals use the application month.,Se incluyen aprobaciones según las plantillas habilitadas sin filtrar por región de ejecución. Los presupuestos usan el mes presupuestario; los gastos operativos y las compras usan el mes de solicitud.
 Optional JSON array of levels; each level is an array of component IDs. Applies to operating and purchase approvals.,Opcional: matriz JSON de niveles; cada nivel es una matriz de IDs de componentes. Se aplica a aprobaciones operativas y de compras.
-"Optional JSON: logical field names mapped to arrays of component IDs. For budget declarations, only region overrides are supported.",Opcional: objeto JSON que asigna nombres lógicos de campos a matrices de IDs de componentes. Las declaraciones presupuestarias solo admiten personalizar region.
+"Optional JSON: logical field names mapped to arrays of component IDs. Applies to operating and purchase approvals; execution region mappings are ignored.",Opcional: objeto JSON que asigna nombres lógicos de campos a matrices de IDs de componentes. Se aplica a gastos operativos y compras; se ignoran las asignaciones de región de ejecución.
 Preview selected template,Vista previa de la plantilla seleccionada
 Process code,Código de proceso
 Sample approvals: {0}; included in CN: {1}.,Aprobaciones de muestra: {0}; incluidas en CN: {1}.

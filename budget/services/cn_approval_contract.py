@@ -13,7 +13,6 @@ from deeplinkerp_branding.services.mexico_expense_contract import exact_amount, 
 from deeplinkerp_branding.services.mexico_expense_projection import text
 
 KINDS = ("budget", "operating", "purchase")
-CHINA = {"中国", "中国china", "china", "cn"}
 CURRENCIES = {"人民币": "CNY", "人民币rmb": "CNY", "人民币cny": "CNY", "rmb": "CNY", "cny": "CNY",
 	"美元": "USD", "美元usd": "USD", "usd": "USD", "美元dólar": "USD", "dólar": "USD",
 	"比索": "MXN", "比索peso": "MXN", "peso": "MXN", "mxn": "MXN"}
@@ -108,7 +107,7 @@ def _table(field, family, issues, *, is_amount):
 
 
 def project(row, template):
-	"""Return one approval, with source tables as supporting detail, or exclude non-CN."""
+	"""Project an approval from a configured template, regardless of execution region."""
 	family = template["approval_type"]
 	if family not in KINDS or row.get("corp_id") != template["corp_id"] or row.get("process_code") != template["process_code"]:
 		raise ValueError("Unexpected CN approval identity")
@@ -122,18 +121,6 @@ def project(row, template):
 		raise ValueError("Invalid approval fields")
 	issues = []
 	value = lambda ids=(), prefixes=(): pick(fields, ids, prefixes, issues=issues).get("value")
-	# Apply template overrides before deciding whether an approval belongs to CN.
-	# Budget has its own default region ID but shares the same binding rules.
-	region_schema = {"region": (
-		("DDSelectField_19YR4TJTCWIO0", *templates.FIELDS["region"][0]),
-		(*templates.FIELDS["region"][1], "执行地区", "Región de ejecución"),
-		templates.FIELDS["region"][2],
-	)} if family == "budget" else None
-	resolved, errors = templates.resolve(fields, template, schema=region_schema)
-	issues.extend(errors)
-	region = resolved.get("region", {}).get("value")
-	if normalized(region) not in CHINA:
-		return None
 	if family == "budget":
 		total = amount(value(("MoneyField_1JA1U3NP3Q4G0", "MoneyField_NAO8CPC23000"), ("预算总金额", "Presupuesto Total")))
 		unit = "CNY"
@@ -146,6 +133,11 @@ def project(row, template):
 		resolved = {}
 		description = text(value(("TextareaField_1JHTRP1E89TS0",), ("备注", "Observaciones")))
 	else:
+		# CN scope comes from the configured corporation and template. Ignore
+		# legacy region bindings without changing the shared MX field resolver.
+		resolved, errors = templates.resolve(fields, template,
+			schema={key: spec for key, spec in templates.FIELDS.items() if key != "region"})
+		issues.extend(errors)
 		get = lambda key: resolved.get(key, {}).get("value")
 		total, unit, entity = amount(get("amount")), currency(get("currency")), text(get("entity"))
 		entity_field = resolved.get("entity") or {}

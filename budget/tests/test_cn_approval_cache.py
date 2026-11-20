@@ -1,4 +1,5 @@
 """Durable publication and background lifecycle, without site or upstream IO."""
+import hashlib
 import json
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -67,6 +68,89 @@ def test_first_sync_is_distinct_from_a_successful_empty_snapshot(runtime):
 		'snapshot_json': '{"rows": []}', 'sync_status': 'success'}
 	assert sync.read_snapshot()['has_snapshot'] is True
 	assert sync.get_status()['auto_sync_due'] is False
+
+
+def test_region_filtered_snapshot_requires_one_rebuild_then_reuses_local_data(runtime, monkeypatch):
+	# Before region filtering was removed, the durable key excluded the version.
+	legacy_key = hashlib.sha256(json.dumps(['url', []], sort_keys=True).encode()).hexdigest()
+	legacy = runtime.records.pop(runtime.key)
+	legacy.update(name=legacy_key, last_success_at=runtime.now)
+	runtime.records[legacy_key] = legacy
+	assert runtime.key != legacy_key
+	initial = source.get_snapshot()
+	assert not initial['has_snapshot'] and initial['sync']['auto_sync_due']
+	assert not runtime.jobs
+
+	payload = {'rows': runtime.old['rows'] + [{'amount': '23.40'}], 'fetched_at': str(runtime.now)}
+	monkeypatch.setattr(source, 'load_snapshot', lambda *a, **kw: payload)
+	sync.request_sync(if_stale=True)
+	runtime.commit()
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	monkeypatch.setattr(source, 'load_snapshot', lambda *a, **kw: pytest.fail('repeated upstream scan'))
+	assert source.get_snapshot()['rows'] == payload['rows']
+	assert sync.request_sync(if_stale=True)['status'] == 'success'
+	assert source.get_snapshot()['rows'] == payload['rows']
+	assert len(runtime.jobs) == 1 and runtime.records[legacy_key] == legacy
+
+
+@pytest.fixture
+def configured_runtime(runtime, monkeypatch):
+	runtime.templates = source.normalize_templates([{"approval_type": "operating", "corp_id": "corp-A",
+		"process_code": "PROC-test", "field_mapping": '{"region": ["old-region"], "amount": ["amount-1"]}'}], ["corp-A"])
+	monkeypatch.setattr(source, 'configuration', lambda: ('url', deepcopy(runtime.templates)))
+	record = runtime.records.pop(runtime.key)
+	runtime.key = sync.identity(*source.configuration())
+	runtime.records[runtime.key] = {**record, 'name': runtime.key, 'last_success_at': runtime.now}
+	return runtime
+
+
+def test_removing_region_mapping_keeps_fresh_local_snapshot(configured_runtime):
+	runtime = configured_runtime
+	runtime.templates[0]['field_mapping'] = '{"amount": ["amount-1"]}'
+	result = source.get_snapshot()
+	assert result['snapshot_id'] == 'old' and result['rows'] == runtime.old['rows']
+	assert not result['sync']['auto_sync_due']
+	assert sync.request_sync(if_stale=True)['status'] == 'success'
+	assert not runtime.jobs and not runtime.callbacks
+
+
+@pytest.mark.parametrize('stage', ['queued', 'running'])
+@pytest.mark.parametrize('mapping', ['{"amount": ["amount-1"]}', '{"region": ["new-region"], "amount": ["amount-1"]}'])
+def test_region_mapping_edits_do_not_abort_sync(configured_runtime, monkeypatch, stage, mapping):
+	runtime = configured_runtime
+	sync.request_sync(); runtime.commit()
+	if stage == 'queued':
+		runtime.templates[0]['field_mapping'] = mapping
+	def scan(*args, progress):
+		progress(completed_templates=0, page_count=1)
+		runtime.templates[0]['field_mapping'] = mapping
+		assert sync.get_status()['status'] == 'running'
+		assert sync.request_sync(if_stale=True)['status'] == 'running'
+		return {'rows': [{'amount': '99.00'}], 'fetched_at': str(runtime.now)}
+	monkeypatch.setattr(source, 'load_snapshot', scan)
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	result = source.get_snapshot()
+	assert result['sync']['status'] == 'success'
+	assert result['snapshot_id'] != 'old' and result['rows'] == [{'amount': '99.00'}]
+	assert len(runtime.jobs) == 1 and not runtime.callbacks
+
+
+@pytest.mark.parametrize('changes', [
+	{'field_mapping': '{"amount": ["amount-2"]}'},
+	{'classification_fields': '[["category-2"]]'},
+	{'corp_id': 'corp-B'}, {'process_code': 'PROC-other'}, {'approval_type': 'purchase'},
+])
+def test_effective_template_edits_still_reject_outdated_sync(configured_runtime, monkeypatch, changes):
+	runtime = configured_runtime
+	sync.request_sync(); runtime.commit()
+	def scan(*args, **kwargs):
+		runtime.templates[0].update(changes)
+		return {'rows': ['outdated'], 'fetched_at': str(runtime.now)}
+	monkeypatch.setattr(source, 'load_snapshot', scan)
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	assert not source.get_snapshot()['has_snapshot']
+	assert runtime.records[runtime.key]['snapshot_id'] == 'old'
+	assert runtime.records[runtime.key]['error_code'] == 'configuration_changed'
 
 
 def test_enqueue_is_after_commit_and_repeated_requests_share_claim(runtime):

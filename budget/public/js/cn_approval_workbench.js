@@ -440,7 +440,7 @@
 				${this.error ? `<div class="cnaw-error" role="alert">${esc(this.error)} ${data ? esc(t("The previous result is still displayed. Its filters may differ from your current selection.")) : ""}<button data-action="retry">${esc(t("Retry"))}</button></div>` : ""}
 				${this.optionsError ? `<div class="cnaw-error" role="alert">${esc(this.optionsError)} <button data-action="retry-options">${esc(t("Retry"))}</button></div>` : ""}
 				<div class="cnaw-body ${this.loading && data ? "is-loading" : ""}">${!data ? this.loading ? `<div class="cnaw-skeleton"><div></div><div></div><div></div><p>${esc(t("Reading approval data…"))}</p></div>` : `<div class="cnaw-empty"><strong>${esc(t("No data loaded"))}</strong></div>` : data.has_snapshot===false ? `<div class="cnaw-empty"><strong>${esc(t("Waiting for the first approval synchronization"))}</strong><p>${esc(t("Approvals will appear after a complete synchronization. You can leave this page while it runs."))}</p></div>` : this.content(summary)}</div>
-				<footer class="cnaw-footer">${esc(t("Only approvals explicitly marked for China are included. Correct source discrepancies in the original approval, then refresh."))}</footer></div>`;
+				<footer class="cnaw-footer">${esc(t("Approvals are included by enabled template without filtering by execution region. Correct source discrepancies in the original approval, then refresh."))}</footer></div>`;
 			if (rangeParent) {
 				this.host.querySelector(".cnaw-month-range").replaceWith(rangeParent);
 				this.rangePicker.position();

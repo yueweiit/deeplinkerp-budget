@@ -73,7 +73,7 @@
 			options:corporations,reqd:1,default:saved.corporations.length===1 ? saved.corporations[0] : ""});
 		dialog=new root.frappe.ui.Dialog({title:t("CN Approval Synchronization"),size:"extra-large",fields:[
 			{fieldname:"enabled",fieldtype:"Check",label:t("Enable CN approval synchronization"),default:saved.enabled},
-			{fieldtype:"HTML",options:`<p class="text-muted">${esc(t("Only approvals explicitly marked for China are included. Budget month and application month rules remain unchanged."))}</p>`},
+			{fieldtype:"HTML",options:`<p class="text-muted">${esc(t("Approvals are included by enabled template without filtering by execution region. Budgets use the budget month; operating and purchase approvals use the application month."))}</p>`},
 			{fieldname:"templates",fieldtype:"Table",label:t("Approval templates"),data:saved.templates,
 				in_place_edit:false,fields:textFields([
 					{fieldname:"enabled",fieldtype:"Check",label:t("Enabled"),in_list_view:1,columns:1,default:0},
@@ -84,7 +84,7 @@
 					corpField(),
 					{fieldname:"process_code",fieldtype:"Data",label:t("Process code"),reqd:1,in_list_view:1,columns:4},
 					{fieldname:"field_mapping",fieldtype:"Code",label:t("Field mapping"),options:"JSON",default:"{}",
-						description:t("Optional JSON: logical field names mapped to arrays of component IDs. For budget declarations, only region overrides are supported.")},
+						description:t("Optional JSON: logical field names mapped to arrays of component IDs. Applies to operating and purchase approvals; execution region mappings are ignored.")},
 					{fieldname:"classification_fields",fieldtype:"Code",label:t("Classification fields"),options:"JSON",
 						description:t("Optional JSON array of levels; each level is an array of component IDs. Applies to operating and purchase approvals.")},
 				])},

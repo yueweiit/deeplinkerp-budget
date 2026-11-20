@@ -70,11 +70,24 @@ def test_three_supplied_schema_families_share_header_identity_but_not_totals(kin
 		assert item["detail_total"] is None and item["budget_snapshot"] == {"budget": "800.00", "used": "20.00"}
 
 
-@pytest.mark.parametrize("region", ["墨西哥Mexico", "", None, "other"])
-def test_only_explicit_china_region_is_included(region):
-	row, config = sample()
-	next(f for f in row["form_component_values"] if f["id"] == "DDSelectField_1FEAISH1BZ4W0")["value"] = region
-	assert contract.project(row, config) is None
+@pytest.mark.parametrize("kind", contract.KINDS)
+@pytest.mark.parametrize("region", ["中国", "中国China", "China", "CN", "墨西哥Mexico", "", None, "other"])
+def test_execution_region_does_not_change_inclusion_or_projection(kind, region):
+	row, config = sample(kind)
+	expected = contract.project(row, config)
+	region_id = "DDSelectField_19YR4TJTCWIO0" if kind == "budget" else "DDSelectField_1FEAISH1BZ4W0"
+	next(f for f in row["form_component_values"] if f["id"] == region_id)["value"] = region
+	assert contract.project(row, config) == expected
+	row["form_component_values"] = [f for f in row["form_component_values"] if f["id"] != region_id]
+	assert contract.project(row, config) == expected
+
+
+@pytest.mark.parametrize("kind", contract.KINDS)
+@pytest.mark.parametrize("changes", [{"corp_id": "foreign"}, {"process_code": "PROC-other"}])
+def test_region_independent_inclusion_still_requires_configured_identity(kind, changes):
+	row, config = sample(kind, **changes)
+	with pytest.raises(ValueError, match="Unexpected CN approval identity"):
+		contract.project(row, config)
 
 
 def test_budget_duplicate_blank_total_is_ignored_but_two_populated_totals_are_ambiguous():
@@ -164,11 +177,17 @@ def test_api_checks_roles_before_reading_any_approval(monkeypatch, method, kwarg
 	with pytest.raises(PermissionError): method(**kwargs)
 
 
-def test_full_snapshot_reuses_template_client_and_checks_all_pages(monkeypatch):
-	row, config = sample();calls = []
+@pytest.mark.parametrize("kind", contract.KINDS)
+def test_full_snapshot_reads_all_pages_including_foreign_and_missing_regions(kind):
+	row, config = sample(kind);calls = []
+	region_id = "DDSelectField_19YR4TJTCWIO0" if kind == "budget" else "DDSelectField_1FEAISH1BZ4W0"
 	def read(url, corp, code, cursor=None):
 		calls.append(cursor)
-		return [{**row, "process_instance_id": cursor or "first"}], {"syncUntil": "fixed", "hasMore": cursor is None, "nextCursor": "second"}
+		assert (url, corp, code) == ("url", config["corp_id"], config["process_code"])
+		item = deepcopy(row)
+		item["process_instance_id"] = cursor or "first"
+		next(f for f in item["form_component_values"] if f["id"] == region_id)["value"] = None if cursor else "墨西哥Mexico"
+		return [item], {"syncUntil": "fixed", "hasMore": cursor is None, "nextCursor": "second"}
 	result = source.load_snapshot("url", [config], http=SimpleNamespace(read_template_page=read))
 	assert calls == [None, "second"] and len(result["rows"]) == 2
 
@@ -274,24 +293,37 @@ def test_purchase_unit_and_total_columns_do_not_make_header_ambiguous():
 
 
 @pytest.mark.parametrize("kind", contract.KINDS)
-@pytest.mark.parametrize("region,included", [("中国China", True), ("墨西哥Mexico", False), ("", False)])
-def test_configured_region_binding_takes_precedence_over_legacy_china_field(kind, region, included):
+@pytest.mark.parametrize("region", ["中国China", "墨西哥Mexico", ""])
+def test_saved_region_mapping_does_not_filter_approvals(kind, region):
 	import json
 	row, config = sample(kind)
 	config["field_mapping"] = json.dumps({"region": ["custom-region"]})
 	row["form_component_values"].append(field("custom-region", region, name="地区Region"))
-	assert (contract.project(row, config) is not None) == included
+	item = contract.project(row, config)
+	assert item["amount"] == "100.00" and not item["issues"]
 
 
 @pytest.mark.parametrize("kind", contract.KINDS)
-def test_region_override_does_not_fall_back_when_missing_or_ambiguous(kind):
+def test_missing_ambiguous_or_mistyped_region_mappings_do_not_raise_review_issues(kind):
 	import json
 	row, config = sample(kind)
 	config["field_mapping"] = json.dumps({"region": ["new-region-1", "new-region-2"]})
-	assert contract.project(row, config) is None
+	assert not contract.project(row, config)["issues"]
 	row["form_component_values"].extend([
 		field("new-region-1", "中国China"), field("new-region-2", "墨西哥Mexico")])
-	assert contract.project(row, config) is None
+	assert not contract.project(row, config)["issues"]
+	row["form_component_values"][-1]["componentType"] = "TextField"
+	assert not contract.project(row, config)["issues"]
+
+
+@pytest.mark.parametrize("kind", ["operating", "purchase"])
+def test_other_field_overrides_still_apply_when_region_is_ignored(kind):
+	import json
+	row, config = sample(kind)
+	config["field_mapping"] = json.dumps({"amount": ["custom-amount"], "region": ["missing-region"]})
+	row["form_component_values"].append(field("custom-amount", "123.45", "MoneyField"))
+	item = contract.project(row, config)
+	assert item["amount"] == "123.45" and not item["issues"]
 
 
 def test_restricted_manager_cannot_reclassify_known_company_as_unmapped(monkeypatch):

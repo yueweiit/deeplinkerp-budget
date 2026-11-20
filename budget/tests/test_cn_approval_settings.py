@@ -70,6 +70,22 @@ def test_company_mapping_changes_revision_but_not_oa_snapshot(runtime):
 	assert settings.version() == result["config_version"]
 
 
+@pytest.mark.parametrize("kind", ["budget", "operating", "purchase"])
+def test_region_mapping_edits_are_saved_without_changing_snapshot_identity(runtime, kind):
+	frappe.conf["cn_approval_templates"][0]["approval_type"] = kind
+	save(settings.get_settings())
+	before = source.cache_key(*source.configuration())
+	for mapping in ('{"region": ["old-region"]}', '{"region": ["new-region"]}', '{}'):
+		values = settings.get_settings()
+		values["templates"][0]["field_mapping"] = mapping
+		result = save(values)
+		assert result["config_version"] != values["config_version"]
+		assert source.cache_key(*source.configuration()) == before
+		assert settings.get_settings()["templates"][0]["field_mapping"] == mapping
+		assert source.configuration()[1][0]["field_mapping"] == mapping
+	runtime.http.read_template_page.assert_not_called()
+
+
 def test_conflicting_editor_cannot_overwrite_saved_settings(runtime):
 	first = settings.get_settings();second = deepcopy(first)
 	save(first, enabled=0)

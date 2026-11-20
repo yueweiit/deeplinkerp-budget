@@ -322,7 +322,7 @@ Reading approval data…,正在读取审批数据…
 No data loaded,尚未加载数据
 Approvals could not be loaded. Retry or ask an administrator to check the source.,审批读取失败，请重试或联系管理员检查数据来源。
 The previous result is still displayed. Its filters may differ from your current selection.,当前保留上次查询结果，其筛选条件可能与当前选择不同。
-"Only approvals explicitly marked for China are included. Correct source discrepancies in the original approval, then refresh.",仅纳入执行地区明确为中国的审批。发现来源差异时，请核对并修正原单后刷新。
+"Approvals are included by enabled template without filtering by execution region. Correct source discrepancies in the original approval, then refresh.",按已启用模板纳入审批，不按执行地区筛选。发现来源差异时，请核对并修正原单后刷新。
 Approved application amount,已通过申请金额
 No approved amounts,暂无已通过金额
 Incomplete amounts,金额不完整
@@ -485,9 +485,9 @@ Invalid subsidiary mappings,子公司映射无效
 Loading preview…,正在读取预览…
 Match the corporation and source organization exactly. Multiple historical names may map to the same subsidiary. Changes take effect only after saving.,按来源企业和组织原名精确匹配，同一子公司可对应多个历史名称，保存后生效。
 No unmapped organizations in the current local snapshot.,当前本地快照中没有待映射的来源组织。
-Only approvals explicitly marked for China are included. Budget month and application month rules remain unchanged.,仅纳入明确标记为中国的审批；预算仍按预算月，运营和采购仍按申请月统计。
+Approvals are included by enabled template without filtering by execution region. Budgets use the budget month; operating and purchase approvals use the application month.,按已启用模板纳入审批，不按执行地区筛选；预算按预算月，运营和采购按申请月统计。
 Optional JSON array of levels; each level is an array of component IDs. Applies to operating and purchase approvals.,可选：按分类层级填写 JSON 数组，每层也是组件 ID 数组，适用于运营和采购审批。
-"Optional JSON: logical field names mapped to arrays of component IDs. For budget declarations, only region overrides are supported.",可选：JSON 对象，逻辑字段名对应组件 ID 数组。预算申报仅支持覆盖 region（执行地区）。
+"Optional JSON: logical field names mapped to arrays of component IDs. Applies to operating and purchase approvals; execution region mappings are ignored.",可选：JSON 对象，逻辑字段名对应组件 ID 数组。适用于运营与采购审批；执行地区映射不参与处理。
 Preview selected template,预览所选模板
 Process code,流程编码
 Sample approvals: {0}; included in CN: {1}.,抽样审批 {0} 笔，纳入 CN {1} 笔。
