@@ -19,8 +19,10 @@ def test_optional_cn_pages_are_required_before_showing_new_navigation():
 	assert setup.cn_navigation_items(lambda route: route != "china-expense-review") == []
 	items = setup.cn_navigation_items(lambda route: True)
 	assert [item["link_to"] for item in items if item["type"] == "Link"] == [row[1] for row in setup.CN_PAGES]
-	assert [item["label"] for item in items if item["type"] == "Section Break"] == []
-	assert [item["child"] for item in items if item["type"] == "Link"] == [0, 0, 0, 0]
+	groups = [item for item in items if item["type"] == "Section Break"]
+	assert [item["label"] for item in groups] == ["Budget and Expenditure", "Management Analysis", "Details and Review"]
+	assert all(item["collapsible"] and item["keep_closed"] and item["indent"] for item in groups)
+	assert [item["child"] for item in items if item["type"] == "Link"] == [1, 1, 1, 1, 1, 1]
 
 
 def test_cn_boot_does_not_depend_on_the_old_budget_source_switch():
@@ -28,12 +30,19 @@ def test_cn_boot_does_not_depend_on_the_old_budget_source_switch():
     setup = load_setup()
     setup.frappe.get_installed_apps = lambda: ["budget", "deeplinkerp_branding"]
     setup.frappe.db = SimpleNamespace(exists=lambda *args: True)
-    info = SimpleNamespace()
+    info = SimpleNamespace(page_info={"china-expense-reports": {"title": "Expenditure Analysis"},
+        "china-personnel-report": {"title": "Personnel Analysis"}, "mexico-expenses": {"title": "Mexico Expenses"}})
     setup.boot_session(info)
     assert info.cn_budget_workbench is True
+    assert info.page_info["china-expense-reports"]["title"] == "Expenditure Analysis"
+    assert info.page_info["china-personnel-report"]["title"] == "Management Reports"
+    assert info.page_info["mexico-expenses"]["title"] == "Mexico Expenses"
+    assert "china-expense-details" not in info.page_info  # Do not add unauthorized Pages.
     setup.frappe.db.exists = lambda dt, name: name != "china-expense-review"
+    info.page_info["china-expense-reports"]["title"] = "Expenditure Analysis"
     setup.boot_session(info)
     assert info.cn_budget_workbench is False
+    assert info.page_info["china-expense-reports"]["title"] == "Expenditure Analysis"
 
 
 def test_uninstall_reconciles_surviving_operating_navigation_after_sidebar_removal():
@@ -102,5 +111,5 @@ def test_install_and_migrate_keep_standalone_defaults_until_branding_is_ready():
 			patch.dict("sys.modules", {navigation.__name__: navigation}):
 			for _ in range(2):
 				setup.apply_budget_nav()
-				assert [row.link_to for row in sorted(rows, key=lambda row: row.idx)] == expected
+				assert [row.link_to for row in sorted(rows, key=lambda row: row.idx) if row.type == "Link"] == expected
 		assert navigation.ensure_operating_navigation.call_count == (2 if expected == regional else 0)

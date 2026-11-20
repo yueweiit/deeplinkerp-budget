@@ -414,3 +414,239 @@ Needs review,待核对
 Detail and application currencies differ; amounts cannot be compared directly,明细与申请币种不同，金额不能直接比较
 Approval data is being refreshed. Please retry shortly.,审批数据正在刷新，请稍后重试。
 The concurrent approval refresh did not complete. Please retry.,其他请求的审批刷新未完成，请重试。
+Approval Management,审批管理
+Analysis and Review,分析与核对
+Data Review,数据核对
+Month Range,月份范围
+Converted amount,折算金额
+Original amount,原币金额
+Exchange rate,折算汇率
+Exchange rate date,汇率日期
+Exchange rate basis,汇率归期
+Budget month,预算月
+Application month,申请月
+Currency or reporting month cannot be converted,币种或统计月份无法用于折算
+You do not have permission to view this subsidiary.,您无权查看该子公司。
+Converted at month-start rates: budget month for budgets; application month for operating and purchase approvals. Original amounts are retained.,按月初汇率折算：预算用预算月，运营和采购用申请月；保留原币金额。
+Subsidiaries could not be loaded. Retry.,子公司列表加载失败，请重试。
+CN Approval Snapshot,CN 审批快照
+Source Configuration Key,来源配置标识
+Snapshot ID,快照版本
+Last Successful Sync,最近成功同步时间
+Snapshot Data,快照数据
+Synchronization Status,同步状态
+Synchronization Token,同步任务标识
+Queued At,入队时间
+Started At,开始时间
+Heartbeat At,最近活动时间
+Finished At,结束时间
+Completed Templates,已完成模板数
+Template Count,模板总数
+Page Count,已读取页数
+Error Code,错误代码
+CN approval storage is not installed. Ask an administrator to run the Budget migration.,CN 审批存储尚未安装，请联系管理员执行 Budget 迁移。
+CN approval background synchronization is disabled.,CN 审批后台同步已停用。
+No local approval snapshot is available yet. Wait for synchronization before exporting.,本地尚无审批快照，请在同步完成后导出。
+Synchronization status could not be loaded. Retrying shortly.,无法读取同步状态，稍后自动重试。
+Synchronization could not be queued. Retry.,同步任务未能入队，请重试。
+"Synchronizing approvals: {0} of {1} templates, {2} pages read.",正在同步审批：已完成 {0}/{1} 个模板，已读取 {2} 页。
+Synchronizing approvals…,正在同步审批…
+Waiting for the first approval synchronization,等待首次审批同步
+Approvals will appear after a complete synchronization. You can leave this page while it runs.,完整同步完成后显示审批数据，同步期间可以离开此页面。
+Approval synchronization is queued.,审批同步已排队。
+Synchronization timed out. Retry synchronization.,同步已超时，请重新同步。
+Synchronization failed. Retry synchronization.,同步失败，请重新同步。
+Approval synchronization is disabled.,审批同步已停用。
+The last complete snapshot remains available.,上一份完整数据仍可查看。
+A System Manager with access to all subsidiaries is required to configure CN approvals.,配置 CN 审批需要拥有全部子公司访问权限的系统管理员。
+Add mapping,添加映射
+An existing template cannot change approval form,已有模板不能更改审批类型
+Approval templates,审批模板
+CN Approval Company Map,CN 审批公司映射
+CN Approval Settings,CN 审批设置
+CN Approval Synchronization,中国审批同步设置
+CN Approval Template,CN 审批模板
+CN approval settings can only be changed through the workbench.,CN 审批设置只能通过工作台修改。
+CN approval settings could not be loaded or saved. Retry.,无法读取或保存 CN 审批设置，请重试。
+CN approval settings require a site migration.,CN 审批设置需要先执行站点迁移。
+CN approval settings saved.,CN 审批设置已保存。
+Classification fields,分类字段映射
+Company mappings,公司映射
+Configuration Version,配置版本
+Corporation ID,来源企业 ID
+Disable historical templates instead of removing them,历史模板请停用，不可删除
+Duplicate source entity mapping,同一来源组织不能重复映射
+Enable CN approval synchronization,启用中国审批同步
+Enabled,启用
+Field mapping,字段映射
+Initialized,已初始化
+Invalid CN approval settings.,CN 审批设置无效。
+Invalid subsidiary mappings,子公司映射无效
+Loading preview…,正在读取预览…
+Match the corporation and source organization exactly. Multiple historical names may map to the same subsidiary. Changes take effect only after saving.,按来源企业和组织原名精确匹配，同一子公司可对应多个历史名称，保存后生效。
+No unmapped organizations in the current local snapshot.,当前本地快照中没有待映射的来源组织。
+Only approvals explicitly marked for China are included. Budget month and application month rules remain unchanged.,仅纳入明确标记为中国的审批；预算仍按预算月，运营和采购仍按申请月统计。
+Optional JSON array of levels; each level is an array of component IDs. Applies to operating and purchase approvals.,可选：按分类层级填写 JSON 数组，每层也是组件 ID 数组，适用于运营和采购审批。
+"Optional JSON: logical field names mapped to arrays of component IDs. For budget declarations, only region overrides are supported.",可选：JSON 对象，逻辑字段名对应组件 ID 数组。预算申报仅支持覆盖 region（执行地区）。
+Preview selected template,预览所选模板
+Process code,流程编码
+Sample approvals: {0}; included in CN: {1}.,抽样审批 {0} 笔，纳入 CN {1} 笔。
+Save settings,保存设置
+Select exactly one template to preview.,请勾选一个模板进行预览。
+Select one template to preview. Disable saved templates instead of deleting them. Disabled templates leave the current reporting scope; stored snapshots are retained.,勾选一个模板可预览。已保存模板请停用而非删除；停用后不再纳入当前统计范围，已存快照保留。
+Settings changed; reload and try again,设置已被其他人修改，请重新打开后再试
+Synchronization settings,同步设置
+Template name,模板名称
+This sample does not represent a complete synchronization. Review the data after synchronization.,抽样预览不代表完整同步结果，请在同步后核对数据。
+This source organization is already in the mapping table.,该来源组织已在映射表中，请编辑已有行。
+Unmapped source organizations,待映射来源组织
+{0} source organizations,共 {0} 个来源组织
+Add row,添加行
+Management Overview,经营总览
+Management Reports,报表中心
+Budget and Expenditure,预算与支出
+Management Analysis,经营分析
+Details and Review,明细与核对
+Approval-based budget execution,审批口径预算执行
+Allocated detail lines are shown once; header totals are not added again.,按分摊明细逐行统计，不重复叠加整单金额。
+Applications needing review,待核对申请数
+Approved applications,已通过申请数
+Approved budget occupation,已批预算占用
+Approved expenditure in this period,本期已批支出
+Approved operating and purchase applications,已通过的运营与采购申请
+Approved operating expenditure,已批运营支出
+Approved purchase expenditure,已批采购支出
+Attention,关注事项
+Bonuses,奖金
+Budget and approved occupation,预算与已批占用
+Budget category variance report,预算项目差异表
+Budget details do not reconcile to the approved total,预算明细与审批总金额不一致
+Budget difference,预算差额
+Budget execution by company and month,公司月度预算执行
+Budget execution rate,预算执行率
+Budget risks are separate from data quality issues.,经营预算风险与数据质量问题分别展示。
+Budget warning percentage,预算预警比例（%）
+CN management analysis exceeds 50000 detail lines. Narrow the configured scope.,CN 经营分析超过 50000 条明细，请缩小配置范围。
+Companies over budget,超预算公司数
+Company allocation or detail total needs review,公司分摊或明细合计待核对
+Company budget execution,各公司预算执行对照
+Company budget execution report,公司预算执行汇总表
+Compare budgets and expenditure across subsidiaries.,横向比较各子公司的预算与支出。
+"Compare companies and expense categories, then open the underlying applications.",比较公司和费用类别，点击金额追溯对应申请。
+"Compare salaries, insurance, bonuses and employee benefits.",比较工资、社保、奖金及职工福利支出。
+Complete company and category mappings,补齐公司与分类映射
+Complete company mappings before assessing company budget risks.,请先补齐公司映射，再评估各公司的预算风险。
+Data coverage,数据完整情况
+Difference if all pending applications pass,待批全部通过后的预计差额
+Duplicate CN category mapping.,存在重复的 CN 分类映射。
+Effective budget,有效预算
+Effective budget minus approved occupation,有效预算减去已批占用
+Employee benefits,职工福利
+Expenditure by company,公司支出对比
+Expenditure by management category,费用去向分析
+Expenditure without a budget,有支出但未取得预算
+Export report,导出报表
+Finance expenses,财务费用
+Find the categories responsible for budget differences.,定位产生预算差异的费用项目。
+Hide companies without activity,隐藏无数据公司
+IT and software,信息技术与软件
+Incomplete data,数据不完整
+Internet and communications,网络与通信
+Invalid CN category mapping.,CN 分类映射无效。
+Invalid CN management report.,CN 管理报表无效。
+Invalid CN management rules.,CN 管理统计规则无效。
+Inventory purchases,库存采购
+Investment purchases,投资采购
+Largest expenditure lines,大额支出明细
+Latest approved budget per company and month; all approved operating and purchase applications occupy the budget.,每家公司每月只取最后通过的一张预算；所有已批运营和采购申请均占用预算。
+Latest approved version per company and month,取公司当月最后通过的预算版本
+Loading unmapped categories…,正在读取未映射分类…
+Maintenance and consumables,维修与耗材
+Management attention,经营关注事项
+Management category,管理费用类别
+Management category is not mapped,管理费用类别尚未映射
+Management category mappings,管理费用类别映射
+Management classification,管理统计分类
+Map budget items and expenditure categories to the same management category. Unmapped items remain visible and are never treated as zero.,将预算项目与支出分类对应到同一管理费用类别；未映射项目单列展示，不按零处理。
+Monthly budget and expenditure report,月度预算与支出趋势表
+Monthly expenditure,月度支出趋势
+Near the budget limit,接近预算上限
+No activity,暂无数据
+No budget alerts in the selected period.,所选期间暂无预算预警。
+No budget or expenditure activity in this period,所选期间暂无预算或支出记录
+No company activity in this period,所选期间暂无公司业务记录
+No unmapped management categories.,暂无未映射的管理费用类别。
+Not available,暂无法计算
+Not yet included in approved occupation,暂未计入已批占用
+Office expenses,办公费用
+Office rent,办公场地租金
+Only the latest approved budget for each company and month is effective. Older versions remain available for review.,每家公司每月只取最后通过的预算，历史版本保留供核查。
+Operating and purchase applications,运营支出与采购支出合计
+Other classified expenses,其他已分类费用
+Over budget,已超预算
+Pending applications are shown separately and do not reduce the approved budget difference.,待批申请单独展示，不扣减当前审批口径预算差额。
+Pending applications exceed the budget,待批通过后将超预算
+Pending expenditure applications,待批支出申请
+Personnel expenditure report,人资费用分析表
+Professional services,专业服务费
+Purchase expenditure report,采购支出分析表
+"Reports and drilldowns use the same calculation. A dash means unavailable, not zero. Approval does not confirm payment.",报表与下钻明细采用相同口径；“—”表示暂无法计算，不代表零。审批通过不代表已付款。
+"Review monthly budgets, expenditure and pending applications.",查看各月预算、支出与待批申请。
+"Review purchases by subsidiary, category and project.",按子公司、采购类别和项目查看支出。
+Salaries,工资
+Sales expenses,销售费用
+Select a company to inspect its monthly budget; select an amount to view the underlying detail lines.,点击公司查看月度预算执行，点击金额查看对应明细。
+Select at most 60 months for CN management reports.,CN 管理报表一次最多查询 60 个月。
+Show {0} companies without activity,显示 {0} 家无数据公司
+Social insurance and housing fund,社保与公积金
+Source category path,来源分类路径
+Taxes and fees,税费
+The budget warning percentage must be between 1 and 100.,预算预警比例必须在 1 到 100 之间。
+The latest approved budget cannot be determined,无法确定最后通过的预算版本
+This category path is already in the mapping table.,此分类路径已在映射表中。
+Travel expenses,差旅费
+Unassigned amounts are listed separately. Company budget differences are incomplete until allocation is confirmed.,未归属金额单独列示；完成公司归属前，相关预算差额不完整。
+Unmapped management categories,待映射管理费用类别
+Utilities,水电费用
+Vehicle expenses,车辆使用费
+View data issues,查看数据问题
+View effective budget,查看有效预算
+View superseded budgets ({0}),查看历史预算版本（{0}）
+Within budget,预算范围内
+{0} approvals; {1} without a company; {2} without a management category.,共 {0} 笔审批；{1} 笔未对应公司；{2} 笔未对应管理费用类别。
+{0} more may exceed the budget if pending applications pass.,另有 {0} 家可能在待批通过后超预算。
+{0} source categories,共 {0} 个来源分类
+Personnel budget,人资预算
+Office premises budget,办公场地预算
+Operating budget,运营预算项目
+Unitemized budget,未拆分预算
+CN management classification rules,CN 管理统计分类规则
+Expenditure applications,支出申请
+Superseded budget,历史预算版本
+Budget declarations,预算申报
+Budget version,预算版本
+Detail item,明细项目
+Data updated at,数据更新时间
+Unassigned approvals,未对应公司的审批
+Unclassified approvals,未对应管理类别的审批
+CN report export exceeds 20000 rows. Narrow the period or company.,CN 报表导出超过 20000 行，请缩小期间或公司范围。
+Historical CN snapshots exceed the lookup limit. Ask an administrator to review the archive.,CN 历史快照超过查询上限，请联系管理员核查归档。
+{0} detail lines,{0} 条明细
+{0} detail lines need attention,{0} 条明细需要核对
+No effective budget,暂无有效预算
+Some disabled templates have no verified local history,部分停用模板缺少已核验的本地历史数据
+Missing historical templates,缺少历史数据的模板数
+{0} disabled templates have no verified local snapshot. Amounts may be incomplete; budget differences are unavailable.,{0} 个停用模板缺少已核验的本地快照，金额可能不完整，暂不计算预算差额。
+Disabled templates use their last synchronized data; later OA changes are not included.,停用模板保留最后一次同步的数据，不包含停用后 OA 中的变更。
+Not specified,未指定
+Approval completion time,审批完成时间
+Select completed months to compare periods. An incomplete current month is not compared with a full prior month.,请选择已结束的月份进行同比、环比。当前未结束月份不与完整历史月份直接比较。
+Comparable history is unavailable.,暂无可比历史数据。
+Year-on-year expenditure change,支出同比变化
+Previous-period expenditure change,支出环比变化
+Comparison period,对比期间
+Expenditure changes and contributors,支出变化与主要影响项
+Comparisons use the current approval status in completed periods. Missing historical data is not treated as zero.,按已结束期间的当前审批状态比较。历史数据缺失不按零计算。
+Marketing expenses,市场推广费用
+Historical exchange rates are unavailable. Current-period amounts remain available.,历史期间汇率暂不可用，本期金额仍可查看。
+Template history state,模板历史状态

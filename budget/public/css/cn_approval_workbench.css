@@ -1,22 +1,25 @@
 .cnaw-host {background:var(--bg-color,#f6f8fa);padding:0!important}
+.navbar-breadcrumbs .cnaw-breadcrumb-current {color:var(--text-color);font-size:var(--text-lg);font-weight:600;cursor:default}
+.navbar-breadcrumbs .cnaw-breadcrumb-current::before {content:"/";display:inline-block;margin:0 6px;color:var(--ink-gray-4);font-weight:400}
+.navbar-breadcrumbs .cnaw-breadcrumb-group {cursor:default;color:var(--text-muted)}
+@media(max-width:720px) {.navbar-breadcrumbs .cnaw-breadcrumb-group {display:none}}
 .cnaw {--ink:#1d3440;--muted:#71828c;--line:#e2e9ed;--green:#178574;--blue:#527fc3;--amber:#ce943c;color:var(--ink);padding:22px 26px 16px;max-width:1920px;margin:auto;font-size:13px}
 .cnaw button,.cnaw input,.cnaw select,.cnaw-overlay button {font:inherit}
 .cnaw button {cursor:pointer}.cnaw button:disabled {cursor:wait;opacity:.5}
 .cnaw button:focus-visible,.cnaw input:focus-visible,.cnaw select:focus-visible,.cnaw-overlay :focus-visible {outline:2px solid #178574;outline-offset:3px}
-.cnaw-header {display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:24px}
-.cnaw-eyebrow {font-size:10px;letter-spacing:1.5px;font-weight:700;color:#178574}.cnaw-eyebrow span {color:#a3b4b9;margin:0 8px}
-.cnaw h1 {font-size:25px;line-height:1.4;font-weight:650;letter-spacing:-.6px;margin:5px 0 6px}.cnaw-header p {margin:0;color:var(--muted);font-size:12px}
-.cnaw-header-actions {display:flex;align-items:center;gap:14px}.cnaw-updated {font-size:11px;color:var(--muted)}
+.cnaw-eyebrow {font-size:10px;letter-spacing:1.5px;font-weight:700;color:#178574}
+.cnaw-filter-toolbar {display:flex;align-items:center;justify-content:space-between;gap:12px 24px;margin-top:12px;flex-wrap:wrap}
+.cnaw-filter-actions {display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-left:auto;flex-wrap:wrap}.cnaw-updated {font-size:11px;color:var(--muted)}
 .cnaw-button {display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #dbe4e7;background:white;color:#304c57;padding:9px 13px;border-radius:7px;font-size:12px!important;text-decoration:none;white-space:nowrap;cursor:pointer}
 .cnaw-button.primary {border-color:#176d60;background:#176d60;color:white}.cnaw-button.primary:hover {background:#115b50;color:white;text-decoration:none}
-.cnaw-nav {display:flex;align-items:center;gap:26px;border-bottom:1px solid var(--line);margin-bottom:18px}.cnaw-nav button {background:none;border:0;border-bottom:2px solid transparent;padding:0 1px 13px;color:var(--muted);font-weight:600;white-space:nowrap}.cnaw-nav button.active {border-color:#178574;color:#176d60}.cnaw-nav>span {margin-left:auto;color:var(--muted);font-size:11px;padding-bottom:12px}
 .cnaw-filters {background:white;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:20px}
-.cnaw-kind-switch {display:flex;align-items:center;gap:6px;margin-bottom:16px;flex-wrap:wrap}.cnaw-kind-switch button {border:0;background:transparent;color:#61747e;padding:7px 12px;border-radius:6px;font-size:12px}.cnaw-kind-switch button.active {background:#eaf4f1;color:#176d60;font-weight:650}
-.cnaw-kind-switch i,.cnaw-type i {display:inline-block;width:6px;height:6px;border-radius:2px;background:var(--green);margin-right:7px}.cnaw-kind-switch i.operating,.cnaw-type.operating i {background:var(--blue)}.cnaw-kind-switch i.purchase,.cnaw-type.purchase i {background:var(--amber)}
-.cnaw-filter-grid {display:grid;grid-template-columns:130px 130px minmax(130px,1.2fr) minmax(100px,.8fr) 95px minmax(150px,1.3fr) auto;gap:12px;align-items:end}
-.cnaw-filter-grid label {margin:0;min-width:0}.cnaw-filter-grid label>span {display:block;color:var(--muted);font-size:11px;margin-bottom:5px}
+.cnaw-type i {display:inline-block;width:6px;height:6px;border-radius:2px;background:var(--green);margin-right:7px}.cnaw-type.operating i {background:var(--blue)}.cnaw-type.purchase i {background:var(--amber)}
+.cnaw-filter-grid {display:grid;grid-template-columns:minmax(250px,1.3fr) minmax(120px,1.2fr) minmax(110px,.8fr) 105px minmax(160px,1.4fr) auto;gap:12px;align-items:end}
+.cnaw-filter-grid label,.cnaw-range-filter {margin:0;min-width:0}.cnaw-filter-grid label>span,.cnaw-range-filter>span {display:block;color:var(--muted);font-size:11px;margin-bottom:5px}
+.cnaw .mx-range-trigger {height:35px;font-size:12px;gap:8px;color:#314d58;background:#fcfdfd}.cnaw-current-kind {display:inline-block;color:#176d60;font-weight:600;margin-right:10px}
+.cnaw-approval-sidebar .mx-approval-item[aria-pressed="true"] {color:#176d60;background:#eaf4f1}
 .cnaw-filter-grid input,.cnaw-filter-grid select {width:100%;height:35px;border:1px solid #dce5e9;background:#fcfdfd;border-radius:6px;padding:0 9px;color:#314d58;font-size:12px}.cnaw-reset {border:0;color:var(--muted);background:none;white-space:nowrap;height:35px;font-size:11px!important}
-.cnaw-period-note {font-size:10px;color:#87969e;margin-top:12px;line-height:1.6}.cnaw-filter-chip {border:0;background:#eaf4f1;color:#176d60;border-radius:5px;margin-left:8px;padding:2px 8px}
+.cnaw-period-note {font-size:10px;color:#87969e;line-height:1.6;flex:1 1 320px}.cnaw-payment-note {display:block}.cnaw-filter-chip {border:0;background:#eaf4f1;color:#176d60;border-radius:5px;margin-left:8px;padding:2px 8px}
 .cnaw-cards {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:20px}.cnaw-card {border:1px solid var(--line);border-radius:10px;text-align:left;background:white;padding:17px 18px 0;min-height:162px;display:flex;flex-direction:column;transition:border-color .15s,box-shadow .15s;overflow:hidden}.cnaw-card:hover {border-color:#afcec7;box-shadow:0 3px 14px #1a4d4010}.cnaw-card-heading {display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#506771}.cnaw-card-heading>b {font-weight:400;color:#9ab0b5;font-size:15px}
 .cnaw-card-amount {display:block;font-size:23px;font-weight:650;letter-spacing:-.5px;margin-top:15px;line-height:1.35;overflow-wrap:anywhere}.cnaw-money-line {display:block;font-variant-numeric:tabular-nums}.cnaw-money-line>small {font-size:10px;font-weight:500;letter-spacing:0;color:#7b8d96}.cnaw-card-amount>.cnaw-muted {font-size:15px;font-weight:500;letter-spacing:0}.cnaw-incomplete {display:block;color:#b17834;font-size:10px;font-weight:400}.cnaw-card-caption {font-size:10px;color:#8b9aa2;margin:5px 0 14px}.cnaw-card-bottom {font-size:10px;color:#82929b;margin-top:auto;border-top:1px solid #eef2f4;padding:10px 0;display:flex;gap:4px;align-items:center}.cnaw-card-bottom strong {font-size:12px;color:#314d58;font-weight:600}.cnaw-card-bottom>span {margin-left:auto}
 .cnaw-card.review {background:#fffcf6;border-color:#eee6d5}.cnaw-review-number {font-size:32px;font-weight:650;margin-top:10px;line-height:1.2;color:#9f7839}.cnaw-review-number small {font-size:14px;font-weight:400;color:#b4a891}
@@ -32,6 +35,125 @@
 .cnaw-overlay {position:fixed;inset:0;background:#102a3940;z-index:1050;display:flex;justify-content:flex-end;color:#29434e;font-size:13px}.cnaw-drawer {width:min(700px,100%);height:100%;background:#fff;box-shadow:-8px 0 40px #15344520;display:flex;flex-direction:column}.cnaw-drawer-header {display:flex;align-items:center;justify-content:space-between;padding:18px 25px;border-bottom:1px solid #e6edef}.cnaw-drawer-header h2 {font-size:16px;margin:0}.cnaw-close {font-size:25px!important;line-height:1;border:0;background:none;color:#80939d;padding:4px 8px;cursor:pointer}.cnaw-drawer-body {padding:22px 26px;overflow:auto;flex:1}.cnaw-detail-top {padding:0 0 20px;border-bottom:1px solid #e8eef1}.cnaw-detail-top>.cnaw-badge {float:right}.cnaw-detail-top h3 {font-size:17px;font-weight:600;margin:14px 0}.cnaw-detail-amount {font-size:29px;font-weight:600;font-variant-numeric:tabular-nums;margin-bottom:18px}.cnaw-detail-amount small {font-size:11px;font-weight:400;color:#8599a1;display:block;margin-top:4px}.cnaw-overlay .cnaw-type {--green:#178574;--blue:#527fc3;--amber:#ce943c}
 .cnaw-facts {display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;margin:20px 0}.cnaw-facts>div {min-width:0}.cnaw-overlay dt {font-size:10px;color:#8c9da6;font-weight:400;margin-bottom:4px}.cnaw-overlay dd {font-size:12px;overflow-wrap:anywhere;margin:0;color:#3b5662}.cnaw-overlay h4 {font-size:13px;font-weight:600;margin:0 0 10px}.cnaw-detail-section {padding-block:18px;border-top:1px solid #edf1f4}.cnaw-prose {white-space:pre-wrap;font-size:12px;line-height:1.8;margin:0;overflow-wrap:anywhere}.cnaw-budget-snapshot {background:#f5f8fa;border-radius:8px;padding:17px;margin:15px 0}.cnaw-budget-snapshot p {font-size:11px;color:#8a9da6}.cnaw-budget-snapshot .cnaw-facts {margin-bottom:0}.cnaw-source-table {border:1px solid #e3eaed;border-radius:8px;margin:15px 0;overflow:hidden}.cnaw-source-table summary {padding:12px;background:#f9fbfc;font-size:12px;cursor:pointer}.cnaw-source-table summary>span {color:#92a3aa;font-size:10px}.cnaw-source-table>p {padding:10px 12px 0;font-size:10px;color:#97a5ac}.cnaw-source-row {padding:14px;border-top:1px solid #e9eff1}.cnaw-source-row>strong {font-size:12px;font-weight:500}.cnaw-source-row dl {display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;margin:12px 0 0}.cnaw-detail-issues {padding:15px;background:#fff9ed;border:1px solid #eee1c6;border-radius:8px;margin:18px 0;color:#a27d39}.cnaw-detail-issues ul {padding-left:18px;margin-bottom:0;font-size:11px;line-height:1.8}.cnaw-detail-total {display:flex;justify-content:space-between;font-size:12px;padding:10px 0}.cnaw-detail-section ul {padding-left:18px;font-size:12px}.cnaw-detail-section small {font-size:10px;color:#8c9ea6}
 @media(min-width:1600px) {.cnaw-card-amount {font-size:28px}.cnaw-cards {gap:20px}.cnaw-table td {padding-block:16px}}
-@media(max-width:1200px) {.cnaw {padding:18px}.cnaw-filter-grid {grid-template-columns:repeat(3,minmax(0,1fr))}.cnaw-reset {justify-self:start}.cnaw-header-actions {align-items:flex-end;flex-direction:column;gap:8px}.cnaw-card-amount {font-size:20px}.cnaw-panels {grid-template-columns:1fr}.cnaw-category-name strong {max-width:none}.cnaw-chart {justify-content:flex-start}.cnaw-nav>span {display:none}}
-@media(max-width:720px) {.cnaw {padding:12px}.cnaw-header {align-items:flex-start;gap:10px}.cnaw h1 {font-size:20px}.cnaw-header p,.cnaw-updated {display:none}.cnaw-nav {overflow:auto;gap:20px}.cnaw-cards {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.cnaw-card {padding:12px 12px 0;min-height:155px}.cnaw-card-amount {font-size:17px}.cnaw-card-bottom {flex-wrap:wrap}.cnaw-card-bottom>span {margin-left:0}.cnaw-filters {padding:12px}.cnaw-filter-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.cnaw-kind-switch {gap:2px}.cnaw-kind-switch button {padding:6px 7px;font-size:11px}.cnaw-review-summary {grid-template-columns:1fr;gap:12px;padding:17px}.cnaw-panel-title {padding:15px}.cnaw-tag {display:none}.cnaw-chart-legend {gap:10px}.cnaw-drawer-body {padding:18px}.cnaw-source-row dl {grid-template-columns:1fr}.cnaw-table {min-width:950px}}
+@media(max-width:1400px) {.cnaw-filter-grid {grid-template-columns:repeat(4,minmax(0,1fr))}.cnaw-range-filter {grid-column:span 2}.cnaw-reset {justify-self:start}}
+@media(max-width:1200px) {.cnaw {padding:18px}.cnaw-filter-grid {grid-template-columns:repeat(3,minmax(0,1fr))}.cnaw-card-amount {font-size:20px}.cnaw-panels {grid-template-columns:1fr}.cnaw-category-name strong {max-width:none}.cnaw-chart {justify-content:flex-start}}
+@media(max-width:720px) {.cnaw {padding:12px}.cnaw-filter-toolbar {gap:10px}.cnaw-filter-actions {width:100%;justify-content:space-between;gap:8px}.cnaw-updated {font-size:10px;overflow-wrap:anywhere;min-width:0;flex:1}.cnaw-cards {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.cnaw-card {padding:12px 12px 0;min-height:155px}.cnaw-card-amount {font-size:17px}.cnaw-card-bottom {flex-wrap:wrap}.cnaw-card-bottom>span {margin-left:0}.cnaw-filters {padding:12px}.cnaw-filter-grid {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.cnaw-review-summary {grid-template-columns:1fr;gap:12px;padding:17px}.cnaw-panel-title {padding:15px}.cnaw-tag {display:none}.cnaw-chart-legend {gap:10px}.cnaw-drawer-body {padding:18px}.cnaw-source-row dl {grid-template-columns:1fr}.cnaw-table {min-width:950px}}
 @media(prefers-reduced-motion:reduce) {.cnaw-skeleton>div {animation:none}}
+
+.cnaw-sync-status {padding:12px 16px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:16px;color:var(--text-muted);font-size:12px;background:var(--subtle-fg);}
+
+.cnaw-mapping-sources {max-height:320px;overflow:auto;}
+.cnaw-mapping-source {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--border-color);}
+.cnaw-mapping-source small {display:block;color:var(--text-muted);overflow-wrap:anywhere;}
+.cnaw-mapping-source strong {overflow-wrap:anywhere;}
+.cnaw-mapping-source button {flex-shrink:0;}
+.cnaw-mapping-pages {display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-top:12px;}
+
+/* Grid row forms normally float over the Desk. Inside this dialog they must
+   occupy their table row so the modal header, footer and other fields stay usable. */
+.modal.cnaw-settings-dialog .grid-row-open .form-in-grid {position:relative;inset:auto;transform:none;width:100%;max-width:none;margin:0;z-index:auto;scroll-margin-block:64px;}
+.cnaw-settings-dialog .grid-row-open .grid-form-body {max-height:none;overflow:visible;}
+.cnaw-settings-dialog .form-grid:has(.grid-row-open) {min-width:0!important;}
+.cnaw-settings-dialog .grid-form-heading .grid-header-toolbar {display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.cnaw-settings-dialog .grid-form-heading .row-actions {display:flex;gap:6px;flex-wrap:wrap;}
+.cnaw-settings-dialog [data-fieldname="company_mappings"] .grid-field>.control-label {display:none;}
+.cnaw-settings-dialog .cnaw-mapping-source>div {min-width:0;}
+.cnaw-settings-dialog .cnaw-mapping-pages {flex-wrap:wrap;}
+
+/* Management pages share controls, while each page has its own information hierarchy. */
+.cnam-filter-grid {grid-template-columns:minmax(240px,1.3fr) minmax(200px,1.2fr) minmax(110px,.6fr) minmax(180px,1fr) auto;}
+.cnam-quality {display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 16px;margin-bottom:20px;border:1px solid #e0e9e6;border-radius:9px;background:#f6faf8;color:#56736a;font-size:12px;}
+.cnam-quality.attention {background:#fffbf2;border-color:#eadfc5;color:#8c733c;}
+.cnam-quality>div {display:flex;gap:8px 16px;flex-wrap:wrap;min-width:0;}
+.cnam-quality strong {font-weight:600;}
+.cnam-quality small {flex-basis:100%;font-size:11px;line-height:1.5;}
+.cnam-quality button {flex-shrink:0;}
+.cnam-kpis {display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(140px,.65fr);gap:14px;margin-bottom:24px;}
+.cnam-kpi {display:flex;flex-direction:column;gap:14px;border:1px solid var(--line);border-radius:10px;padding:19px 17px;background:white;min-width:0;}
+.cnam-kpi>span {color:#677f88;font-size:12px;}
+.cnam-kpi>strong {font-size:25px;font-weight:650;letter-spacing:-.6px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;}
+.cnam-kpi>small {font-size:10px;color:#8c9da4;line-height:1.5;margin-top:auto;}
+.cnam-kpi.budget {border-top:3px solid #258677;}
+.cnam-kpi.approved {border-top:3px solid #668bd5;}
+.cnam-kpi.risk {background:#fffcf6;border-color:#eee2c9;}
+.cnam-kpi.risk>strong {color:#ad7433;font-size:32px;}
+.cnam-kpi .cnam-na {font-size:23px;}
+.cnam-na {color:#91a0a7;font-weight:400;}
+.cnam-na small {font-size:10px;display:inline;font-weight:400;letter-spacing:0;}
+.cnam-panel h2 {font-size:15px;}
+.cnam-panel .cnaw-panel-title p {font-size:11px;line-height:1.5;}
+.cnam-company-table,.cnam-budget-table,.cnam-report-table {font-size:12px;min-width:1050px;}
+.cnam-company-table th,.cnam-budget-table th,.cnam-report-table th {white-space:normal;min-width:105px;max-width:145px;font-size:11px;line-height:1.5;}
+.cnam-company-table td,.cnam-budget-table td,.cnam-report-table td {padding:16px 14px;}
+.cnam-company-table th:first-child,.cnam-company-table td:first-child {position:sticky;left:0;background:white;min-width:170px;max-width:240px;z-index:1;}
+.cnam-company-table th:first-child {background:#f8fafb;}
+.cnam-company-table .cnaw-link,.cnam-budget-table .cnaw-link,.cnam-report-table .cnaw-link {font-size:12px;}
+.cnam-company-table .cnam-amount-link,.cnam-budget-table .cnam-amount-link,.cnam-report-table .cnam-amount-link {font-variant-numeric:tabular-nums;color:#294a56;text-align:right;white-space:nowrap;}
+.cnam-amount-link:hover {text-decoration:underline;color:#187b6d;}
+.cnam-unassigned,.cnam-unassigned td:first-child {background:#fffcf5;}
+.cnam-negative {color:#bd584a!important;}
+.cnam-status {display:inline-block;font-size:10px;line-height:1.5;border-radius:4px;padding:3px 6px;background:#edf2f4;color:#748590;white-space:normal;}
+.cnam-status.over_budget {color:#b64f42;background:#fceeea;}
+.cnam-status.forecast_over,.cnam-status.near_limit,.cnam-status.no_budget {color:#a57c34;background:#fff5de;}
+.cnam-status.normal {color:#4b8876;background:#edf7f1;}
+.cnam-status.incomplete {color:#8e733e;background:#f8f0dd;}
+.cnam-flags {display:flex;gap:5px;flex-wrap:wrap;min-width:100px;}
+.cnam-progress {width:100px;font-size:11px;font-variant-numeric:tabular-nums;}
+.cnam-progress>span {display:block;text-align:right;margin-bottom:7px;}
+.cnam-progress i,.cnam-rankings i {display:block;background:#edf2f3;border-radius:6px;height:5px;overflow:hidden;}
+.cnam-progress b,.cnam-rankings i b {display:block;background:#4a9c8b;height:100%;border-radius:6px;}
+.cnam-progress.over b {background:#ca7865;}
+.cnam-table-note {display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap;padding:13px 18px;font-size:11px;color:#8a9ba3;border-top:1px solid #eef2f4;line-height:1.6;}
+.cnam-empty-row {padding:30px 20px!important;text-align:center;color:#8b9da6;font-size:12px;line-height:1.8;}
+.cnam-attention {padding:0 20px;}
+.cnam-attention>div {display:flex;justify-content:space-between;gap:15px;align-items:center;border-top:1px solid #eef2f4;padding:14px 0;}
+.cnam-attention .cnam-flags {margin-top:7px;}
+.cnam-attention strong {font-size:13px;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.cnam-legend {display:flex;gap:20px;flex-wrap:wrap;padding:0 20px 14px;color:#7a8c95;font-size:11px;}
+.cnam-legend i {display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:2px;}
+.cnam-legend .budget,.cnam-month-bars .budget {background:#389481;}
+.cnam-legend .approved,.cnam-month-bars .approved,.cnam-legend .operating,.cnam-month-bars .operating {background:#6e90cc;}
+.cnam-legend .purchase,.cnam-month-bars .purchase {background:#d5a360;}
+.cnam-month-chart {display:flex;gap:22px;justify-content:space-around;overflow:auto;padding:15px 24px 22px;min-height:220px;}
+.cnam-month {min-width:140px;text-align:center;font-size:10px;color:#8c9da7;}
+.cnam-month-bars {display:flex;gap:8px;justify-content:center;align-items:flex-end;height:170px;margin-bottom:10px;}
+.cnam-bar-button {position:relative;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:52px;border:0;background:none;padding:0;}
+.cnam-bar-button>i {display:block;width:24px;border-radius:4px 4px 0 0;}
+.cnam-bar-value {font-size:9px;color:#7c8c95;position:absolute;bottom:100%;padding-bottom:5px;white-space:nowrap;}
+.cnam-month-bars .unknown {background:repeating-linear-gradient(45deg,#dfe4e5 0,#dfe4e5 3px,#f5f7f7 3px,#f5f7f7 6px);}
+.cnam-budget-group {border-top:1px solid #e5ecee;}
+.cnam-budget-group>summary {display:grid;grid-template-columns:minmax(170px,1.2fr) repeat(3,minmax(130px,1fr)) minmax(130px,1fr);gap:15px;align-items:center;padding:19px 22px;cursor:pointer;background:#fbfcfc;}
+.cnam-budget-group>summary>div:first-child {display:flex;flex-direction:column;gap:6px;}
+.cnam-budget-group>summary strong {font-size:13px;}
+.cnam-budget-group>summary span {font-size:11px;color:#8a9ca5;}
+.cnam-budget-metric small {display:block;font-size:10px;color:#8a9ca5;margin-bottom:7px;}
+.cnam-budget-metric b {font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;}
+.cnam-analysis-total {display:flex;justify-content:space-between;align-items:center;padding:20px 0 28px;gap:20px;}
+.cnam-analysis-total span {font-size:12px;color:#7f929b;display:block;margin-bottom:8px;}
+.cnam-analysis-total strong {font-size:32px;letter-spacing:-.7px;}
+.cnam-analysis-total p {font-size:12px;color:#8a9ba4;max-width:380px;line-height:1.8;}
+.cnam-rankings {padding:0 22px 10px;max-height:440px;overflow:auto;}
+.cnam-rankings>div {display:flex;align-items:center;gap:12px;padding:15px 0;border-top:1px solid #eef2f4;}
+.cnam-rank {font-size:10px;color:#a4b0b6;}
+.cnam-rankings>div>div {flex:1;min-width:0;}
+.cnam-rankings .cnaw-link {font-size:12px;margin-bottom:10px;}
+.cnam-rankings>div>strong {font-size:13px;font-variant-numeric:tabular-nums;margin-left:12px;}
+.cnam-report-catalog {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:22px;}
+.cnam-report-catalog button {border:1px solid #e1e9ed;border-radius:8px;padding:16px 18px;background:white;text-align:left;}
+.cnam-report-catalog button[aria-pressed="true"] {border-color:#318b7c;background:#f1f8f5;box-shadow:inset 3px 0 #318b7c;}
+.cnam-report-catalog strong {display:block;font-size:13px;font-weight:600;color:#345661;margin-bottom:8px;}
+.cnam-report-catalog span,.cnam-report-note {font-size:11px;color:#8a9ba4;line-height:1.7;}
+.cnam-rule-note {background:#f6f9f8;padding:12px;border:1px solid #e5ece9;border-radius:7px;font-size:12px;line-height:1.8;}
+@media(min-width:1700px){.cnam-kpi>strong {font-size:29px;}}
+@media(max-width:1300px){.cnam-kpis {grid-template-columns:repeat(3,minmax(0,1fr));}.cnam-filter-grid {grid-template-columns:repeat(3,minmax(0,1fr));}.cnam-filter-grid .cnaw-range-filter {grid-column:auto;}.cnam-budget-group>summary {grid-template-columns:repeat(3,minmax(0,1fr));}}
+@media(max-width:720px){.cnam-kpis {grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}.cnam-kpi {padding:15px 12px;}.cnam-kpi>strong {font-size:20px;}.cnam-quality {align-items:flex-start;flex-direction:column;gap:10px;}.cnam-filter-grid {grid-template-columns:repeat(2,minmax(0,1fr));}.cnam-filter-grid .cnaw-range-filter {grid-column:span 2;}.cnam-report-catalog {grid-template-columns:1fr;}.cnam-budget-group>summary {grid-template-columns:repeat(2,minmax(0,1fr));padding:15px;}.cnam-budget-group>summary>div:first-child {grid-column:span 2;}.cnam-analysis-total {align-items:flex-start;flex-direction:column;gap:10px;}.cnam-analysis-total strong {font-size:27px;}.cnam-analysis-total p {margin:0;}.cnam-company-table th:first-child,.cnam-company-table td:first-child {min-width:140px;max-width:170px;}}
+
+.cnaw .cnam-history-note {color:var(--text-muted);font-size:12px;margin:12px 0;}
+.cnaw .cnam-comparisons {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;padding:20px;}
+.cnaw .cnam-comparisons strong {display:block;font-size:22px;margin:10px 0;}
+.cnaw .cnam-comparisons small,.cnaw .cnam-comparisons p {font-size:12px;color:var(--text-muted);}
+.cnaw .cnam-change-drivers {padding:0 20px 20px;}
+.cnaw .cnam-change-drivers>div {display:flex;gap:20px;padding:10px 0;border-top:1px solid var(--border-color);}
+.cnaw .cnam-change-drivers span {font-size:12px;color:var(--text-muted);}
+.cnaw .cnam-change-drivers strong {flex:1;}
+@media(max-width:720px){.cnaw .cnam-comparisons {grid-template-columns:1fr}.cnaw .cnam-change-drivers>div{flex-wrap:wrap}}

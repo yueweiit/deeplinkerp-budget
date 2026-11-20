@@ -58,21 +58,29 @@ DESKTOP_ICON_NATIVE_PARENT = "Accounting"
 DESKTOP_ICON_NATIVE_IDX = 6
 
 CN_PAGES = (
-	("Approval Overview", "china-expenses", "layout-dashboard", 0),
-	("Approval Register", "china-expense-details", "list", 0),
-	("Classification Analysis", "china-expense-reports", "chart-no-axes-combined", 0),
-	("Data Review", "china-expense-review", "clipboard-check", 0),
+	("Management Overview", "china-expenses", "layout-dashboard", 1),
+	("Budget Execution", "china-budget-execution", "chart-no-axes-combined", 1),
+	("Expenditure Analysis", "china-expense-reports", "chart-no-axes-combined", 1),
+	("Management Reports", "china-management-reports", "table", 1),
+	("Approval Register", "china-expense-details", "list", 1),
+	("Data Review", "china-expense-review", "clipboard-check", 1),
 )
 
 
 def cn_navigation_items(has_page):
-	"""Add the regional layout only when its optional branding Pages are installed."""
+	"""Use the management layout only when all its Page dependencies are installed."""
 	if not all(has_page(route) for _, route, _, _ in CN_PAGES):
 		return []
 	items = []
+	groups = {"china-expenses": "Budget and Expenditure", "china-expense-reports": "Management Analysis",
+		"china-expense-details": "Details and Review"}
 	for label, route, icon, child in CN_PAGES:
+		if route in groups:
+			items.append(dict(type="Section Break", label=groups[route], icon=icon,
+				child=0, indent=1, collapsible=1, keep_closed=1))
 		items.append(dict(type="Link", label=label, link_type="Page", link_to=route, icon=icon, child=child))
 	return items
+
 
 
 # ------------------------------------------------------------------ 工具
@@ -227,3 +235,11 @@ def restore_desktop_icon_position() -> None:
 def boot_session(bootinfo):
 	bootinfo.cn_budget_workbench = ("deeplinkerp_branding" in frappe.get_installed_apps()
 		and bool(cn_navigation_items(lambda route: frappe.db.exists("Page", route))))
+	if bootinfo.cn_budget_workbench:
+		# Keep shared Page metadata unchanged for branding-only installations.
+		page_info = getattr(bootinfo, "page_info", None) or {}
+		for label, route, _, _ in CN_PAGES:
+			if route in page_info:
+				page_info[route]["title"] = label
+		if "china-personnel-report" in page_info:
+			page_info["china-personnel-report"]["title"] = "Management Reports"
