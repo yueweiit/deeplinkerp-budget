@@ -8,13 +8,54 @@
 
 导航入口为“运营支出（CN）”（`China Operating Expenses`）。独立安装保留预算台账、预算看板和预算额度入口；与 `deeplinkerp_branding` 联合安装时整合进 CN 工作台。Sidebar、Desktop Icon 及每个 Page/DocType 仍按原生权限过滤，不额外授权业务数据。
 
-安装新版 `deeplinkerp_branding` 后，CN 提供支出概览、支出明细、统计报表和数据核对，取消独立“预算管理”分组。选择上方“预算”后，概览、明细及核对读取本地预算；明细提供“预算台账／预算额度”页签。原预算看板归入“统计报表 → 预算执行分析”。运营支出仍复用中国财务原申请、付款及办理接口；采购及薪酬统计尚未接入，不读取 MX 数据或模拟金额。详细运营支出口径由品牌 App 的 `docs/operating-expenses-implementation.md` 维护。
+联合安装新版 `deeplinkerp_branding` 时，CN 采用全新的**只读审批工作台**：总览、审批台账、分类分析、数据核对。覆盖预算申报、运营支出、采购支出三类单据，保留审批原单入口。查看页面和刷新不会办理付款、记账、修改 OA 审批或同步预算台账。
 
-页面由品牌 App 的 `public/js/china_expenses.js`、`public/js/china_operating_expenses.js`、`public/js/china_expenses_page.js` 和五个 `china_*` Page 承载；复用 MX 展示组件但保持独立路由、偏好及数据服务。`budget.setup.cn_navigation_items` 仅在五个 Page 均存在时启用新版侧栏；创建后调用品牌 App 的导航合并，移除中国财务系统管理的重复入口。旧运营 URL 和独立安装的回退入口保留。卸载预算 App 删除 CN 侧栏后，若品牌 App 仍存在，会立即恢复其原生备用入口，不依赖后续迁移。无需新增业务表。
+页面实现位于 `public/js/cn_approval_workbench.js`、`public/css/cn_approval_workbench.css`，品牌 App 的 `china_expenses_page.js` 只负责选择并加载资源。复用四个现有 Page 路由，无需新增 Page 或业务表。`budget.setup.cn_navigation_items` 仅在四个 Page 都存在时启用新侧栏；品牌 App 的导航合并不会给新只读工作台插入手工日记账。独立安装 Budget、品牌 App 的备用页面及既有财务服务保留各自入口和权限。侧栏种子文件始终保留预算台账、看板、配置三项默认入口；安装/迁移只在品牌 App 已安装且四个 CN Page 完整时替换为新工作台，品牌 App 未安装时也不会使用残留 Page 记录。
 
 ERPNext 的“预算”恢复在“会计”文件夹下，保留原生 Budget、Cost Center、Accounting Dimension、Cost Center Allocation、Budget Variance 五个入口。本 App 的 `setup.apply_budget_nav` 在安装/迁移时清理旧导航挂载，同步独立 CN 入口；`public/js/budget_navigation.js` 只清理这三个定制页面旧的 Budget 侧栏记忆。旧 URL、DocType、台账数据及接口均保留，不把 MX 排除明细自动写入国内财务数据。导航定义见 `budget/workspace_sidebar/china_operating_expenses.json` 和 `budget/desktop_icon/china_operating_expenses.json`。
 
 模块文档：[docs/README.md](docs/README.md) — 分层、接口清单、配置、错误处理、时序。
+
+## CN 只读审批工作台（2026-11-20）
+
+### 数据链路与页面
+
+三类单据统一由 `integrations/cn_approval_source.py` 经 `shared_operating_oa.client()` 调用品牌 App 的 `operating_oa_http.read_template_page`，使用 **GET `/api/v1/approvals`** 的 `corpId`、`processCode`、`limit`、`cursor` 分页。复用 MX 的客户端、字段绑定、分类提取、精确金额及审批状态工具；CN 采用独立展示投影，**不读取独立预算数据库，也不把 MX 财务节点、汇率或会计归期套用到 CN**。
+
+| 页面 | 路由 | 内容 |
+| --- | --- | --- |
+| 总览 | `china-expenses` | 三类申请卡片、分月金额、分类构成、近期申请 |
+| 审批台账 | `china-expense-details` | 筛选、每页 25 笔、全部匹配结果导出、原单详情 |
+| 分类分析 | `china-expense-reports` | 全部分类构成及月度明细；分类可下钻 |
+| 数据核对 | `china-expense-review` | 金额、币种、期间、分类、组织、表头明细差异 |
+
+页面结果记录对应的筛选条件、核对视图和页码；离开时未完成的查询、搜索防抖及手动刷新在返回后重试，已完成且条件一致的结果才直接复用。旧 `china-personnel-report` 路由转为分类分析视图。详情仅展示审批状态、业务字段、说明、原表明细及附件名称，附件通过原审批查看；不向浏览器返回完整 OA 原始载荷，表头银行卡字段不纳入详情。原单 URL 由已有可信钉钉链接构建器生成，不能由调用者传入任意地址。
+
+### 金额、时间与核对口径
+
+- 一笔审批只统计一次表头申请金额；预算、运营和采购分列，币种分列，不执行汇率换算。预算金额为已通过的**申报金额**，不代表当前有效额度或可用余额。
+- 金额卡片与图表只汇总审批完成且同意的单据；审批中、拒绝、终止、撤回保留在台账，不混入已通过金额。审批通过不代表实际付款。零金额有效；缺失或无效金额显示待核对，不转换成零或伪装为完整合计。
+- 预算按表内预算月份归期，运营和采购按表内申请日期归期，不回退到创建日期。缺失期间的单据只在核对视图出现，不进入期间金额汇总。
+- 预算已知明细表以人民币列核对；工资、社保分摊以总金额列核对，不把公司/个人分项再加一次。这些明细以 CNY 展示，表头为其他币种时提示不能直接比较。采购支持明细、规格文字、预算快照、附件不叠加到申请金额。
+- 预算快照只表示填单时的预算和已用金额，不计算当前余额。核对清单为自动检查结果，修正应在原审批进行，再刷新；不保存人工确认状态。
+- 执行地区必须明确为中国；先通过共享字段绑定器应用 `field_mapping.region`，再判断地区。运营、采购及预算均支持地区字段覆盖；指定映射缺失或歧义时不回退旧字段，未识别地区的审批不混入 CN。来源组织不做模糊公司匹配。
+
+### 权限与配置
+
+`api/cn_approvals.py` 提供 `get_data`、`get_detail`、`refresh_data`（POST）、`export_data`。读者限 `System Manager` / `Accounts Manager`，导出仅 `System Manager`，最多 10000 笔。每次返回列表、详情、汇总、筛选选项或导出前均重新应用原生 Company 用户权限；公司身份识别与授权分开：服务器内部查询完整 Company 名称集识别主体，再按用户可读 Company 集过滤；完整名称集不返回客户端。公司不在可读范围内的单据不可见，即使用户具有 System Manager 角色，也不能将其重新归为未知组织。只有系统管理员可看到尚未匹配公司的审批，并将其列入核对；普通财务用户不能通过未知归属绕过公司限制。此 API 不继承原财务单据的办理权限。
+
+站点配置沿用共享 OA URL/企业白名单。可选的 `cn_approval_templates` 是模板数组：`approval_type`（`budget`/`operating`/`purchase`）、`corp_id`、`process_code`；运营和采购可附带共享字段规则的 `field_mapping`、`classification_fields`。默认按允许企业读取已知预算模板、7 个运营模板及 3 个采购模板；不自动加入费用报销模板。企业必须在共享白名单中，同一企业/模板不可重复。
+
+可选 `cn_approval_company_map` 为 `{corp_id, source_name, company}` 数组，按企业和来源主体原名精确匹配；其次复用 Budget 已有且来源指纹一致的组织 ID 映射，最后按原名与 Company 名完全一致的匹配识别公司，再统一检查读取权限。配置仅由服务器管理，重复映射阻止读取。无需启用台账同步。
+
+缓存仅保存完整审批投影，按站点、来源及模板配置隔离，TTL 10 分钟；页面“刷新审批”重读上游并替换缓存，不写业务 DocType。缓存和互斥锁均使用站点前缀；冷缓存读取或并发手动刷新最多等待已有扫描 75 秒，锁租期 180 秒。拿到锁后跳过请求内缓存、比较快照版本，复用其他请求刚完成的结果而不重复扫描。等待超时或前一个刷新失败时明确报错，不把旧缓存当成刷新成功，也不在长时间等待后紧接着启动另一轮扫描。每个模板分页要求稳定 `syncUntil`，拒绝重复身份、游标循环及部分结果；不同模板各自取得水位，不承诺整个企业跨模板的同一时点快照。全量扫描限 20000 条来源审批、250 页，页间检查 75 秒期限（单次 HTTP 超时/重试沿用共享客户端）。失败保留此前完整缓存并明确提示，不能用部分金额报成功。超出规模时需缩小服务器模板范围或另行设计后台增量缓存。
+
+### 验证与发布边界
+
+回归见 `tests/test_cn_approvals.py`、`tests/cn-approval-workbench.test.js`、`test_cn_navigation.py`、`test_cn_approval_cache.py`；品牌 App 的 `tests/regional-expense-page-loading.test.js`、`tests/test_operating_expense_navigation.py` 覆盖资源加载和导航边界。测试使用合成数据，不提交用户原始 JSON。前端使用 Frappe `__()`，后端 `_()`；中、西文维护于 `translations/zh.csv`、`es.csv`，英文使用源文案，来源字段标签保留原文。
+
+本次开发验证包含合成数据浏览器交互与 390px 布局，以及 `dev.localhost` 的真实只读审批读取；不等同于生产验收。发布需配套更新 Budget 与品牌 App、刷新资产及翻译缓存；已持久化的侧栏需通过批准的安装/迁移流程重放。未执行生产部署、数据库迁移或历史业务数据调整。
+
 
 
 ```
@@ -138,9 +179,11 @@ bench --site <site> build --app budget      # 生成 /assets/budget（Page 脚�
 bench --site <site> clear-cache
 ```
 
-联合安装下，“预算执行分析”沿用 `/desk/budget-dashboard`；旧 `/desk/budget-config` 转到预算明细的额度页签，`/desk/budget-ledger-entry` 仍可直接打开原生列表，原单详情保留。CN 集成时列表、报表、详情及额度均读取同步后的本地数据，旧 `budget_data_source` / `budget_oa_source` 不再切换 CN 来源或限制导航；独立 Budget 安装仍保留原模式及原组件。`after_install` / `after_migrate` 调用 `budget.setup.apply_budget_nav` 重放导航，不更改 ERPNext 原生 Budget 菜单及业务数据。
+旧页面兼容实现中，“预算执行分析”沿用 `/desk/budget-dashboard`；旧 `/desk/budget-config` 转到预算明细的额度页签，`/desk/budget-ledger-entry` 仍可直接打开原生列表，原单详情保留。CN 集成时列表、报表、详情及额度均读取同步后的本地数据，旧 `budget_data_source` / `budget_oa_source` 不再切换 CN 来源或限制导航；独立 Budget 安装仍保留原模式及原组件。`after_install` / `after_migrate` 调用 `budget.setup.apply_budget_nav` 重放导航，不更改 ERPNext 原生 Budget 菜单及业务数据。
 
-### CN 预算整合（2026-11-19）
+### 历史预算台账集成（2026-11-19，兼容服务）
+
+以下为保留的原台账/额度服务与旧页面实现，不是 2026-11-20 新 CN 工作台的数据链路；新界面的统一审批读取、权限及统计口径以上文为准。
 
 - `budget/api/cn_workbench.py` 提供本地预算概览、分页明细、核对及最多 10000 行的 XLSX 导出。日期按覆盖的完整预算月份归一；公司取来源原名精确筛选，不与法律公司做模糊合并。预算申请按台账 `COALESCE(total_amount, amount, 0)` 计，真实零值保留。
 - 概览与台账按预算月份查询；核对覆盖公司/部门/月份缺失及金额差异（超过 0.01）。公司层级预算允许部门展示名为空，须有相符的组织路径，或由组织映射明确核对为公司层级；不能仅凭非空组织 ID 跳过核对。缺少预算月份的核对记录按申请日期定位，不计入已归期预算金额。概览待核对数采用同一核对查询。
@@ -169,7 +212,7 @@ bench --site <site> clear-cache
 
 台账当前默认使用 `local`（见 `budget/integrations/budget_factory.py`），由
 `services/oa_budget_sync.py` 按连接配置只读读取 OA PostgreSQL 归档或共用 OA 审批接口，并解析到本地台账。
-下面的旧 HTTP 适配器与 `operating_oa` 共用审批接口是两个独立入口；CN 集成仅展示本地快照。
+下面为旧 HTTP 适配器与原台账同步服务；新 CN 工作台直接读取共享审批 API 的缓存投影，见上文。
 
 - 台账页面菜单提供“预算同步设置”，工具栏提供独立“同步数据”。保存只保存配置，
   打开台账只读，不自动排入同步；兼容接口 `ensure_ledger_fresh` 也不再入队。
