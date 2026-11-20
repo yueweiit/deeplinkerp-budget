@@ -281,11 +281,28 @@ The shared OA source does not match every local budget quota. No source was chan
 The shared OA source does not match local quota subjects. No source was changed.,El origen OA compartido no coincide con los conceptos de las cuotas locales. No se cambió el origen.
 Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,Se verificaron {0} registros presupuestarios y {1} cuotas antes de cambiar a la API OA compartida. La sincronización sigue deshabilitada.
 Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,Se verificaron {0} registros presupuestarios y {1} cuotas; hay {2} aprobaciones adicionales pendientes de sincronizar.
+APPROVAL WORKSPACE,ESPACIO DE APROBACIONES
+CN Approval Workspace,Gastos operativos (CN)
+Budgets and expenditure,Presupuestos y gastos
+"Budget declarations, operating expenditure and purchase expenditure in one place.","Consulte las declaraciones presupuestarias, los gastos operativos y las compras en un solo lugar."
 Budget declaration,Declaración presupuestaria
 Operating expenditure,Gasto operativo
 Purchase expenditure,Gasto de compras
+Overview,Resumen
+Approval register,Registro de aprobaciones
+Classification analysis,Análisis por categoría
+Data review,Revisión de datos
+Approval Overview,Resumen de aprobaciones
+Approval Register,Registro de aprobaciones
+Classification Analysis,Análisis por categoría
+Workspace views,Vistas del espacio de trabajo
+Approval does not confirm payment,La aprobación no confirma el pago
+All approvals,Todas las aprobaciones
+Approval filters,Filtros de aprobaciones
 Approval form,Tipo de formulario
 Source organization,Organización de origen
+From month,Mes inicial
+To month,Mes final
 Approval status,Estado de aprobación
 Approved,Aprobado
 In progress,En curso
@@ -293,13 +310,80 @@ Rejected,Rechazado
 Terminated,Terminado
 Withdrawn,Retirado
 Unknown,Desconocido
+Search approvals,Buscar aprobaciones
+"Number, applicant or description","Número, solicitante o descripción"
+Reset,Restablecer
+Budgets use the budget month; operating and purchase approvals use the application date. Amounts stay in their original currencies.,"Los presupuestos se agrupan por mes presupuestario; los gastos operativos y las compras, por fecha de solicitud. Los importes se muestran en su moneda original."
+Updated {0},Actualizado: {0}
+Read-only approval data,Datos de aprobaciones de solo lectura
+Loading approvals…,Cargando aprobaciones…
+Refresh approvals,Actualizar aprobaciones
+Reading approval data…,Leyendo datos de aprobaciones…
+No data loaded,No se han cargado datos
+Approvals could not be loaded. Retry or ask an administrator to check the source.,No se pudieron cargar las aprobaciones. Reintente o solicite al administrador que revise el origen.
+The previous result is still displayed. Its filters may differ from your current selection.,Se mantiene el resultado anterior. Sus filtros pueden diferir de la selección actual.
+"Only approvals explicitly marked for China are included. Correct source discrepancies in the original approval, then refresh.",Solo se incluyen aprobaciones cuya región de ejecución sea explícitamente China. Corrija las discrepancias en la aprobación original y actualice.
+Approved application amount,Importe de solicitudes aprobadas
+No approved amounts,Sin importes aprobados
+Incomplete amounts,Importes incompletos
+approvals,aprobaciones
+{0} approvals,{0} aprobaciones
+{0} in progress,{0} en curso
+To review,Pendiente de revisión
+Approvals with detected issues,Aprobaciones con incidencias detectadas
+"Inspect amounts, periods and organizations","Revise importes, períodos y organizaciones"
+Recent applications,Solicitudes recientes
+One row per approval; detail tables are not counted again.,Cada fila representa una aprobación; los detalles no se suman de nuevo.
+View register,Ver registro
+Monthly approved applications,Solicitudes aprobadas por mes
+Separate amounts by approval form,Importes separados por tipo de aprobación
+No approved amounts in this period,No hay importes aprobados en este período
+Approved amounts by category,Importes aprobados por categoría
+Select a category to inspect its approvals,Seleccione una categoría para consultar sus aprobaciones
 categories,categorías
+Unclassified,Sin clasificar
+Review queue,Lista de revisión
+Approval / applicant,Aprobación / solicitante
+Reporting period,Período
 Business classification,Clasificación de negocio
 Application amount,Importe solicitado
+Review,Revisión
+Unspecified organization,Organización no indicada
+Company not matched,Empresa sin asignar
+Unassigned period,Sin período asignado
+Unknown currency,Moneda pendiente de revisión
+{0} issues,{0} incidencias
+No detected issues,Sin incidencias detectadas
+No approvals match these filters,No hay aprobaciones que coincidan con estos filtros
+"Adjust the period or filters, then try again.",Ajuste el período o los filtros y vuelva a intentarlo.
+Export Excel,Exportar Excel
+DATA QUALITY,CALIDAD DE DATOS
+{0} approvals need attention,{0} aprobaciones requieren revisión
+Review source discrepancies without changing approval or accounting records.,Revise las discrepancias del origen sin modificar aprobaciones ni registros contables.
+Undated approvals appear here only and are excluded from period totals.,Las aprobaciones sin período solo aparecen aquí y no se incluyen en los totales del período.
+All issues,Todas las incidencias
+Monthly breakdown,Desglose mensual
 Reporting month,Mes del informe
+Approvals,Aprobaciones
+Export failed. Retry with a smaller selection.,La exportación falló. Reduzca la selección e inténtelo de nuevo.
+Approval detail,Detalle de aprobación
+Close,Cerrar
 This approval is unavailable or you do not have permission to view it.,Esta aprobación no está disponible o no tiene permiso para verla.
+Open original approval,Abrir aprobación original
+Original approval link is unavailable,El enlace a la aprobación original no está disponible
 Review issues,Incidencias por revisar
+Applicant,Solicitante
 Application date,Fecha de solicitud
+Description,Descripción
+Budget snapshot in the approval,Resumen presupuestario al solicitar
+Values entered when applying; these are not the current budget balance.,Estos valores se introdujeron al solicitar y no representan el saldo presupuestario actual.
+Budget amount in form,Presupuesto indicado en el formulario
+Used amount in form,Importe utilizado indicado en el formulario
+Supporting details; not added to the application amount.,Detalles de apoyo; no se suman al importe solicitado.
+Detail row,Fila de detalle
+Detail total,Total de detalles
+Supporting files,Archivos de apoyo
+Open the original approval to view its attachments.,Abra la aprobación original para consultar sus archivos adjuntos.
 rows,filas
 Form fields are ambiguous or incomplete,Los campos del formulario son ambiguos o incompletos
 Application amount is missing or invalid,El importe solicitado falta o no es válido
@@ -326,6 +410,7 @@ Invalid CN approval filters.,Los filtros de aprobaciones de China no son válido
 Invalid approval identity.,La identidad de aprobación no es válida.
 Export exceeds 10000 approvals. Narrow the filters.,La exportación supera las 10000 aprobaciones. Reduzca los filtros.
 Approval number,Número de aprobación
+Needs review,Requiere revisión
 Detail and application currencies differ; amounts cannot be compared directly,Las monedas del detalle y de la solicitud son distintas; los importes no se pueden comparar directamente
 Approval data is being refreshed. Please retry shortly.,Los datos de aprobaciones se están actualizando. Inténtelo de nuevo en breve.
 The concurrent approval refresh did not complete. Please retry.,La actualización de aprobaciones de otra solicitud no se completó. Inténtelo de nuevo.

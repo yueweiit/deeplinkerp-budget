@@ -281,11 +281,28 @@ The shared OA source does not match every local budget quota. No source was chan
 The shared OA source does not match local quota subjects. No source was changed.,共用 OA 来源与本地额度科目不一致，未切换来源。
 Switched to the shared OA API after verifying {0} ledger entries and {1} quotas. Synchronization remains disabled.,已核对 {0} 笔预算台账和 {1} 笔额度，并切换至共用 OA 接口；同步保持停用。
 Verified {0} ledger entries and {1} quotas; {2} additional approvals await a later synchronization.,已验证 {0} 笔预算台账和 {1} 笔额度；另有 {2} 笔审批待后续同步。
+APPROVAL WORKSPACE,审批工作台
+CN Approval Workspace,运营支出（CN）
+Budgets and expenditure,预算与支出工作台
+"Budget declarations, operating expenditure and purchase expenditure in one place.",集中查看预算申报、运营支出与采购支出。
 Budget declaration,预算申报
 Operating expenditure,运营支出
 Purchase expenditure,采购支出
+Overview,总览
+Approval register,审批台账
+Classification analysis,分类分析
+Data review,数据核对
+Approval Overview,审批总览
+Approval Register,审批台账
+Classification Analysis,分类分析
+Workspace views,工作台视图
+Approval does not confirm payment,审批通过不代表实际付款
+All approvals,全部审批
+Approval filters,审批筛选
 Approval form,审批类型
 Source organization,来源组织
+From month,起始月份
+To month,结束月份
 Approval status,审批状态
 Approved,已通过
 In progress,审批中
@@ -293,13 +310,80 @@ Rejected,已拒绝
 Terminated,已终止
 Withdrawn,已撤回
 Unknown,未知
+Search approvals,搜索审批
+"Number, applicant or description",单号、申请人或事项说明
+Reset,重置
+Budgets use the budget month; operating and purchase approvals use the application date. Amounts stay in their original currencies.,预算按预算月份，运营与采购按申请日期归期；金额按原币展示。
+Updated {0},更新于 {0}
+Read-only approval data,只读审批数据
+Loading approvals…,正在读取审批…
+Refresh approvals,刷新审批
+Reading approval data…,正在读取审批数据…
+No data loaded,尚未加载数据
+Approvals could not be loaded. Retry or ask an administrator to check the source.,审批读取失败，请重试或联系管理员检查数据来源。
+The previous result is still displayed. Its filters may differ from your current selection.,当前保留上次查询结果，其筛选条件可能与当前选择不同。
+"Only approvals explicitly marked for China are included. Correct source discrepancies in the original approval, then refresh.",仅纳入执行地区明确为中国的审批。发现来源差异时，请核对并修正原单后刷新。
+Approved application amount,已通过申请金额
+No approved amounts,暂无已通过金额
+Incomplete amounts,金额不完整
+approvals,笔审批
+{0} approvals,{0} 笔审批
+{0} in progress,审批中 {0} 笔
+To review,待核对
+Approvals with detected issues,存在待核对项的审批
+"Inspect amounts, periods and organizations",核对金额、期间与组织归属
+Recent applications,近期申请
+One row per approval; detail tables are not counted again.,每行代表一笔审批，明细表不重复计入金额。
+View register,查看台账
+Monthly approved applications,月度已通过申请
+Separate amounts by approval form,各类审批分别统计
+No approved amounts in this period,本期暂无已通过金额
+Approved amounts by category,已通过金额构成
+Select a category to inspect its approvals,点击分类查看对应审批
 categories,个分类
+Unclassified,未分类
+Review queue,待核对清单
+Approval / applicant,审批单 / 申请人
+Reporting period,归属期间
 Business classification,业务分类
 Application amount,申请金额
+Review,核对
+Unspecified organization,未填写组织
+Company not matched,尚未对应公司
+Unassigned period,未归期
+Unknown currency,币种待核对
+{0} issues,{0} 项待核对
+No detected issues,未发现差异
+No approvals match these filters,没有符合条件的审批
+"Adjust the period or filters, then try again.",请调整月份或筛选条件后重试。
+Export Excel,导出 Excel
+DATA QUALITY,数据核对
+{0} approvals need attention,{0} 笔审批需要核对
+Review source discrepancies without changing approval or accounting records.,集中核对来源差异，不改动审批和会计记录。
+Undated approvals appear here only and are excluded from period totals.,未归期审批仅在此处展示，不计入期间金额。
+All issues,全部问题
+Monthly breakdown,月度明细汇总
 Reporting month,归属月份
+Approvals,审批笔数
+Export failed. Retry with a smaller selection.,导出失败，请缩小筛选范围后重试。
+Approval detail,审批详情
+Close,关闭
 This approval is unavailable or you do not have permission to view it.,此审批不可用，或您没有查看权限。
+Open original approval,查看审批原单
+Original approval link is unavailable,暂无可用的原单链接
 Review issues,待核对事项
+Applicant,申请人
 Application date,申请日期
+Description,事项说明
+Budget snapshot in the approval,审批填写时的预算快照
+Values entered when applying; these are not the current budget balance.,以下为申请时填写的预算值，不代表当前可用余额。
+Budget amount in form,填单时的预算金额
+Used amount in form,填单时的已用金额
+Supporting details; not added to the application amount.,以下为支撑明细，不重复计入申请金额。
+Detail row,明细行
+Detail total,明细合计
+Supporting files,相关附件
+Open the original approval to view its attachments.,请打开审批原单查看附件。
 rows,行
 Form fields are ambiguous or incomplete,表单字段存在歧义或结构不完整
 Application amount is missing or invalid,申请金额缺失或无效
@@ -326,6 +410,7 @@ Invalid CN approval filters.,国内审批筛选条件无效。
 Invalid approval identity.,审批标识无效。
 Export exceeds 10000 approvals. Narrow the filters.,导出超过 10000 笔审批，请缩小筛选范围。
 Approval number,审批单号
+Needs review,待核对
 Detail and application currencies differ; amounts cannot be compared directly,明细与申请币种不同，金额不能直接比较
 Approval data is being refreshed. Please retry shortly.,审批数据正在刷新，请稍后重试。
 The concurrent approval refresh did not complete. Please retry.,其他请求的审批刷新未完成，请重试。
