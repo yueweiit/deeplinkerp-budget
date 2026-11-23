@@ -290,6 +290,7 @@
 				const options=await this.call("get_filter_options",{});
 				if (seq!==this.optionsSeq || !this.active) return;
 				this.filterOptions=options;
+				if(options.allocation_rebuilding){this.syncState={...this.syncState,allocation_rebuilding:true};this.scheduleSyncPoll();}
 			} catch (error) {
 				if (seq===this.optionsSeq && this.active) this.optionsError=userError(error,"Subsidiaries could not be loaded. Retry.");
 			} finally {
@@ -337,14 +338,16 @@
 		scheduleSyncPoll() {
 			root.clearTimeout(this.syncTimer);
 			if (!this.active) return;
-			this.syncTimer=root.setTimeout(()=>this.pollSync(),this.syncState?.active ? 2500 : 30000);
+			this.syncTimer=root.setTimeout(()=>this.pollSync(),this.syncState?.active || this.syncState?.allocation_rebuilding ? 2500 : 30000);
 			this.syncTimer?.unref?.();
 		}
 		acceptSync(state, reload=false) {
+			const ownershipWasUpdating=this.syncState?.allocation_rebuilding;
 			this.syncState=state;this.syncError="";
+			if(state.allocation_rebuilding){this.scheduleSyncPoll();return;}
 			const revision=JSON.stringify([state.source_id,state.snapshot_id,state.settings_version,state.allocation_revision]);
 			const displayed=JSON.stringify([this.data?.sync?.source_id,this.data?.snapshot_id,this.data?.sync?.settings_version,this.data?.sync?.allocation_revision]);
-			if (reload && revision!==displayed && revision!==this.syncReloadRevision) {
+			if (reload && (ownershipWasUpdating || revision!==displayed && revision!==this.syncReloadRevision)) {
 				this.syncReloadRevision=revision;
 				// A local reread keeps the current filters. Even a source change to
 				// an empty store must replace the previously displayed source.

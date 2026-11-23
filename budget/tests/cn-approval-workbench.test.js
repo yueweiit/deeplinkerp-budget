@@ -558,3 +558,16 @@ test('a company mapping revision reloads local data without a new OA snapshot',(
  work.acceptSync({source_id:'source',snapshot_id:'same',settings_version:'new',auto_sync_due:false},true);
  assert.equal(reads,1);
 });
+
+test('automatic ownership rebuild waits locally and reloads once complete without starting OA synchronization',()=>{
+ const work=Object.create(ui.Workbench.prototype);let reads=0,polls=0;
+ Object.assign(work,{active:true,data:{snapshot_id:'same',sync:{source_id:'source',allocation_revision:'same'}},
+  load(){reads++;},scheduleSyncPoll(){polls++;},refreshApprovals(){assert.fail('local ownership rebuild must not start OA synchronization');}});
+ const state={source_id:'source',snapshot_id:'same',allocation_revision:'same'};
+ work.acceptSync({...state,allocation_rebuilding:true,auto_sync_due:true},true);
+ assert.equal(reads,0);assert.equal(polls,1);
+ work.acceptSync({...state,allocation_rebuilding:false,auto_sync_due:false},true);
+ assert.equal(reads,1);
+ work.acceptSync({...state,allocation_rebuilding:false,auto_sync_due:false},true);
+ assert.equal(reads,1);
+});
