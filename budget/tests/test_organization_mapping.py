@@ -10,6 +10,17 @@ from budget.services import organization_mapping as mapping, ledger_sync_setting
 from budget.services.oa_budget_sync import _entry_values
 
 
+@pytest.mark.parametrize("bound,expected", [("", True), ("current", True), ("previous", False)])
+def test_approval_companies_respects_corporation_and_source_binding(monkeypatch, bound, expected):
+    monkeypatch.setattr(settings, "current_source", lambda: {
+        "corp_id": "corp-A", "fingerprint": "current", "bound_fingerprint": bound,
+        "organization_mappings": [
+            {"corp_id": "corp-A", "department_id": "org-1", "company": "Company A"},
+            {"corp_id": "corp-B", "department_id": "org-1", "company": "Company B"},
+        ]})
+    assert mapping.approval_companies() == ({("corp-A", "org-1"): "Company A"} if expected else {})
+
+
 class Row(dict):
     def __getattr__(self, key): return self.get(key)
     def __setattr__(self, key, value): self[key] = value

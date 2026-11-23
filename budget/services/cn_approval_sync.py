@@ -42,7 +42,9 @@ def status(record=None, *, key=None):
 	active = state in ACTIVE
 	options = settings.sync_options()
 	from deeplinkerp_branding.services.regional_expenses import revision
+	from deeplinkerp_branding.services.regional_expense_automatic import ensure_rebuild
 	return {"source_id": key or record.get("name"), "status": state, "active": active, **options,
+		"allocation_rebuilding": ensure_rebuild(),
 		"allocation_revision": revision(),
 		"snapshot_id": record.get("snapshot_id"), "has_snapshot": bool(record.get("snapshot_id")),
 		"last_success_at": str(record["last_success_at"]) if record.get("last_success_at") else None,

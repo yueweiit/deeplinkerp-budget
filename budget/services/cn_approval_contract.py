@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from deeplinkerp_branding.services import mexico_expense_templates as templates
 from deeplinkerp_branding.services import mexico_expense_classification as classification
-from deeplinkerp_branding.services.mexico_expense_contract import exact_amount, approval_status
+from deeplinkerp_branding.services.mexico_expense_contract import exact_amount, approval_status, organization_id
 from deeplinkerp_branding.services.mexico_expense_projection import text
 
 KINDS = ("budget", "operating", "purchase")
@@ -184,13 +184,7 @@ def project(row, template):
 				issues.append("detail_currency")
 			elif total is not None and abs(Decimal(total) - Decimal(detail_total)) > Decimal("0.01"):
 				issues.append("detail_mismatch")
-	try:
-		ext = decode(entity_field.get("extValue"), {})
-	except (ValueError, TypeError):
-		ext = {}
-	if isinstance(ext, list) and len(ext) == 1:
-		ext = ext[0]
-	entity_id = text((ext.get("code") or ext.get("id")) if isinstance(ext, dict) else "")
+	entity_id = organization_id(entity_field)
 	identity = hashlib.sha256(json.dumps([row["corp_id"], row["process_instance_id"]]).encode()).hexdigest()
 	facts = []
 	for key, label in (("production", "Production type"), ("request_type", "Request type"),

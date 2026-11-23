@@ -52,6 +52,16 @@ def by_id(source):
             if row["corp_id"] == source["corp_id"]}
 
 
+def approval_companies():
+    """Share only organization assignments bound to the current OA source."""
+    from .ledger_sync_settings import current_source
+    source = current_source()
+    if source.get("bound_fingerprint") and source["bound_fingerprint"] != source["fingerprint"]:
+        return {}
+    return {(source["corp_id"], department_id): row["company"]
+            for department_id, row in by_id(source).items()}
+
+
 def overlay_paths(paths, source):
     paths = {key: dict(value) for key, value in paths.items()}
     for key, row in by_id(source).items():

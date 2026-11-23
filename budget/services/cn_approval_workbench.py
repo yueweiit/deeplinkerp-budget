@@ -36,7 +36,10 @@ def filter_options():
 	"""Permission-scoped controls remain available without OA or FX services."""
 	require_reader()
 	companies = allowed_companies()
+	from deeplinkerp_branding.services.regional_expense_automatic import ensure_rebuild
+	allocation_rebuilding = ensure_rebuild()
 	return {"companies": sorted(companies), "reporting_currencies": sorted(fx.CURRENCIES),
+		"allocation_rebuilding": allocation_rebuilding,
 		"can_manage_settings": settings.can_manage(companies)}
 
 
@@ -55,11 +58,8 @@ def access_context():
 		if not all(key) or not item.get("company") or key in aliases:
 			frappe.throw(_("CN company mappings are ambiguous. Ask an administrator to review them."))
 		aliases[key] = item["company"]
-	from .ledger_sync_settings import current_source
-	source = current_source()
-	organizations = {(item["corp_id"], item["department_id"]): item["company"]
-		for item in source.get("organization_mappings", []) if item["corp_id"] == source["corp_id"]
-		and (not source.get("bound_fingerprint") or source["bound_fingerprint"] == source["fingerprint"])}
+	from .organization_mapping import approval_companies
+	organizations = approval_companies()
 	return {"manager": manager, "companies": companies, "known_companies": known_companies,
 		"aliases": aliases, "organizations": organizations}
 

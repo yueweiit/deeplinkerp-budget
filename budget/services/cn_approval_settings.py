@@ -197,6 +197,9 @@ def save_once(enabled, templates, company_mappings, expected_config_version, man
 		) else "expected"
 	values["config_version"] = revision(values)
 	persist(values)
+	if current.get("company_mappings") != values["company_mappings"] or current.get("management_rules") != values["management_rules"]:
+		from deeplinkerp_branding.services.regional_expense_automatic import enqueue_rebuild
+		enqueue_rebuild()
 	return {"ok": True, "config_version": values["config_version"]}
 
 

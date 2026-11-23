@@ -220,6 +220,9 @@ def selected_lines(lines, f, *, details=False):
 def load_lines():
 	from ..integrations.cn_approval_history import read_snapshot
 	approvals.require_reader()
+	from deeplinkerp_branding.services.regional_expense_automatic import ensure_rebuild
+	if ensure_rebuild():
+		frappe.throw(_("Expense ownership is being updated automatically. Please wait."))
 	context = approvals.access_context()
 	snapshot = read_snapshot()
 	rules = settings.management_rules()
