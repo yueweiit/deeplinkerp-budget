@@ -14,7 +14,7 @@ from ..services.cn_approval_contract import KINDS, project
 
 MAX_ROWS = 20000
 MAX_PAGES = 250
-SNAPSHOT_VERSION = 4
+SNAPSHOT_VERSION = 5
 
 
 def configuration():

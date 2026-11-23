@@ -94,6 +94,14 @@ CN 页面直接读取站点数据库中的内部 `CN Approval Snapshot`，不再
 
 新增 DocType 的 patch 为 `budget.patches.add_cn_approval_snapshot` 与 `budget.patches.add_cn_approval_settings`，均登记于 `budget/patches.txt`；模板历史状态由 `budget.patches.add_cn_template_history_state` 定向同步子表字段，保留旧行空值，不补写历史配置或审批数据；保存前检查字段已迁移，避免静默丢失状态。正式发布需迁移并重载 worker、更新页面资产和翻译。迁移仅创建内部快照存储，若仍存在同配置的完整 v3 Redis 快照则保留到数据库；无缓存时由首次后台同步建立。设置迁移只保留原 CN 配置，不请求 OA；未配置共享连接的独立 Budget 安装可待首次保存再初始化。不修改 Budget Quota、Budget Ledger 或 MX 业务表。
 
+### CN / MX 双向支出归属
+
+支出审批详情和筛选区提供“跨区支出归属”入口，支持 MX → CN、CN → MX，以及一条费用按明确金额分摊到多个承担公司。共享规则及发布步骤见品牌 App 的 [CN / MX 双向明细归属](../deeplinkerp_branding/docs/mexico-expenses.md#cn--mx-双向明细归属2026-11-23)，不再在两边分别维护同一审批的归属。
+
+Budget 的 `cn_approval_management.with_regional_allocations` 排除已由共用记录接管的同源审批，并合入权限范围内的 CN 明细；经营总览、预算执行、支出分析、五类报表、明细和导出复用这一结果。预算申报及最后通过版本选择保持原有规则；MX 的“费用支出”分配到 CN 后按运营支出占用预算。新来源只有已通过金额占用预算，待批单列；未知或过期归属金额留待核对，`regional_allocation` 纳入共用筛选允许范围。分配保留来源项目，采购项目筛选、报表和报表导出保持一致。重新确认已有分配必须找到维护方的最新本地来源，不能用归属记录中的旧载荷恢复已缺失审批的预算占用。原始审批查询兼容 API 仍呈现来源审批，不作为分配后的公司报表使用。
+
+运营/采购审批的内部快照附带 `_routing_source`，仅供服务器建立分配；公开列表、详情及导出不返回原始载荷。快照版本 v5 触发一次后台重建，之后继续读本地数据。共用归属保存及来源状态变更通过 `allocation_revision` 参与现有轮询，不调用 OA。跨区分配需要品牌 App 同步迁移 `Regional Expense Allocation` 和 `Mexico Expense Line.regional_company`，不改 Budget Quota、付款或会计业务表。2026-11-23 经授权已在 `dev.localhost` 定向同步这两个 DocType 并刷新缓存；双向分配、重复投影、撤回和来源金额变化通过真实数据库回滚事务验证，未保留临时记录、未主动发起 OA 同步，生产尚未迁移或部署。
+
 ### 验证与发布边界
 
 回归见 `tests/test_cn_approval_fx.py`、`tests/test_cn_approvals.py`、`tests/cn-approval-workbench.test.js`、`test_cn_navigation.py`、`test_cn_approval_cache.py`、`test_cn_approval_settings.py`；品牌 App 的 `tests/regional-expense-page-loading.test.js`、`tests/test_operating_expense_navigation.py` 覆盖资源加载和导航边界。测试使用合成数据，不提交用户原始 JSON。前端使用 Frappe `__()`，后端 `_()`；中、西文维护于 `translations/zh.csv`、`es.csv`，英文使用源文案，来源字段标签保留原文。

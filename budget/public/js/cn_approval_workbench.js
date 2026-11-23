@@ -317,7 +317,7 @@
 				if (seq!==this.seq || !this.active) return;
 				this.data=data;this.filters={...this.filters,...data.filters};
 				delete this.filters.entity;
-				this.syncReloadRevision=JSON.stringify([data.sync?.source_id,data.snapshot_id,data.sync?.settings_version]);
+				this.syncReloadRevision=JSON.stringify([data.sync?.source_id,data.snapshot_id,data.sync?.settings_version,data.sync?.allocation_revision]);
 				if (data.options?.companies) {
 					this.filterOptions={companies:data.options.companies,reporting_currencies:data.options.reporting_currencies,...(data.options.management_categories?{management_categories:data.options.management_categories}:{}),can_manage_settings:data.options.can_manage_settings};
 					// A successful overview carries options matching its data;
@@ -342,8 +342,8 @@
 		}
 		acceptSync(state, reload=false) {
 			this.syncState=state;this.syncError="";
-			const revision=JSON.stringify([state.source_id,state.snapshot_id,state.settings_version]);
-			const displayed=JSON.stringify([this.data?.sync?.source_id,this.data?.snapshot_id,this.data?.sync?.settings_version]);
+			const revision=JSON.stringify([state.source_id,state.snapshot_id,state.settings_version,state.allocation_revision]);
+			const displayed=JSON.stringify([this.data?.sync?.source_id,this.data?.snapshot_id,this.data?.sync?.settings_version,this.data?.sync?.allocation_revision]);
 			if (reload && revision!==displayed && revision!==this.syncReloadRevision) {
 				this.syncReloadRevision=revision;
 				// A local reread keeps the current filters. Even a source change to
@@ -435,7 +435,7 @@
 				${this.selectFilter("reporting_currency","Reporting Currency",(options.reporting_currencies || ["CNY","USD","MXN"]).map(value=>({value,label:value})),null)}
 				${this.managementView()?this.selectFilter("management_category","Management category",[{value:"unclassified",label:t("Unclassified")},...Object.entries(data?.options?.management_categories||{}).map(([value,label])=>({value,label:t(label)}))]):`<label class="cnaw-search"><span>${esc(t("Search approvals"))}</span><input type="search" data-filter="keyword" value="${esc(f.keyword)}" placeholder="${esc(t("Number, applicant or description"))}"></label>`}<button class="cnaw-reset" data-action="reset">${esc(t("Reset"))}</button></div>
 				<div class="cnaw-filter-toolbar"><div class="cnaw-period-note"><span class="cnaw-current-kind">${esc(t(this.managementView()?"Approval-based budget execution":KINDS[f.kind] || "All approvals"))}</span>${esc(t("Converted at month-start rates: budget month for budgets; application month for operating and purchase approvals. Original amounts are retained."))}${f.unassigned?`<button class="cnaw-filter-chip" data-action="clear-unassigned">${esc(t("Company not matched"))} ×</button>`:""}${f.measure?`<button class="cnaw-filter-chip" data-action="clear-measure">${esc(t(({budget:"Effective budget",approved:"Approved budget occupation",pending:"Pending expenditure applications",operating:"Approved operating expenditure",purchase:"Approved purchase expenditure",spending:"Expenditure applications",superseded:"Superseded budget",declared_budget:"Budget declarations"})[f.measure]||f.measure))} ×</button>`:""}${f.management_category&&!this.managementView()?`<button class="cnaw-filter-chip" data-action="clear-management-category">${esc(t(data?.options?.management_categories?.[f.management_category]||"Unclassified"))} ×</button>`:""}${f.project||f.no_project?`<button class="cnaw-filter-chip" data-action="clear-project">${esc(t("Project"))}: ${esc(f.project||t("Not specified"))} ×</button>`:""}${f.category ? `<button class="cnaw-filter-chip" data-action="clear-category">${esc(f.category)} ×</button>` : ""}<span class="cnaw-payment-note">${esc(t("Approval does not confirm payment"))}</span></div>
-				<div class="cnaw-filter-actions">${options.can_manage_settings ? `<button class="cnaw-button" data-action="settings">${esc(t("Synchronization settings"))}</button>` : ""}<span class="cnaw-updated">${data?.fetched_at ? esc(t("Updated {0}",[root.frappe.datetime?.str_to_user?.(data.fetched_at) || data.fetched_at])) : esc(t("Read-only approval data"))}</span><button class="cnaw-button primary" data-action="refresh" ${syncing || this.syncState?.enabled===false ? "disabled" : ""}>↻ ${esc(t(syncing ? "Synchronizing approvals…" : "Refresh approvals"))}</button></div></div></section>
+				<div class="cnaw-filter-actions">${options.can_manage_settings ? `<button class="cnaw-button" data-action="settings">${esc(t("Synchronization settings"))}</button><button class="cnaw-button" data-action="regional">${esc(t("Cross-region expense allocation"))}</button>` : ""}<span class="cnaw-updated">${data?.fetched_at ? esc(t("Updated {0}",[root.frappe.datetime?.str_to_user?.(data.fetched_at) || data.fetched_at])) : esc(t("Read-only approval data"))}</span><button class="cnaw-button primary" data-action="refresh" ${syncing || this.syncState?.enabled===false ? "disabled" : ""}>↻ ${esc(t(syncing ? "Synchronizing approvals…" : "Refresh approvals"))}</button></div></div></section>
 				<div class="cnaw-sync-feedback">${this.syncHTML()}</div>
 				${this.error ? `<div class="cnaw-error" role="alert">${esc(this.error)} ${data ? esc(t("The previous result is still displayed. Its filters may differ from your current selection.")) : ""}<button data-action="retry">${esc(t("Retry"))}</button></div>` : ""}
 				${this.optionsError ? `<div class="cnaw-error" role="alert">${esc(this.optionsError)} <button data-action="retry-options">${esc(t("Retry"))}</button></div>` : ""}
@@ -486,7 +486,7 @@
 			if (key==="kind") {this.filters.category="";this.filters.issue="";}
 			this.filters[key]=event.target.value;if(key==="company")this.filters.unassigned="";this.start=0;this.load();
 		}
-		click(event) {
+		async click(event) {
 			const el=event.target.closest("button");if (!el || el.disabled) return;
 			if(el.dataset.mgmtNav){
 				const changes=JSON.parse(el.dataset.mgmtFilters||"{}");
@@ -508,6 +508,10 @@
 			if (el.dataset.action==="reset") {this.filters=this.defaultFilters();this.start=0;this.load();}
 			if (el.dataset.action==="export") this.export(el);
 			if (el.dataset.action==="settings") this.openSettings(el);
+            if (el.dataset.action==="regional") {
+                await root.frappe.require("/assets/deeplinkerp_branding/js/regional_expenses.js");
+                await root.RegionalExpenses.list(() => this.load());
+            }
 			if (el.dataset.action==="toggle-empty-companies") {this.showEmptyCompanies=!this.showEmptyCompanies;this.render();}
 			if (el.dataset.action==="clear-unassigned") {this.filters.unassigned="";this.start=0;this.load();}
 			if (el.dataset.action==="clear-management-category") {this.filters.management_category="";this.start=0;this.load();}
@@ -556,7 +560,15 @@
 				if(event.key==="Escape")this.closeDetail();
 				if(event.key==="Tab") {const nodes=overlay.querySelectorAll('button,a[href],summary');const first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey && root.document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey && root.document.activeElement===last){event.preventDefault();first.focus();}}
 			});
-			try {const data=await this.call(analytical?"get_management_detail":"get_detail",{key,reporting_currency:this.data?.filters?.reporting_currency || ""});if(seq===this.detailSeq && this.active)overlay.querySelector(".cnaw-drawer-body").innerHTML=this.detailHTML(data);}
+			try {const data=await this.call(analytical?"get_management_detail":"get_detail",{key,reporting_currency:this.data?.filters?.reporting_currency || ""});if(seq===this.detailSeq && this.active) {
+                const body=overlay.querySelector(".cnaw-drawer-body");body.innerHTML=this.detailHTML(data);
+                if(data.kind!=="budget" && this.data?.options?.can_manage_settings) {
+                    const button=root.document.createElement("button");button.className="cnaw-button";
+                    button.textContent=t("Cross-region expense allocation");body.prepend(button);
+                    button.onclick=async()=>{await root.frappe.require("/assets/deeplinkerp_branding/js/regional_expenses.js");this.closeDetail();
+                        await root.RegionalExpenses.open(data.regional_allocation?{allocation:data.regional_allocation}:{origin:"cn",key:data.source_key||key},()=>this.load());};
+                }
+            }}
 			catch (error) {if(seq===this.detailSeq)overlay.querySelector(".cnaw-drawer-body").textContent=userError(error,"This approval is unavailable or you do not have permission to view it.");}
 		}
 		detailHTML(row) {

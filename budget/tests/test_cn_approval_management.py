@@ -57,6 +57,16 @@ def test_latest_budget_is_per_company_month_not_department_or_updated_time():
 	assert result["totals"]["superseded_count"] == 1
 
 
+def test_regional_review_issue_is_accepted_and_filters_only_matching_details(monkeypatch):
+	monkeypatch.setattr(frappe.utils, "today", lambda: "2026-11-23")
+	f = management.validate_filters({"review": True, "issue": "regional_allocation"})
+	lines = management.analytical_lines([
+		approval("stale", issues=["regional_allocation"], value=None), approval("normal")], context(), rules.defaults())
+	selected = management.selected_lines(lines, f, details=True)
+	assert [row["number"] for row in selected] == ["stale"]
+	assert management.approvals.ISSUES[f["issue"]] == "Cross-region allocation requires review"
+
+
 @pytest.mark.parametrize("time", [None, "2026-11-10T12:00:00+00:00"])
 def test_missing_or_tied_completion_times_do_not_select_an_arbitrary_budget(time):
 	_, result = projected([approval("one", "budget"), approval("two", "budget", approved_at=time)])

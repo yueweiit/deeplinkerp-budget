@@ -112,7 +112,7 @@ def export_management_lines(filters=None):
 	if len(rows) > 20000:
 		frappe.throw(_("CN report export exceeds 20000 rows. Narrow the period or company."))
 	headers = ("Approval number", "Approval form", "Company", "Source organization", "Reporting month", "Management category",
-		"Detail item", "Approval status", "Original amount", "Currency", "Converted amount", "Reporting Currency", "Budget version", "Review issues")
+		"Detail item", "Approval status", "Original amount", "Currency", "Converted amount", "Reporting Currency", "Budget version", "Review issues", "Approval source")
 	kinds = {"budget": _("Budget declaration"), "operating": _("Operating expenditure"), "purchase": _("Purchase expenditure")}
 	statuses = {key: _(label) for key, label in zip(service.STATUSES, ("Approved", "In progress", "Rejected", "Terminated", "Withdrawn", "Unknown"))}
 	versions = {"effective": _("Effective budget"), "superseded": _("Superseded budget"), "unresolved": _("Needs review")}
@@ -121,7 +121,7 @@ def export_management_lines(filters=None):
 		data.append([row["number"], kinds[row["kind"]], row["company"] or _("Company not matched"), row["entity"], row["month"],
 			_(management.rules_service.CATEGORIES.get(row["management_category"], "Unclassified")), row["line_label"], statuses[row["status"]],
 			excel_amount(row["amount"]), row["currency"], excel_amount(row["converted_amount"]), f["reporting_currency"],
-			versions.get(row["budget_state"], ""), "; ".join(_(label) for issue in row["issues"] if (label := {**service.ISSUES, **management.ISSUES}.get(issue)))])
+			versions.get(row["budget_state"], ""), "; ".join(_(label) for issue in row["issues"] if (label := {**service.ISSUES, **management.ISSUES}.get(issue))), (row.get("allocation_origin") or "cn").upper()])
 	data = [["'" + value if isinstance(value, str) and value.startswith(("=", "+", "-", "@")) else value for value in line] for line in data]
 	return {"filename": "cn-management-lines.xlsx", "content": base64.b64encode(make_xlsx(data, "Data Export").getvalue()).decode()}
 

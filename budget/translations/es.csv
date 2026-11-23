@@ -650,3 +650,6 @@ Comparisons use the current approval status in completed periods. Missing histor
 Marketing expenses,Gastos de marketing
 Historical exchange rates are unavailable. Current-period amounts remain available.,Los tipos de cambio históricos no están disponibles. Los importes del período actual siguen disponibles.
 Template history state,Estado del historial de la plantilla
+Cross-region expense allocation,Asignación de gastos entre regiones
+Cross-region allocation requires review,La asignación entre regiones requiere revisión
+Approval source,Origen de aprobación

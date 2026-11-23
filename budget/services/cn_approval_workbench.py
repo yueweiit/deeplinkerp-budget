@@ -15,7 +15,8 @@ from . import cn_approval_settings as settings
 
 ISSUES = {**SOURCE_ISSUES, "exchange_rate": "Currency or reporting month cannot be converted",
 	"management_category": "Management category is not mapped", "history": "Some disabled templates have no verified local history", "budget_version": "The latest approved budget cannot be determined",
-	"allocation": "Company allocation or detail total needs review", "budget_detail": "Budget details do not reconcile to the approved total"}
+	"allocation": "Company allocation or detail total needs review", "budget_detail": "Budget details do not reconcile to the approved total",
+	"regional_allocation": "Cross-region allocation requires review"}
 
 STATUSES = ("approved", "pending", "rejected", "terminated", "withdrawn", "unknown")
 SUMMARY_FIELDS = ("key", "kind", "number", "applicant", "entity", "company", "department", "application_date",
@@ -66,7 +67,7 @@ def access_context():
 def authorized(rows, context):
 	output = []
 	for original in rows:
-		row = deepcopy(original)
+		row = deepcopy({key: value for key, value in original.items() if key != "_routing_source"})
 		company = context["aliases"].get((row["corp_id"], row["entity"]))
 		if not company and row.get("entity_id"):
 			company = context.get("organizations", {}).get((row["corp_id"], row["entity_id"]))

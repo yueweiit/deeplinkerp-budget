@@ -216,6 +216,7 @@ def project(row, template):
 			except (ValueError, TypeError):
 				issues.append("structure")
 	return {"key": identity, "corp_id": row["corp_id"], "process_code": row["process_code"],
+		"_routing_source": {"row": row, "template": template} if family != "budget" else None,
 		"process_instance_id": row["process_instance_id"], "kind": family,
 		"number": text(row.get("business_id") or raw.get("businessId") or row["process_instance_id"]),
 		"applicant": text(row.get("originator_user_name")), "entity": entity, "entity_id": entity_id,

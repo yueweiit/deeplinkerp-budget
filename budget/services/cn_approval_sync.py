@@ -41,7 +41,9 @@ def status(record=None, *, key=None):
 	stale = not record.get("snapshot_id") or age(record.get("last_success_at"), now) >= SYNC_INTERVAL
 	active = state in ACTIVE
 	options = settings.sync_options()
+	from deeplinkerp_branding.services.regional_expenses import revision
 	return {"source_id": key or record.get("name"), "status": state, "active": active, **options,
+		"allocation_revision": revision(),
 		"snapshot_id": record.get("snapshot_id"), "has_snapshot": bool(record.get("snapshot_id")),
 		"last_success_at": str(record["last_success_at"]) if record.get("last_success_at") else None,
 		"completed_templates": record.get("completed_templates") or 0,
@@ -154,6 +156,8 @@ def run_sync(key, token):
 			fail(key, token, "configuration_changed")
 			return
 		owned(key, token)
+		from deeplinkerp_branding.services.regional_expenses import refresh_cn
+		refresh_cn(payload["rows"], templates)
 		store.update(key, {"snapshot_json": json.dumps(payload, ensure_ascii=False), "snapshot_id": uuid4().hex,
 			"last_success_at": payload["fetched_at"], "sync_status": "success", "finished_at": now_datetime(),
 			"heartbeat_at": now_datetime(), "completed_templates": len(templates), "error_code": None})

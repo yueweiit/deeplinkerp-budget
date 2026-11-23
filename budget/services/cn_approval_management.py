@@ -99,7 +99,7 @@ def analytical_lines(rows, context, rules):
 	states = budget_versions(rows, context)
 	output = []
 	for original in rows:
-		base = {key: deepcopy(value) for key, value in original.items() if key not in ("tables", "facts", "attachments", "budget_snapshot")}
+		base = {key: deepcopy(value) for key, value in original.items() if key not in ("tables", "facts", "attachments", "budget_snapshot", "_routing_source")}
 		base["source_key"] = original["key"]
 		base["budget_state"] = states.get(original["key"], "")
 		base["project"] = next((item["value"] for item in original.get("facts", []) if item["label"] == "Project"), "")
@@ -147,6 +147,11 @@ def analytical_lines(rows, context, rules):
 			output.append(item)
 			if len(output) > 50000:
 				frappe.throw(_("CN management analysis exceeds 50000 detail lines. Narrow the configured scope."))
+	annotate_budget_completeness(output)
+	return output
+
+
+def annotate_budget_completeness(output):
 	budget_groups = defaultdict(list)
 	for row in output:
 		if row["kind"] == "budget" and row["status"] == "approved" and row["budget_state"] in ("effective", "unresolved"):
@@ -155,7 +160,6 @@ def analytical_lines(rows, context, rules):
 		budget = budget_groups.get((row["company"], row["month"]), [])
 		row["budget_categories_complete"] = bool(row["company"] and budget and all(item["budget_state"] == "effective"
 			and item["management_category"] and item.get("amount") is not None and not {"budget_detail", "structure"} & set(item["issues"]) for item in budget))
-	return output
 
 
 def validate_filters(values):
@@ -219,11 +223,26 @@ def load_lines():
 	context = approvals.access_context()
 	snapshot = read_snapshot()
 	rules = settings.management_rules()
-	lines = analytical_lines(snapshot["rows"], context, rules)
+	lines, snapshot = with_regional_allocations(snapshot, context, rules)
 	if snapshot.get("missing_history_templates"):
 		for row in lines:
 			row["issues"] = sorted(set(row["issues"]) | {"history"})
 	return snapshot, lines, context, rules
+
+
+def with_regional_allocations(snapshot, context, rules):
+	from deeplinkerp_branding.services.regional_expenses import cn_projection
+	identities, incoming = cn_projection(context)
+	rows = [row for row in snapshot["rows"] if row["kind"] == "budget" or
+		(row["corp_id"], row["process_instance_id"]) not in identities]
+	lines = analytical_lines(rows, context, rules) + incoming
+	if len(lines) > 50000:
+		frappe.throw(_("CN management analysis exceeds 50000 detail lines. Narrow the configured scope."))
+	annotate_budget_completeness(lines)
+	if incoming:
+		snapshot = {**snapshot, "has_snapshot": True,
+			"fetched_at": max([snapshot.get("fetched_at") or ""] + [row["allocation_modified"] for row in incoming])}
+	return lines, snapshot
 
 
 def query(values, *, details=False, with_comparisons=False, report_id=None):
@@ -449,7 +468,7 @@ def comparisons(lines, f, snapshot):
 
 
 def public_line(row):
-	return {**approvals.public_row(row), **{key: row.get(key) for key in ("source_key", "line_label", "management_category", "source_path", "budget_state", "approved_at", "project")}}
+	return {**approvals.public_row(row), **{key: row.get(key) for key in ("source_key", "line_label", "management_category", "source_path", "budget_state", "approved_at", "project", "allocation_origin", "regional_allocation")}}
 
 
 def overview(values=None):
@@ -489,12 +508,15 @@ def detail(key, reporting_currency="CNY"):
 		frappe.throw(_("Invalid approval identity."))
 	context, snapshot = approvals.access_context(), read_snapshot()
 	rules = settings.management_rules()
-	lines = analytical_lines(snapshot["rows"], context, rules)
+	lines, snapshot = with_regional_allocations(snapshot, context, rules)
 	line = next((row for row in lines if row["key"] == key), None)
 	if line is None:
 		frappe.throw(_("This approval is unavailable or you do not have permission to view it."), frappe.PermissionError)
 	target = validate_filters({"reporting_currency": reporting_currency})["reporting_currency"]
 	line = convert_lines([line], target)[0]
+	if line.get("regional_allocation"):
+		from deeplinkerp_branding.services.regional_expenses import cn_detail
+		return {**public_line(line), **cn_detail(line, context)}
 	source = next(row for row in snapshot["rows"] if row["key"] == line["source_key"])
 	# A line-specific company permission never grants access to the other
 	# companies' allocations or the entire OA document and its attachments.

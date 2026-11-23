@@ -650,3 +650,6 @@ Comparisons use the current approval status in completed periods. Missing histor
 Marketing expenses,市场推广费用
 Historical exchange rates are unavailable. Current-period amounts remain available.,历史期间汇率暂不可用，本期金额仍可查看。
 Template history state,模板历史状态
+Cross-region expense allocation,跨区支出归属
+Cross-region allocation requires review,跨区支出归属需要重新核对
+Approval source,审批来源

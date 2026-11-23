@@ -60,6 +60,18 @@ def test_local_reads_survive_cache_loss_without_contacting_oa(runtime, monkeypat
 	assert runtime.jobs == []
 
 
+def test_regional_projection_failure_cannot_publish_half_a_snapshot(runtime, monkeypatch):
+	from deeplinkerp_branding.services import regional_expenses
+	monkeypatch.setattr(source, 'load_snapshot', lambda *a, **kw: {'rows': [], 'fetched_at': str(runtime.now)})
+	monkeypatch.setattr(regional_expenses, 'refresh_cn', lambda *a: (_ for _ in ()).throw(ValueError('allocation failed')))
+	sync.request_sync()
+	runtime.commit()
+	job = runtime.jobs[-1]
+	sync.run_sync(job['key'], job['token'])
+	assert runtime.records[runtime.key]['snapshot_id'] == 'old'
+	assert runtime.records[runtime.key]['sync_status'] == 'failed'
+
+
 def test_first_sync_is_distinct_from_a_successful_empty_snapshot(runtime):
 	runtime.records.clear()
 	assert sync.read_snapshot()['has_snapshot'] is False
