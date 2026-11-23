@@ -54,7 +54,7 @@ def enabled():
 
 def sync_options():
 	saved = read_saved()
-	return {"enabled": bool(saved["enabled"] if saved is not None else cint(frappe.conf.get("cn_approval_sync_enabled", 1))),
+	return {"enabled": bool(saved["enabled"] if saved is not None else cint(frappe.conf.get("cn_approval_sync_enabled", 0))),
 		"settings_version": saved["config_version"] if saved else ""}
 
 
@@ -139,7 +139,7 @@ def defaults(corps):
 	clean = clean_templates([{**item, "enabled": 1} for item in entries], corps)
 	for item in clean:
 		item["history_state"] = "expected"
-	values = {"enabled": cint(frappe.conf.get("cn_approval_sync_enabled", 1)), "templates": clean,
+	values = {"enabled": cint(frappe.conf.get("cn_approval_sync_enabled", 0)), "templates": clean,
 		"company_mappings": frappe.conf.get("cn_approval_company_map") or [], "management_rules": management.defaults()}
 	return {**values, "config_version": revision(values)}
 

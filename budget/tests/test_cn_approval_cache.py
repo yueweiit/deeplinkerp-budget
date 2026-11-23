@@ -43,7 +43,7 @@ def runtime(monkeypatch):
 	monkeypatch.setattr(source, 'load_snapshot', lambda *a, **kw: pytest.fail('unexpected upstream scan'))
 	monkeypatch.setattr(sync, 'now_datetime', lambda: state.now)
 	monkeypatch.setattr(sync, '_', lambda text: text)
-	monkeypatch.setattr(frappe, 'conf', {})
+	monkeypatch.setattr(frappe, 'conf', {'cn_approval_sync_enabled': 1})
 	monkeypatch.setattr(frappe, 'throw', lambda msg, *a: (_ for _ in ()).throw(ValueError(msg)))
 	monkeypatch.setattr(frappe, 'db', SimpleNamespace(commit=commit, rollback=lambda: None,
 		after_commit=SimpleNamespace(add=state.callbacks.append)))

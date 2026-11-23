@@ -11,7 +11,6 @@ from frappe import _
 
 from .shared_operating_oa import client
 from ..services.cn_approval_contract import KINDS, project
-from ..services.oa_budget_parser import BUDGET_PROCESS_CODE
 
 MAX_ROWS = 20000
 MAX_PAGES = 250
@@ -23,19 +22,14 @@ def configuration():
 	url, corps = client().configuration()
 	saved = read_saved()
 	configured = [item for item in saved["templates"] if item["enabled"]] if saved else legacy_templates(corps)
-	return url, normalize_templates(configured, corps, allow_empty=saved is not None)
+	return url, normalize_templates(configured, corps, allow_empty=True)
 
 
 def legacy_templates(corps):
-	from deeplinkerp_branding.services.mexico_expense_templates import DEFAULT_CODES
-	from deeplinkerp_branding.services.operating_oa_source import PROCESS_CODES
+	# Only explicitly configured legacy values may seed the workbench. A fresh
+	# site must not select approval templates on the user's behalf.
 	configured = frappe.conf.get("cn_approval_templates")
-	if configured is None:
-		codes = {"budget": (BUDGET_PROCESS_CODE,), "operating": tuple(dict.fromkeys((*PROCESS_CODES, *DEFAULT_CODES["operating"]))),
-			"purchase": DEFAULT_CODES["purchase"]}
-		configured = [{"approval_type": kind, "corp_id": corp, "process_code": code}
-			for corp in corps for kind, values in codes.items() for code in values]
-	return configured
+	return [] if configured is None else configured
 
 
 def normalize_templates(configured, corps, *, allow_empty=False):

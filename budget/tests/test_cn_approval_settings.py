@@ -20,7 +20,7 @@ def runtime(monkeypatch):
 	monkeypatch.setattr(settings, "_", lambda text: text)
 	monkeypatch.setattr(source, "_", lambda text: text)
 	monkeypatch.setattr(frappe, "throw", lambda message, *a: (_ for _ in ()).throw(ValueError(message)))
-	monkeypatch.setattr(frappe, "conf", {"cn_approval_templates": [
+	monkeypatch.setattr(frappe, "conf", {"cn_approval_sync_enabled": 1, "cn_approval_templates": [
 		{"corp_id": "corp-A", "process_code": "PROC-test", "approval_type": "budget"}]})
 	monkeypatch.setattr(frappe, "session", SimpleNamespace(user="Administrator"))
 	monkeypatch.setattr(frappe, "get_roles", lambda: ["System Manager"])
@@ -36,6 +36,59 @@ def runtime(monkeypatch):
 def save(values, **changes):
 	data = {**values, **changes}
 	return settings.save_settings(data["enabled"], data["templates"], data["company_mappings"], values["config_version"])
+
+
+def test_unconfigured_settings_start_empty_and_disabled(runtime, monkeypatch):
+	monkeypatch.setattr(frappe, "conf", {})
+	values = settings.get_settings()
+	assert values["templates"] == [] and values["company_mappings"] == []
+	assert values["management_rules"]["category_mappings"] == []
+	assert values["enabled"] == 0 and settings.enabled() is False
+	assert source.configuration() == ("https://oa.invalid", [])
+	assert settings.company_mappings() == []
+	save(values)
+	assert settings.get_settings() == values
+	assert source.configuration() == ("https://oa.invalid", [])
+	runtime.http.read_template_page.assert_not_called()
+
+
+def test_first_template_is_added_and_enabled_explicitly(runtime, monkeypatch):
+	monkeypatch.setattr(frappe, "conf", {})
+	values = settings.get_settings()
+	row = {"enabled": 1, "approval_type": "purchase", "corp_id": "corp-B", "process_code": "PROC-manual"}
+	save(values, enabled=1, templates=[row])
+	assert settings.enabled() is True
+	url, templates = source.configuration()
+	assert url == "https://oa.invalid" and len(templates) == 1
+	assert templates[0]["process_code"] == "PROC-manual" and templates[0]["corp_id"] == "corp-B"
+	assert runtime.saved["templates"][0]["history_state"] == "expected"
+	runtime.http.read_template_page.assert_not_called()
+
+
+def test_initialization_seeds_empty_settings_and_preserves_later_user_configuration(runtime, monkeypatch):
+	from budget.patches import add_cn_approval_settings as patch
+	monkeypatch.setattr(frappe, "conf", {})
+	monkeypatch.setattr(frappe, "reload_doc", Mock())
+	monkeypatch.setattr(frappe, "get_installed_apps", lambda: ["budget", "deeplinkerp_branding"])
+	patch.execute()
+	assert runtime.saved["templates"] == [] and runtime.saved["company_mappings"] == []
+	assert runtime.saved["enabled"] == 0
+	values = settings.get_settings()
+	save(values, enabled=1, templates=[{"enabled": 1, "approval_type": "budget", "corp_id": "corp-A", "process_code": "PROC-manual"}])
+	expected = deepcopy(runtime.saved)
+	patch.execute()
+	assert runtime.saved == expected
+	runtime.http.read_template_page.assert_not_called()
+
+
+def test_unconfigured_scheduler_never_starts_synchronization(runtime, monkeypatch):
+	from budget.services import cn_approval_sync as sync
+	monkeypatch.setattr(frappe, "conf", {})
+	request = Mock(side_effect=AssertionError("unconfigured scheduler must stay idle"))
+	monkeypatch.setattr(sync, "request_sync", request)
+	sync.scheduled_sync()
+	request.assert_not_called()
+	runtime.http.read_template_page.assert_not_called()
 
 
 def test_initial_settings_preserve_snapshot_identity_and_legacy_aliases(runtime):

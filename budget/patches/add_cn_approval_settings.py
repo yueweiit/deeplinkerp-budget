@@ -1,4 +1,4 @@
-"""Seed independent CN settings without contacting OA or changing its scope."""
+"""Initialize CN settings, preserving only explicitly configured legacy values."""
 import frappe
 
 
