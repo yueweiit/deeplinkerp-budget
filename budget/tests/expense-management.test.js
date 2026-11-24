@@ -108,12 +108,14 @@ function workbench() {
 test("late responses cannot replace a newer company selection", async () => {
   const { work, calls, renders } = workbench();
   const first = work.load();
+  assert.equal(work.loading, true);
   work.filters.company = "A";
   const second = work.load();
   calls[1].resolve({ company: "A", companies: ["A"], categories: {} });
-  await second;
+  assert.equal(await second, true);
+  assert.equal(work.loading, false);
   calls[0].resolve({ company: "old", companies: [], categories: {} });
-  await first;
+  assert.equal(await first, false);
   assert.equal(renders.length, 1);
   assert.equal(work.data.company, "A");
 });
@@ -128,8 +130,9 @@ test("leaving a page drops pending responses and closes picker", async () => {
   };
   const request = work.load();
   work.hide();
+  assert.equal(work.loading, false);
   calls[0].resolve({ companies: [] });
-  await request;
+  assert.equal(await request, false);
   assert.equal(renders.length, 0);
   assert.equal(closed, 1);
 });
@@ -140,7 +143,23 @@ test("failed refresh removes stale figures and exposes retry", async () => {
   const request = work.load();
   assert.equal(work.data, null);
   calls[0].reject(new Error("internal secret"));
-  await request;
+  assert.equal(await request, false);
+  assert.equal(work.loading, false);
   assert.match(work.html, /data-action="retry"/);
   assert.doesNotMatch(work.html, /internal secret/);
+});
+
+test("an obsolete response cannot clear a newer request's loading state", async () => {
+  const { work, calls, renders } = workbench();
+  const first = work.load();
+  work.filters.company = "A";
+  const second = work.load();
+  calls[0].resolve({ company: "old", companies: [], categories: {} });
+  assert.equal(await first, false);
+  assert.equal(work.loading, true);
+  assert.equal(renders.length, 0);
+  calls[1].resolve({ company: "A", companies: ["A"], categories: {} });
+  assert.equal(await second, true);
+  assert.equal(work.loading, false);
+  assert.equal(work.data.company, "A");
 });

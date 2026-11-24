@@ -1,10 +1,22 @@
-"""Read-only unified management API; source refresh remains with each feed."""
+"""Unified expense queries and source-owned synchronization commands."""
 import base64
 
 import frappe
 from frappe import _
 
 from ..services import expense_management as service
+
+
+@frappe.whitelist()
+def get_sync_status():
+	from ..services import expense_sync
+	return expense_sync.get_status()
+
+
+@frappe.whitelist(methods=["POST"])
+def enqueue_sync(source):
+	from ..services import expense_sync
+	return expense_sync.enqueue(source)
 
 
 @frappe.whitelist()

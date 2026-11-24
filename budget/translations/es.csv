@@ -726,3 +726,20 @@ Previous month,Mes anterior
 This month,Este mes
 All statuses,Todos los estados
 Verified approvals only,Solo gastos aprobados verificados
+Invalid expense synchronization source.,Origen de sincronización de gastos inválido.
+Budget and approval source,Origen de presupuestos y aprobaciones
+Expense approval source,Origen de aprobaciones de gastos
+Synchronization configuration required,Configure la sincronización
+Automatic synchronization is disabled,La sincronización automática está desactivada
+Synchronization needs attention,La sincronización requiere atención
+Site scheduler is disabled,El programador del sitio está desactivado
+Automatic synchronization every {0} minutes,Sincronización automática cada {0} minutos
+Enabled sources are checked every 5 minutes. Running jobs are reused; failed synchronization keeps existing data.,Los orígenes habilitados se revisan cada 5 minutos. Se reutilizan las tareas activas y los fallos conservan los datos existentes.
+Site scheduler is disabled. Automatic synchronization will not run until an administrator enables it.,El programador del sitio está desactivado. La sincronización automática requiere que un administrador lo habilite.
+{0} of {1} templates completed,{0} de {1} plantillas completadas
+Configure source,Configurar origen
+Settings are restricted to authorized administrators.,Solo los administradores autorizados pueden modificar la configuración.
+Loading synchronization status…,Cargando el estado de sincronización…
+Synchronization settings could not be opened. Retry.,No se pudo abrir la configuración de sincronización. Reintente.
+Synchronization Settings,Configuración de sincronización
+Not Synchronized,Sin sincronizar

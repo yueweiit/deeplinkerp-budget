@@ -726,3 +726,20 @@ Previous month,上个月
 This month,本月
 All statuses,全部状态
 Verified approvals only,仅已核实审批支出
+Invalid expense synchronization source.,无效的支出同步来源。
+Budget and approval source,预算及审批来源
+Expense approval source,费用审批来源
+Synchronization configuration required,请完善同步配置
+Automatic synchronization is disabled,自动同步已关闭
+Synchronization needs attention,同步需要处理
+Site scheduler is disabled,站点定时调度未启用
+Automatic synchronization every {0} minutes,每 {0} 分钟自动同步
+Enabled sources are checked every 5 minutes. Running jobs are reused; failed synchronization keeps existing data.,已启用的来源每 5 分钟检查一次。任务运行时不重复启动，同步失败保留已有数据。
+Site scheduler is disabled. Automatic synchronization will not run until an administrator enables it.,站点定时调度未启用，请管理员启用后再使用自动同步。
+{0} of {1} templates completed,已完成 {0} / {1} 个模板
+Configure source,配置来源
+Settings are restricted to authorized administrators.,仅授权管理员可修改设置。
+Loading synchronization status…,正在读取同步状态…
+Synchronization settings could not be opened. Retry.,同步设置无法打开，请重试。
+Synchronization Settings,同步设置
+Not Synchronized,尚未同步

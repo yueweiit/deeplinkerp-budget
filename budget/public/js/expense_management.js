@@ -190,12 +190,13 @@
       root.frappe.pages[route].expense_management = this;
       this.page.set_secondary_action(t("Refresh"), () => this.load());
       this.page.add_inner_button(t("Export Excel"), () => this.export());
-      this.page.add_menu_item(t("Reporting policy"), () => this.policy());
-      this.page.add_menu_item(t("MX financial reconciliation"), () =>
-        this.legacy("mx")
+      this.sync = new root.ExpenseSync.Controller(this);
+      this.syncButton = this.page.add_inner_button(t("Synchronize Now"), () =>
+        this.sync.synchronize()
       );
-      this.page.add_menu_item(t("CN approval and budget settings"), () =>
-        this.legacy("cn")
+      this.page.add_menu_item(t("Reporting policy"), () => this.policy());
+      this.page.add_menu_item(t("Synchronization Settings"), () =>
+        this.sync.open()
       );
       root.$(wrapper).on("hide.expense-management", () => this.hide());
       this.host.addEventListener("click", (e) => this.click(e));
@@ -220,6 +221,7 @@
         label: t(TITLES[this.view]),
       });
       this.shell();
+      this.sync?.start();
       const optionsToken = ++this.optionsSeq;
       this.call("get_options")
         .then((options) => {
@@ -235,8 +237,10 @@
     hide() {
       this.active = false;
       this.seq++;
+      this.loading = false;
       this.detailSeq++;
       this.optionsSeq++;
+      this.sync?.stop();
       this.picker?.destroy();
       this.dialog?.hide();
     }
@@ -273,7 +277,7 @@
     shell() {
       this.picker?.destroy();
       this.host.innerHTML =
-        '<div class="em-controls"></div><div class="em-content" aria-live="polite"></div>';
+        '<div class="em-controls"></div><div class="em-sync-status" aria-live="polite"></div><div class="em-content" aria-live="polite"></div>';
       this.controls();
     }
     controls() {
@@ -352,10 +356,11 @@
           this.update({ month: value.from_date.slice(0, 7) }),
       });
     }
-    async load() {
-      if (!this.current()) return;
+    async load(preserveControls = false) {
+      if (!this.current()) return false;
       const token = ++this.seq,
         filters = this.requestFilters();
+      this.loading = true;
       this.detailSeq++;
       this.dialog?.hide();
       this.data = null;
@@ -370,7 +375,7 @@
           filters,
           start: this.start,
         });
-        if (!this.current() || token !== this.seq) return;
+        if (!this.current() || token !== this.seq) return false;
         this.data = result;
         this.options = {
           ...this.options,
@@ -378,15 +383,20 @@
           categories: result.categories,
           issues: result.issues,
         };
-        this.controls();
+        if (!preserveControls) this.controls();
         this.render();
+        return true;
       } catch (error) {
-        if (!this.current() || token !== this.seq) return;
+        if (!this.current() || token !== this.seq) return false;
+        this.data = null;
         this.content(
           `<div class="em-error" role="alert"><p>${esc(
             errorMessage(error)
           )}</p>${button("retry", "Retry")}</div>`
         );
+        return false;
+      } finally {
+        if (token === this.seq) this.loading = false;
       }
     }
     content(html) {
@@ -656,41 +666,6 @@
         title: t("Reporting policy"),
         message,
         wide: true,
-      });
-    }
-    async legacy(origin) {
-      if (origin === "cn")
-        return root.frappe.set_route("china-expense-review", {
-          cn_approval_filters: {
-            from_month: this.filters.month,
-            to_month: this.filters.month,
-            company: this.filters.company,
-          },
-        });
-      let options = this.options;
-      if (!Array.isArray(options.mx_companies)) {
-        try {
-          options = await this.call("get_options");
-        } catch (error) {
-          root.frappe.msgprint({
-            message: esc(errorMessage(error)),
-            indicator: "red",
-          });
-          return;
-        }
-      }
-      const dates = root.DeepLinkERPMexicoExpenseDateRange.wholeMonths(
-        this.filters.month,
-        this.filters.month
-      );
-      return root.frappe.set_route("mexico-expense-review", {
-        mx_filters: {
-          ...dates,
-          company: options.mx_companies.includes(this.filters.company)
-            ? this.filters.company
-            : "",
-          basis: "period",
-        },
       });
     }
     async export() {

@@ -8,6 +8,7 @@
             "/assets/deeplinkerp_branding/js/mexico_expense_date_range.js",
             "/assets/deeplinkerp_branding/js/mexico_expense_money.js",
             "/assets/budget/css/expense_management.css",
+            "/assets/budget/js/expense_sync.js",
             "/assets/budget/js/expense_management.js",
           ],
           () => {

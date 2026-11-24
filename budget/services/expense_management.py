@@ -18,6 +18,7 @@ from deeplinkerp_branding.services import regional_expenses as regional
 from . import cn_approval_management as management
 from . import cn_approval_settings as settings
 from . import cn_approval_workbench as approvals
+from .expense_sync import cn_revision
 
 CURRENCIES = ("CNY", "MXN")
 BLOCKING = {"amount", "amount_pending", "total", "currency", "structure", "identity",
@@ -68,7 +69,8 @@ def load():
 	if len(rows) > 50000:
 		frappe.throw(_("Expense analysis exceeds 50000 detail lines. Narrow the configured scope."))
 	management.annotate_budget_completeness(rows)
-	templates = mx._templates(mx._settings())
+	mx_settings = mx._settings()
+	templates = mx._templates(mx_settings)
 	mx_complete = bool(templates) and all(item.get("enabled") and item.get("last_sync_at")
 		and not any(item.get(key) for key in ("last_error", "cursor", "sync_until")) for item in templates)
 	sync = snapshot.get("sync") or {}
@@ -77,7 +79,8 @@ def load():
 	metadata = {"complete": complete, "has_data": bool(snapshot.get("has_snapshot") or rows),
 		"updated_at": {"cn": snapshot.get("fetched_at"),
 			"mx": str(min((item.get("last_sync_at") for item in templates if item.get("last_sync_at")), default=""))},
-		"missing_history": snapshot.get("missing_history_templates", 0)}
+		"missing_history": snapshot.get("missing_history_templates", 0),
+		"sync_revision": {"cn": cn_revision(sync), "mx": mx.sync_revision(mx_settings)}}
 	return [normalize(row) for row in rows], context, rules, metadata
 
 

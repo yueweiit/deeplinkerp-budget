@@ -101,3 +101,27 @@ All statuses,All statuses
 Verified approvals only,Verified approvals only
 Budget month,Budget month
 Reporting month,Reporting month
+Invalid expense synchronization source.,Invalid expense synchronization source.
+Budget and approval source,Budget and approval source
+Expense approval source,Expense approval source
+Synchronization configuration required,Synchronization configuration required
+Automatic synchronization is disabled,Automatic synchronization is disabled
+Synchronization completed,Synchronization completed
+Synchronization needs attention,Synchronization needs attention
+Site scheduler is disabled,Site scheduler is disabled
+Automatic synchronization every {0} minutes,Automatic synchronization every {0} minutes
+Enabled sources are checked every 5 minutes. Running jobs are reused; failed synchronization keeps existing data.,Enabled sources are checked every 5 minutes. Running jobs are reused; failed synchronization keeps existing data.
+Site scheduler is disabled. Automatic synchronization will not run until an administrator enables it.,Site scheduler is disabled. Automatic synchronization will not run until an administrator enables it.
+{0} of {1} templates completed,{0} of {1} templates completed
+Configure source,Configure source
+Settings are restricted to authorized administrators.,Settings are restricted to authorized administrators.
+Loading synchronization status…,Loading synchronization status…
+Synchronization settings could not be opened. Retry.,Synchronization settings could not be opened. Retry.
+Synchronization Settings,Synchronization Settings
+Synchronize Now,Synchronize Now
+Not Synchronized,Not Synchronized
+Synchronizing approvals…,Synchronizing approvals…
+Synchronization failed. Retry synchronization.,Synchronization failed. Retry synchronization.
+Synchronization status could not be loaded. Retrying shortly.,Synchronization status could not be loaded. Retrying shortly.
+Synchronization could not be queued. Retry.,Synchronization could not be queued. Retry.
+CN approval settings could not be loaded or saved. Retry.,CN approval settings could not be loaded or saved. Retry.

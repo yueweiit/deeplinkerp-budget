@@ -229,17 +229,21 @@ def test_combined_loader_deduplicates_native_cn_snapshot(monkeypatch):
 	monkeypatch.setattr(automatic,"legacy_manual_identities",lambda:set())
 	monkeypatch.setattr(s.regional,"installed",lambda:True)
 	monkeypatch.setattr(s.approvals,"access_context",lambda:{"companies":{"A","B"}})
-	monkeypatch.setattr(cn_approval_history,"read_snapshot",lambda:{"rows":[native,budget],"has_snapshot":True})
+	sync = dict(source_id="source", snapshot_id="snapshot", settings_version="settings", allocation_revision="allocation")
+	monkeypatch.setattr(cn_approval_history,"read_snapshot",lambda:{"rows":[native,budget],"has_snapshot":True,"sync":sync})
 	monkeypatch.setattr(s.settings,"management_rules",rules.defaults)
 	monkeypatch.setattr(s.regional,"management_projection",lambda *a,**k:({("corp","same")},[line("a"),line("b",company="B")]))
 	def analytical(rows,*args):
 		assert rows == [budget]
 		return [line("budget",kind="budget")]
 	monkeypatch.setattr(s.management,"analytical_lines",analytical)
-	monkeypatch.setattr(mx,"_settings",lambda:None)
+	mx_settings = frappe._dict(config_version="mx-settings")
+	monkeypatch.setattr(mx,"_settings",lambda:mx_settings)
 	monkeypatch.setattr(mx,"_templates",lambda settings:[])
-	rows,*_=s.load()
+	rows,_,_,metadata=s.load()
 	assert [row["key"] for row in rows] == ["budget","a","b"]
+	assert metadata["sync_revision"] == {"cn": ["source", "snapshot", "settings", "allocation"],
+		"mx": mx.sync_revision(mx_settings)}
 
 
 def legacy_dataset(monkeypatch, *, snapshot=True, companies=("A", "B")):
@@ -277,7 +281,7 @@ def legacy_dataset(monkeypatch, *, snapshot=True, companies=("A", "B")):
 		assert rows == []  # The native duplicate cannot replace an old manual decision.
 		return []
 	monkeypatch.setattr(s.management, "analytical_lines", analytical)
-	monkeypatch.setattr(mx, "_settings", lambda: None)
+	monkeypatch.setattr(mx, "_settings", lambda: frappe._dict(config_version="mx-settings"))
 	monkeypatch.setattr(mx, "_templates", lambda settings: [{"enabled": 1, "last_sync_at": "2026-11-24"}])
 	monkeypatch.setattr(s, "converter", lambda: CONVERTER(rate))
 	return stored

@@ -9,7 +9,9 @@
 	const esc=value=>root.frappe.utils.escape_html(String(value ?? ""));
 	const KINDS={budget:"Budget declaration",operating:"Operating expenditure",purchase:"Purchase expenditure"};
 	const call=async(method,args={})=>(await root.frappe.call({method:`budget.api.cn_approvals.${method}`,args,silent:true})).message;
-	const errorText=(error)=>root.CNApprovalWorkbench.userError(error,"CN approval settings could not be loaded or saved. Retry.");
+	const errorText=(error)=>root.CNApprovalWorkbench?.userError
+		? root.CNApprovalWorkbench.userError(error,"CN approval settings could not be loaded or saved. Retry.")
+		: t("CN approval settings could not be loaded or saved. Retry.");
 	// Native Select also inserts option labels as HTML. Keep values unchanged.
 	const textOptions=values=>[{value:"",label:""},...values.map(value=>({value,label:esc(value)}))];
 	function textFields(fields) {
@@ -61,8 +63,9 @@
 		};
 		guardRows();
 	}
-	async function open(onSaved) {
+	async function open(onSaved, options={}) {
 		const saved=await call("get_settings");
+		if(options.isCurrent && !options.isCurrent()) return;
 		let dialog, pending=false, page=0, sourcesSeq=0, categorySeq=0;
 		const rules=saved.management_rules||{warning_percent:90,category_mappings:[]};
 		const categoryOptions=[{value:"",label:""},...Object.entries(saved.management_categories||{}).map(([value,label])=>({value,label:esc(t(label))}))];

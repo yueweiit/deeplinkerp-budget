@@ -78,6 +78,36 @@
   margin: 10px 0 16px;
   min-height: 24px;
 }
+.em-sync-status {
+  margin: 4px 0 12px;
+  min-height: 20px;
+}
+.em-sync-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 0;
+  border-top: 1px solid var(--border-color);
+}
+.em-sync-source p {
+  margin: 6px 0;
+}
+.em-sync-source small {
+  display: block;
+  color: var(--text-muted);
+}
+.em-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .em-sync-source {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
 .em-chip {
   font-size: 12px;
   border-radius: 5px;
