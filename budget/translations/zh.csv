@@ -456,6 +456,13 @@ Approvals will appear after a complete synchronization. You can leave this page 
 Approval synchronization is queued.,审批同步已排队。
 Synchronization timed out. Retry synchronization.,同步已超时，请重新同步。
 Synchronization failed. Retry synchronization.,同步失败，请重新同步。
+Approval scanning exceeded its time limit. Retry synchronization.,审批扫描超过时间上限，请重新同步。
+Approval scanning exceeded its row or page limit. Review the configured templates.,审批扫描超过条数或页数上限，请检查模板范围。
+The background synchronization task exceeded its time limit. Retry synchronization.,后台同步任务超过执行时间上限，请重新同步。
+Approval reading failed. Ask an administrator to check the synchronization log.,审批读取失败，请管理员检查同步日志。
+Expense ownership calculation failed. Ask an administrator to check the synchronization log.,支出归属计算失败，请管理员检查同步日志。
+The approval snapshot could not be saved. Ask an administrator to check the synchronization log.,审批快照保存失败，请管理员检查同步日志。
+Approval synchronization configuration could not be read. Ask an administrator to check the synchronization log.,审批同步配置读取失败，请管理员检查同步日志。
 Approval synchronization is disabled.,审批同步已停用。
 The last complete snapshot remains available.,上一份完整数据仍可查看。
 A System Manager with access to all subsidiaries is required to configure CN approvals.,配置 CN 审批需要拥有全部子公司访问权限的系统管理员。

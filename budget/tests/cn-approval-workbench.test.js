@@ -463,6 +463,29 @@ test('failed or delayed sync never clears the previous data or claims success',a
  assert.match(work.syncHTML(),/timed out/);work.hide();
 });
 
+for (const [code, label] of [
+ ['scan_timeout', /Approval scanning exceeded its time limit/],
+ ['scan_limit', /row or page limit/],
+ ['job_timeout', /background synchronization task exceeded/],
+ ['scan_failed', /Approval reading failed/],
+ ['source_failed', /Synchronization failed/],
+ ['allocation_failed', /Expense ownership calculation failed/],
+ ['publish_failed', /snapshot could not be saved/],
+ ['configuration_failed', /configuration could not be read/],
+ ['configuration_changed', /Settings changed/],
+ ['queue_failed', /could not be queued/],
+ ['<script>unknown error</script>', /Synchronization failed/],
+]) {
+ test(`sync failure ${code} is actionable without exposing diagnostic content`,()=>{
+  const work=Object.create(ui.Workbench.prototype);
+  work.syncState={status:'failed',enabled:true,has_snapshot:true,error_code:code,exception:'private source data'};
+  const html=work.syncHTML();
+  assert.match(html,label);
+  assert.match(html,/last complete snapshot remains available/);
+  assert.doesNotMatch(html,/<script>|private source data/);
+ });
+}
+
 test('hiding discards a delayed status response and stops all polling',async()=>{
  const {work,pending,state}=syncWorkbench();
  const polling=work.pollSync();work.hide();

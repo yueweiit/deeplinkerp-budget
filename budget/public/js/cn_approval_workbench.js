@@ -6,6 +6,18 @@
 	"use strict";
 	const ENDPOINT = "budget.api.cn_approvals.";
 	const AUTO_SYNC_BACKOFF = 15 * 60 * 1000;
+	const SYNC_ERRORS = new Map([
+		["sync_timeout", "Synchronization timed out. Retry synchronization."],
+		["scan_timeout", "Approval scanning exceeded its time limit. Retry synchronization."],
+		["scan_limit", "Approval scanning exceeded its row or page limit. Review the configured templates."],
+		["job_timeout", "The background synchronization task exceeded its time limit. Retry synchronization."],
+		["scan_failed", "Approval reading failed. Ask an administrator to check the synchronization log."],
+		["allocation_failed", "Expense ownership calculation failed. Ask an administrator to check the synchronization log."],
+		["publish_failed", "The approval snapshot could not be saved. Ask an administrator to check the synchronization log."],
+		["configuration_failed", "Approval synchronization configuration could not be read. Ask an administrator to check the synchronization log."],
+		["configuration_changed", "Settings changed after this task was queued. Start synchronization again."],
+		["queue_failed", "Synchronization could not be queued. Retry."],
+	]);
 	const KINDS = {budget:"Budget declaration", operating:"Operating expenditure", purchase:"Purchase expenditure"};
 	const STATUSES = {approved:"Approved", pending:"In progress", rejected:"Rejected", terminated:"Terminated", withdrawn:"Withdrawn", unknown:"Unknown"};
 	const VIEWS = {overview:"Management Overview", budget:"Budget Execution", register:"Approval Register", analysis:"Expenditure Analysis", reports:"Management Reports", review:"Data Review"};
@@ -406,7 +418,7 @@
 			let message="";
 			if (state.status==="queued") message=t("Approval synchronization is queued.");
 			if (state.status==="running") message=t("Synchronizing approvals: {0} of {1} templates, {2} pages read.",[state.completed_templates,state.template_count,state.page_count]);
-			if (state.status==="failed") message=t(state.error_code==="sync_timeout" ? "Synchronization timed out. Retry synchronization." : "Synchronization failed. Retry synchronization.");
+			if (state.status==="failed") message=t(SYNC_ERRORS.get(state.error_code) || "Synchronization failed. Retry synchronization.");
 			if (!state.enabled) message=t("Approval synchronization is disabled.");
 			if (message && state.has_snapshot) message+=" "+t("The last complete snapshot remains available.");
 			return message ? `<div class="${state.status==="failed" ? "cnaw-error" : "cnaw-sync-status"}" role="status" aria-live="polite">${esc(message)}</div>` : "";

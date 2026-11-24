@@ -456,6 +456,13 @@ Approvals will appear after a complete synchronization. You can leave this page 
 Approval synchronization is queued.,La sincronización de aprobaciones está en cola.
 Synchronization timed out. Retry synchronization.,La sincronización agotó el tiempo de espera. Vuelva a sincronizar.
 Synchronization failed. Retry synchronization.,La sincronización falló. Vuelva a sincronizar.
+Approval scanning exceeded its time limit. Retry synchronization.,La lectura de aprobaciones superó el límite de tiempo. Vuelva a sincronizar.
+Approval scanning exceeded its row or page limit. Review the configured templates.,La lectura de aprobaciones superó el límite de registros o páginas. Revise las plantillas configuradas.
+The background synchronization task exceeded its time limit. Retry synchronization.,La tarea de sincronización en segundo plano superó el límite de tiempo. Vuelva a sincronizar.
+Approval reading failed. Ask an administrator to check the synchronization log.,No se pudieron leer las aprobaciones. Pida a un administrador que revise el registro de sincronización.
+Expense ownership calculation failed. Ask an administrator to check the synchronization log.,Falló el cálculo de asignación de gastos. Pida a un administrador que revise el registro de sincronización.
+The approval snapshot could not be saved. Ask an administrator to check the synchronization log.,No se pudo guardar la instantánea de aprobaciones. Pida a un administrador que revise el registro de sincronización.
+Approval synchronization configuration could not be read. Ask an administrator to check the synchronization log.,No se pudo leer la configuración de sincronización de aprobaciones. Pida a un administrador que revise el registro de sincronización.
 Approval synchronization is disabled.,La sincronización de aprobaciones está deshabilitada.
 The last complete snapshot remains available.,La última instantánea completa sigue disponible.
 A System Manager with access to all subsidiaries is required to configure CN approvals.,Se requiere un administrador del sistema con acceso a todas las subsidiarias para configurar las aprobaciones CN.
