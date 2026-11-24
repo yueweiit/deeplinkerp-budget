@@ -1,11 +1,13 @@
 """Durable CN snapshots, refreshed outside the page request."""
 import json
 from functools import partial
+from traceback import walk_tb
 from uuid import uuid4
 
 import frappe
 from frappe import _
 from frappe.utils import get_datetime, now_datetime
+from rq.timeouts import JobTimeoutException
 
 from ..integrations import cn_approval_source as source
 from ..integrations import cn_approval_store as store
@@ -13,8 +15,12 @@ from . import cn_approval_settings as settings
 
 SYNC_INTERVAL = 900
 QUEUE_LEASE = 900
-RUN_LEASE = 300
-JOB_TIMEOUT = 180
+# Leave time after the scan for ownership projection and atomic publication.
+JOB_TIMEOUT = source.SCAN_TIMEOUT + 300
+# Publication holds locks and must not commit a heartbeat halfway through.
+# A valid worker must never lose ownership before its RQ time budget ends.
+# Cap the lease from started_at too: later heartbeats cannot extend a dead job.
+RUN_LEASE = JOB_TIMEOUT + 60
 ACTIVE = {"queued", "running"}
 
 
@@ -36,7 +42,10 @@ def status(record=None, *, key=None):
 	state = record.get("sync_status") or "idle"
 	if state == "queued" and age(record.get("queued_at"), now) >= QUEUE_LEASE:
 		state = "failed"
-	elif state == "running" and age(record.get("heartbeat_at") or record.get("started_at"), now) >= RUN_LEASE:
+	elif state == "running" and (
+		age(record.get("heartbeat_at") or record.get("started_at"), now) >= RUN_LEASE
+		or (record.get("started_at") and age(record["started_at"], now) >= RUN_LEASE)
+	):
 		state = "failed"
 	stale = not record.get("snapshot_id") or age(record.get("last_success_at"), now) >= SYNC_INTERVAL
 	active = state in ACTIVE
@@ -106,9 +115,39 @@ def enqueue_committed(key, token):
 	try:
 		frappe.enqueue("budget.services.cn_approval_sync.run_sync", queue="long", timeout=JOB_TIMEOUT,
 			job_id=f"cn-approval-sync-{token}", key=key, token=token)
-	except Exception:
+	except Exception as error:
+		log_failure(key, "enqueue", "queue_failed", error)
 		frappe.db.rollback()
 		fail(key, token, "queue_failed")
+
+
+def failure_code(error, stage):
+	if isinstance(error, source.ApprovalScanTimeout):
+		return "scan_timeout"
+	if isinstance(error, source.ApprovalScanLimitExceeded):
+		return "scan_limit"
+	if isinstance(error, JobTimeoutException):
+		return "job_timeout"
+	return {"configuration": "configuration_failed", "scan": "scan_failed", "allocation": "allocation_failed",
+		"publish": "publish_failed"}.get(stage, "source_failed")
+
+
+def log_failure(key, stage, code, error):
+	"""Keep actionable diagnostics even if a dead connection prevents rollback.
+
+	Never log exception messages, SQL, HTTP bodies, local variables or tokens.
+	"""
+	try:
+		frames = [{"file": frame.f_code.co_filename.rsplit("/", 1)[-1],
+			"function": frame.f_code.co_name, "line": line} for frame, line in walk_tb(error.__traceback__)][-8:]
+		detail = {"source_id": key, "stage": stage, "error_code": code,
+			"exception_type": type(error).__name__, "frames": frames}
+		if error.args and type(error.args[0]) is int:
+			detail["numeric_code"] = error.args[0]
+		frappe.logger("cn_approval_sync").error("CN approval failure detail: %s", json.dumps(detail))
+	except Exception:
+		# Diagnostics must never replace the original failure.
+		pass
 
 
 def fail(key, token, code):
@@ -139,6 +178,7 @@ def progress(key, token, *, completed_templates, page_count):
 
 
 def run_sync(key, token):
+	stage = "configuration"
 	try:
 		record = owned(key, token)
 		# Duplicate queue delivery must not start another scan with the same token.
@@ -151,15 +191,19 @@ def run_sync(key, token):
 			return
 		store.update(key, {"sync_status": "running", "started_at": now_datetime(), "heartbeat_at": now_datetime()})
 		frappe.db.commit()
+		stage = "scan"
 		payload = source.load_snapshot(url, templates, progress=partial(progress, key, token))
 		# Source settings can change while HTTP pages are being read.
+		stage = "configuration"
 		current_url, current_templates = source.configuration()
 		if not enabled() or identity(current_url, current_templates) != key:
 			fail(key, token, "configuration_changed")
 			return
 		owned(key, token)
+		stage = "allocation"
 		from deeplinkerp_branding.services.regional_expenses import refresh_cn
 		refresh_cn(payload["rows"], templates)
+		stage = "publish"
 		store.update(key, {"snapshot_json": json.dumps(payload, ensure_ascii=False), "snapshot_id": uuid4().hex,
 			"last_success_at": payload["fetched_at"], "sync_status": "success", "finished_at": now_datetime(),
 			"heartbeat_at": now_datetime(), "completed_templates": len(templates), "error_code": None})
@@ -167,9 +211,16 @@ def run_sync(key, token):
 		frappe.db.commit()
 	except SupersededSync:
 		frappe.db.rollback()
-	except Exception:
-		frappe.db.rollback()
-		fail(key, token, "source_failed")
+	except Exception as error:
+		code = failure_code(error, stage)
+		log_failure(key, stage, code, error)
+		try:
+			frappe.db.rollback()
+			fail(key, token, code)
+		except Exception as cleanup_error:
+			log_failure(key, "failure_recording", code, cleanup_error)
+			# Do not bypass connection protection or continue an invalid transaction.
+			raise error from cleanup_error
 
 
 def scheduled_sync():

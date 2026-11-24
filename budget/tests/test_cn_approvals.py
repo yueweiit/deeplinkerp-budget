@@ -209,8 +209,48 @@ def test_snapshot_size_limit_fails_instead_of_showing_partial_statistics(monkeyp
 	row, config = sample()
 	monkeypatch.setattr(source, "MAX_ROWS", 1)
 	http = SimpleNamespace(read_template_page=lambda *a, **kw: ([row, {**row, "process_instance_id": "other"}], {"syncUntil": "fixed", "hasMore": False}))
-	with pytest.raises(ValueError, match="too large"):
+	with pytest.raises(source.ApprovalScanLimitExceeded, match="row or page limit"):
 		source.load_snapshot("url", [config], http=http)
+
+
+def test_slow_eleven_template_scan_completes_beyond_the_old_75_second_limit():
+	row, config = sample()
+	clock = SimpleNamespace(now=0)
+	templates = [{**config, "process_code": f"PROC-{index}"} for index in range(11)]
+	progress = []
+	def read(url, corp, code, cursor=None):
+		clock.now += 4.5
+		item = {**row, "process_code": code, "process_instance_id": f"{code}-{cursor or 'first'}"}
+		return [item], {"syncUntil": "fixed", "hasMore": cursor is None and code != "PROC-10",
+			"nextCursor": "second"}
+	result = source.load_snapshot("url", templates, http=SimpleNamespace(read_template_page=read),
+		clock=lambda: clock.now, progress=lambda **values: progress.append(values))
+	assert clock.now == 94.5
+	assert len(result["rows"]) == 21
+	assert progress[-1] == {"completed_templates": 11, "page_count": 21}
+
+
+@pytest.mark.parametrize("has_more", [False, True])
+def test_scan_deadline_still_rejects_late_pages_including_the_final_page(has_more):
+	row, config = sample()
+	clock = SimpleNamespace(now=0)
+	def read(*args, **kwargs):
+		clock.now = source.SCAN_TIMEOUT
+		return [row], {"syncUntil": "fixed", "hasMore": has_more, "nextCursor": "second"}
+	with pytest.raises(source.ApprovalScanTimeout):
+		source.load_snapshot("url", [config], http=SimpleNamespace(read_template_page=read), clock=lambda: clock.now)
+
+
+def test_scan_page_limit_is_independent_of_the_larger_time_budget(monkeypatch):
+	row, config = sample()
+	monkeypatch.setattr(source, "MAX_PAGES", 1)
+	calls = []
+	def read(*args, **kwargs):
+		calls.append(kwargs)
+		return [row], {"syncUntil": "fixed", "hasMore": True, "nextCursor": "second"}
+	with pytest.raises(source.ApprovalScanLimitExceeded):
+		source.load_snapshot("url", [config], http=SimpleNamespace(read_template_page=read))
+	assert len(calls) == 1
 
 
 @pytest.mark.parametrize('configured', [

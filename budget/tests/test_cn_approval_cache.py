@@ -70,6 +70,7 @@ def test_regional_projection_failure_cannot_publish_half_a_snapshot(runtime, mon
 	sync.run_sync(job['key'], job['token'])
 	assert runtime.records[runtime.key]['snapshot_id'] == 'old'
 	assert runtime.records[runtime.key]['sync_status'] == 'failed'
+	assert runtime.records[runtime.key]['error_code'] == 'allocation_failed'
 
 
 def test_first_sync_is_distinct_from_a_successful_empty_snapshot(runtime):
@@ -202,12 +203,94 @@ def test_partial_failure_preserves_last_complete_snapshot_and_backs_off(runtime,
 	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
 	result = source.get_snapshot()
 	assert result['rows'] == runtime.old['rows'] and result['snapshot_id'] == 'old'
-	assert result['sync']['status'] == 'failed' and result['sync']['error_code'] == 'source_failed'
+	assert result['sync']['status'] == 'failed' and result['sync']['error_code'] == 'scan_failed'
 	assert 'secret' not in repr(runtime.logs) + repr(result['sync'])
 	sync.request_sync(if_stale=True)
 	assert len(runtime.callbacks) == 0
 	sync.request_sync()
 	assert len(runtime.callbacks) == 1
+
+
+@pytest.mark.parametrize("error, expected", [
+	(source.ApprovalScanTimeout("secret upstream payload"), "scan_timeout"),
+	(source.ApprovalScanLimitExceeded("secret upstream payload"), "scan_limit"),
+	(sync.JobTimeoutException("secret upstream payload"), "job_timeout"),
+])
+def test_typed_failures_retain_progress_and_old_snapshot_without_exposing_payload(runtime, monkeypatch, error, expected):
+	sync.request_sync(); runtime.commit()
+	def scan(*args, progress):
+		progress(completed_templates=8, page_count=17)
+		raise error
+	monkeypatch.setattr(source, "load_snapshot", scan)
+	sync.run_sync(runtime.key, runtime.jobs[0]["token"])
+	result = sync.read_snapshot()
+	assert result["snapshot_id"] == "old" and result["rows"] == runtime.old["rows"]
+	assert result["sync"]["error_code"] == expected
+	assert result["sync"]["status"] == "failed" and result["sync"]["page_count"] == 17
+	assert result["sync"]["completed_templates"] == 8
+	assert "secret upstream payload" not in repr(runtime.logs) + repr(result)
+	detail = json.loads(next(log[1] for log in runtime.logs if "failure detail" in log[0]))
+	assert detail["stage"] == "scan" and detail["exception_type"] == type(error).__name__
+	assert detail["frames"][-1]["function"] == "scan"
+
+
+def test_projection_can_finish_after_old_lease_without_allowing_a_duplicate_scan(runtime, monkeypatch):
+	from deeplinkerp_branding.services import regional_expenses
+	sync.request_sync(); runtime.commit()
+	def scan(*args, progress):
+		runtime.now += timedelta(seconds=120)
+		progress(completed_templates=11, page_count=21)
+		return {"rows": [], "fetched_at": str(runtime.now)}
+	def project(*args):
+		# A run with a fast scan may use the remaining worker budget to publish.
+		runtime.now += timedelta(seconds=301)
+		assert sync.get_status()["active"]
+		assert sync.request_sync()["status"] == "running"
+		assert len(runtime.jobs) == 1
+	monkeypatch.setattr(source, "load_snapshot", scan)
+	monkeypatch.setattr(regional_expenses, "refresh_cn", project)
+	sync.run_sync(runtime.key, runtime.jobs[0]["token"])
+	assert sync.get_status()["status"] == "success"
+	assert source.SCAN_TIMEOUT < sync.JOB_TIMEOUT < sync.RUN_LEASE
+
+
+def test_failed_publication_records_its_stage_and_retains_previous_snapshot(runtime, monkeypatch):
+	sync.request_sync(); runtime.commit()
+	monkeypatch.setattr(source, "load_snapshot", lambda *a, **kw: {"rows": [], "fetched_at": str(runtime.now)})
+	update = store.update
+	def reject_payload(key, values):
+		if "snapshot_json" in values:
+			raise ValueError("secret database payload")
+		update(key, values)
+	monkeypatch.setattr(store, "update", reject_payload)
+	sync.run_sync(runtime.key, runtime.jobs[0]["token"])
+	assert sync.read_snapshot()["snapshot_id"] == "old"
+	assert sync.get_status()["error_code"] == "publish_failed"
+	assert "secret database payload" not in repr(runtime.logs)
+
+
+def test_connection_loss_keeps_original_diagnostics_when_rollback_is_rejected(runtime, monkeypatch):
+	sync.request_sync(); runtime.commit()
+	monkeypatch.setattr(source, "load_snapshot", lambda *a, **kw: {"rows": [], "fetched_at": str(runtime.now)})
+	original = RuntimeError(2006, "secret database payload")
+	update = store.update
+	def disconnect(key, values):
+		if "snapshot_json" in values:
+			raise original
+		update(key, values)
+	def rejected_rollback():
+		raise ValueError("connection execution invalid")
+	monkeypatch.setattr(store, "update", disconnect)
+	monkeypatch.setattr(frappe.db, "rollback", rejected_rollback)
+	with pytest.raises(RuntimeError) as raised:
+		sync.run_sync(runtime.key, runtime.jobs[0]["token"])
+	assert raised.value is original
+	details = [json.loads(log[1]) for log in runtime.logs if "failure detail" in log[0]]
+	assert details[0]["stage"] == "publish"
+	assert details[0]["numeric_code"] == 2006
+	assert details[-1]["stage"] == "failure_recording"
+	assert "secret database payload" not in repr(runtime.logs)
+	assert sync.read_snapshot()["snapshot_id"] == "old"
 
 
 def test_queue_failure_is_visible_and_keeps_old_snapshot(runtime, monkeypatch):
@@ -228,6 +311,53 @@ def test_expired_claim_is_reported_and_replacement_fences_old_worker(runtime, st
 	assert runtime.jobs[1]['token'] != old_token
 	sync.run_sync(runtime.key, old_token)
 	assert sync.get_status()['status'] == 'queued' and sync.read_snapshot()['snapshot_id'] == 'old'
+
+
+@pytest.mark.parametrize('elapsed, expected', [(900, 'running'), (959, 'running'), (960, 'failed'), (961, 'failed')])
+def test_running_deadline_is_not_extended_by_a_late_heartbeat(runtime, elapsed, expected):
+	started = runtime.now
+	runtime.records[runtime.key].update(sync_status='running',
+		queued_at=started - timedelta(seconds=sync.QUEUE_LEASE - 1), started_at=started,
+		heartbeat_at=started + timedelta(seconds=599))
+	runtime.now = started + timedelta(seconds=elapsed)
+	result = sync.get_status()
+	assert result['status'] == expected
+	assert result['active'] is (expected == 'running')
+	assert result['error_code'] == ('sync_timeout' if expected == 'failed' else None)
+	assert sync.read_snapshot()['snapshot_id'] == 'old'
+	if expected == 'running':
+		assert sync.request_sync()['status'] == 'running'
+		runtime.commit()
+		assert runtime.jobs == []
+
+
+def test_absolute_deadline_allows_retry_and_fences_the_previous_scan(runtime, monkeypatch):
+	sync.request_sync(); runtime.commit()
+	old_token = runtime.jobs[0]['token']
+	def scan(*args, progress):
+		runtime.now += timedelta(seconds=599)
+		progress(completed_templates=11, page_count=21)
+		runtime.now += timedelta(seconds=361)
+		assert sync.get_status()['error_code'] == 'sync_timeout'
+		with pytest.raises(sync.SupersededSync):
+			progress(completed_templates=11, page_count=21)
+		assert sync.request_sync()['status'] == 'queued'
+		runtime.commit()
+		return {'rows': ['outdated'], 'fetched_at': str(runtime.now)}
+	monkeypatch.setattr(source, 'load_snapshot', scan)
+	sync.run_sync(runtime.key, old_token)
+	assert len(runtime.jobs) == 2 and runtime.jobs[1]['token'] != old_token
+	assert sync.get_status()['status'] == 'queued'
+	result = sync.read_snapshot()
+	assert result['snapshot_id'] == 'old' and result['rows'] == runtime.old['rows']
+
+
+def test_running_record_without_start_time_uses_heartbeat_for_compatibility(runtime):
+	runtime.records[runtime.key].update(sync_status='running', started_at=None,
+		queued_at=runtime.now - timedelta(hours=1), heartbeat_at=runtime.now)
+	assert sync.get_status()['active'] is True
+	runtime.now += timedelta(seconds=sync.RUN_LEASE)
+	assert sync.get_status()['error_code'] == 'sync_timeout'
 
 
 def test_replaced_worker_cannot_publish_after_its_scan(runtime, monkeypatch):

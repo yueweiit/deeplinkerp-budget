@@ -14,7 +14,18 @@ from ..services.cn_approval_contract import KINDS, project
 
 MAX_ROWS = 20000
 MAX_PAGES = 250
+# This is an asynchronous full scan, not a page-request time budget. Keep a
+# bound while allowing multiple templates to finish over a slower OA link.
+SCAN_TIMEOUT = 600
 SNAPSHOT_VERSION = 5
+
+
+class ApprovalScanTimeout(frappe.ValidationError):
+	pass
+
+
+class ApprovalScanLimitExceeded(frappe.ValidationError):
+	pass
 
 
 def configuration():
@@ -84,13 +95,15 @@ def cache_key(url, templates):
 
 def load_snapshot(url, templates, *, http=None, clock=time.monotonic, progress=None):
 	http = http or client()
-	deadline, pages, total = clock() + 75, 0, 0
+	deadline, pages, total = clock() + SCAN_TIMEOUT, 0, 0
 	output, seen = [], set()
 	for index, template in enumerate(templates):
 		cursor, snapshot, cursors = None, None, set()
 		while True:
-			if clock() >= deadline or pages >= MAX_PAGES:
-				frappe.throw(_("The approval scan is too large or timed out. Narrow the configured templates and retry."))
+			if clock() >= deadline:
+				raise ApprovalScanTimeout(_("Approval scanning exceeded its time limit. Retry synchronization."))
+			if pages >= MAX_PAGES:
+				raise ApprovalScanLimitExceeded(_("Approval scanning exceeded its row or page limit. Review the configured templates."))
 			rows, page = http.read_template_page(url, template["corp_id"], template["process_code"], cursor=cursor)
 			pages += 1
 			if snapshot is not None and page["syncUntil"] != snapshot:
@@ -103,10 +116,12 @@ def load_snapshot(url, templates, *, http=None, clock=time.monotonic, progress=N
 				seen.add(key)
 				total += 1
 				if total > MAX_ROWS:
-					frappe.throw(_("The approval scan is too large or timed out. Narrow the configured templates and retry."))
+					raise ApprovalScanLimitExceeded(_("Approval scanning exceeded its row or page limit. Review the configured templates."))
 				item = project(row, template)
 				if item is not None:
 					output.append(item)
+			if clock() >= deadline:
+				raise ApprovalScanTimeout(_("Approval scanning exceeded its time limit. Retry synchronization."))
 			if progress:
 				progress(completed_templates=index + int(not page["hasMore"]), page_count=pages)
 			if not page["hasMore"]:
