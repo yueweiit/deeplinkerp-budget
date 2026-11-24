@@ -661,3 +661,68 @@ Cross-region expense allocation,跨区支出归属
 Cross-region allocation requires review,跨区支出归属需要重新核对
 Approval source,审批来源
 Expense ownership is being updated automatically. Please wait.,正在自动更新费用归属，请稍候。
+Amount in CNY,人民币金额
+Amount in MXN,比索金额
+Amount is not finalized,金额尚未确定
+Approved expenses by application month; approval does not confirm payment.,按申请月份统计已审批费用；审批通过不代表实际付款。
+Budget policy,预算口径
+Budgets keep their budget month. The latest approved budget per subsidiary is used; a missing budget is not zero.,预算保留预算月份口径，使用各子公司当月最新已审批预算；缺少预算不表示预算为零。
+CN approval and budget settings,CN 审批与预算设置
+CNY and MXN are converted independently from original amounts using the application month-start rate.,人民币与比索均按申请月份月初汇率从原币金额独立折算。
+CNY exchange rate,人民币折算汇率
+CNY primary · MXN secondary,人民币为主 · 比索为辅
+Compared with the same period last month,较上月同期
+"Current-month comparison uses matching elapsed days. Incomplete sources, unverified data or missing history disable comparison.",当月按相同已过天数比较；来源未同步完整、存在待核对数据或历史不足时暂不比较。
+Date source,日期来源
+Detail lines,明细数
+Expenditure Analysis,支出分析
+Expense Details,支出明细
+Expense Management,支出管理
+Expense Overview,支出概览
+Expense allocation storage is not installed. Run the application migration.,尚未安装支出归属存储，请先执行应用迁移。
+Expense analysis exceeds 50000 detail lines. Narrow the configured scope.,支出分析超过 50000 条明细，请缩小配置范围。
+Expense composition,费用构成
+Expense data could not be loaded. Retry or check the source workbenches.,支出数据加载失败，请重试或查看来源工作台。
+Expense detail,支出详情
+Expense detail is unavailable or outside your permitted scope.,支出明细不存在或超出您的权限范围。
+Expense export exceeds 20000 rows. Narrow the subsidiary or category.,支出导出超过 20000 行，请缩小子公司或分类范围。
+Expense line identity needs review,费用明细标识需要核对
+Export failed,导出失败
+Included in approved expenditure,计入已审批支出
+Invalid expense management filters.,支出管理筛选条件无效。
+Invalid expense page offset.,支出分页参数无效。
+Last six months,近六个月
+Loading expense data…,正在加载支出数据…
+MX financial reconciliation,MX 财务口径核对
+MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.,MX 单据未设置申请日期字段时，使用 OA 提交日期；日期异常或冲突的单据仍需核对。
+MXN exchange rate,比索折算汇率
+Missing exchange rates are shown as unavailable; no partial currency total is presented.,缺少汇率时显示不可用，不将部分折算结果当作完整合计。
+No local approval snapshot is available yet.,暂无本地审批快照
+No records in this month,本月暂无记录
+No verified budget,暂无已核实预算
+Not comparable,暂不可比
+OA submission date,OA 提交日期
+Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.,仅计入公司归属和金额已核实的审批费用；未归属或缺少日期的费用保留在数据核对中。
+Previous page,上一页
+Reporting policy,统计口径
+Review unassigned expenses,核对未归属费用
+Share,占比
+Snapshot complete,快照完整
+Source data incomplete,来源数据尚不完整
+Subsidiaries,子公司
+Subsidiary expense overview,子公司支出总览
+Verified approved expenditure,已核实审批支出
+{0} applications · {1} lines,{0} 笔申请 · {1} 条明细
+{0} lines without application dates,{0} 条明细缺少申请日期
+{0} pending approval lines,{0} 条明细审批中
+{0} unverified lines excluded,{0} 条未核实明细未计入
+{0}–{1} of {2},第 {0}–{1} 条，共 {2} 条
+Expense management navigation conflicts with an existing page.,支出管理导航与现有页面冲突，请检查页面归属。
+All categories,全部分类
+Comparison details,查看比较口径
+Next month,下个月
+Next page,下一页
+Previous month,上个月
+This month,本月
+All statuses,全部状态
+Verified approvals only,仅已核实审批支出

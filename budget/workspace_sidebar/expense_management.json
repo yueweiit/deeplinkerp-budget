@@ -1,0 +1,51 @@
+{
+ "app": "budget",
+ "doctype": "Workspace Sidebar",
+ "header_icon": "receipt-text",
+ "items": [
+  {
+   "type": "Link",
+   "label": "Expense Overview",
+   "link_type": "Page",
+   "link_to": "expense-management",
+   "icon": "layout-dashboard",
+   "child": 0
+  },
+  {
+   "type": "Link",
+   "label": "Expenditure Analysis",
+   "link_type": "Page",
+   "link_to": "expense-analysis",
+   "icon": "chart-no-axes-combined",
+   "child": 0
+  },
+  {
+   "type": "Link",
+   "label": "Budget Execution",
+   "link_type": "Page",
+   "link_to": "expense-budget",
+   "icon": "chart-no-axes-combined",
+   "child": 0
+  },
+  {
+   "type": "Link",
+   "label": "Expense Details",
+   "link_type": "Page",
+   "link_to": "expense-details",
+   "icon": "list",
+   "child": 0
+  },
+  {
+   "type": "Link",
+   "label": "Data Review",
+   "link_type": "Page",
+   "link_to": "expense-review",
+   "icon": "clipboard-check",
+   "child": 0
+  }
+ ],
+ "module": "Budget",
+ "name": "Expense Management",
+ "standard": 1,
+ "title": "Expense Management"
+}

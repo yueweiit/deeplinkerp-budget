@@ -1,0 +1,16 @@
+{
+ "doctype": "Page",
+ "name": "expense-details",
+ "page_name": "expense-details",
+ "module": "Budget",
+ "title": "Expense Details",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  }
+ ]
+}

@@ -1,0 +1,16 @@
+{
+ "doctype": "Page",
+ "name": "expense-management",
+ "page_name": "expense-management",
+ "module": "Budget",
+ "title": "Expense Overview",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  }
+ ]
+}

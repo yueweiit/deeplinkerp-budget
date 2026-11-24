@@ -661,3 +661,68 @@ Cross-region expense allocation,Asignación de gastos entre regiones
 Cross-region allocation requires review,La asignación entre regiones requiere revisión
 Approval source,Origen de aprobación
 Expense ownership is being updated automatically. Please wait.,La asignación de gastos se está actualizando automáticamente. Espere un momento.
+Amount in CNY,Importe en CNY
+Amount in MXN,Importe en MXN
+Amount is not finalized,Importe pendiente de confirmar
+Approved expenses by application month; approval does not confirm payment.,Gastos aprobados por mes de solicitud; la aprobación no confirma el pago.
+Budget policy,Criterios presupuestarios
+Budgets keep their budget month. The latest approved budget per subsidiary is used; a missing budget is not zero.,Se conserva el mes presupuestario y el último presupuesto aprobado de cada filial. La ausencia de presupuesto no equivale a cero.
+CN approval and budget settings,Aprobaciones y configuración presupuestaria CN
+CNY and MXN are converted independently from original amounts using the application month-start rate.,CNY y MXN se convierten por separado desde el importe original con el tipo de cambio del primer día del mes de solicitud.
+CNY exchange rate,Tipo de cambio a CNY
+CNY primary · MXN secondary,CNY principal · MXN secundario
+Compared with the same period last month,Comparación con el mismo período del mes anterior
+"Current-month comparison uses matching elapsed days. Incomplete sources, unverified data or missing history disable comparison.","El mes actual se compara por los mismos días transcurridos. No se compara si faltan fuentes, datos verificados o historial."
+Date source,Origen de la fecha
+Detail lines,Líneas de detalle
+Expenditure Analysis,Análisis de gastos
+Expense Details,Detalle de gastos
+Expense Management,Gestión de gastos
+Expense Overview,Resumen de gastos
+Expense allocation storage is not installed. Run the application migration.,El almacenamiento de asignaciones no está instalado. Ejecute la migración de la aplicación.
+Expense analysis exceeds 50000 detail lines. Narrow the configured scope.,El análisis supera 50000 líneas. Reduzca el alcance configurado.
+Expense composition,Composición de gastos
+Expense data could not be loaded. Retry or check the source workbenches.,No se pudieron cargar los gastos. Reintente o revise los paneles de origen.
+Expense detail,Detalle del gasto
+Expense detail is unavailable or outside your permitted scope.,El detalle no está disponible o está fuera de sus permisos.
+Expense export exceeds 20000 rows. Narrow the subsidiary or category.,La exportación supera 20000 filas. Reduzca las filiales o categorías.
+Expense line identity needs review,Debe revisarse la identidad de la línea de gasto
+Export failed,Error de exportación
+Included in approved expenditure,Incluido en gastos aprobados
+Invalid expense management filters.,Filtros de gestión de gastos inválidos.
+Invalid expense page offset.,Desplazamiento de página de gastos inválido.
+Last six months,Últimos seis meses
+Loading expense data…,Cargando datos de gastos…
+MX financial reconciliation,Conciliación financiera MX
+MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.,Los formularios MX sin campo de fecha de solicitud usan la fecha de envío a OA. Las fechas inválidas o contradictorias requieren revisión.
+MXN exchange rate,Tipo de cambio a MXN
+Missing exchange rates are shown as unavailable; no partial currency total is presented.,"Si falta un tipo de cambio, el total de esa moneda no está disponible; no se presenta un total parcial."
+No local approval snapshot is available yet.,Todavía no hay una instantánea local de aprobaciones.
+No records in this month,Sin registros este mes
+No verified budget,Sin presupuesto verificado
+Not comparable,No comparable
+OA submission date,Fecha de envío a OA
+Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.,Solo se incluyen gastos con asignación e importes verificados. Los gastos sin filial o fecha permanecen en Revisión de datos.
+Previous page,Página anterior
+Reporting policy,Criterios del informe
+Review unassigned expenses,Revisar gastos sin asignar
+Share,Participación
+Snapshot complete,Instantánea completa
+Source data incomplete,Datos de origen incompletos
+Subsidiaries,Filiales
+Subsidiary expense overview,Resumen de gastos por filial
+Verified approved expenditure,Gasto aprobado verificado
+{0} applications · {1} lines,{0} solicitudes · {1} líneas
+{0} lines without application dates,{0} líneas sin fecha de solicitud
+{0} pending approval lines,{0} líneas pendientes de aprobación
+{0} unverified lines excluded,{0} líneas sin verificar excluidas
+{0}–{1} of {2},{0}–{1} de {2}
+Expense management navigation conflicts with an existing page.,La navegación de gastos entra en conflicto con una página existente.
+All categories,Todas las categorías
+Comparison details,Ver criterios de comparación
+Next month,Mes siguiente
+Next page,Página siguiente
+Previous month,Mes anterior
+This month,Este mes
+All statuses,Todos los estados
+Verified approvals only,Solo gastos aprobados verificados

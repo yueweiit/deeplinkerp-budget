@@ -6,15 +6,31 @@
 > **命名**：app 按业务域命名（对齐 `china_finance` / `overseas_costing` / `mes_integration`），
 > 不按数据源命名。钉钉与 `dingtalk_oa` 库只是数据来源，不是这个 app 的边界。
 
-导航入口为“支出（CN）”（`China Operating Expenses`）。独立安装保留预算台账、预算看板和预算额度入口；与 `deeplinkerp_branding` 联合安装时整合进 CN 工作台。Sidebar、Desktop Icon 及每个 Page/DocType 仍按原生权限过滤，不额外授权业务数据。
+与新版 `deeplinkerp_branding` 联合安装且拥有全部统一页面权限时，主入口为“支出管理”（`Expense Management`），合并原 CN、MX 的管理统计入口。仅拥有原区域权限的用户及独立安装继续使用原入口。Sidebar、Desktop Icon 及每个 Page/DocType 仍按原生权限过滤，不额外授权业务数据。
 
-联合安装新版 `deeplinkerp_branding` 时，CN 采用全新的**只读审批工作台**：经营总览、预算执行、支出分析、报表中心、审批台账、数据核对。覆盖预算申报、运营支出、采购支出三类单据，保留审批原单入口。查看页面和刷新不会办理付款、记账、修改 OA 审批或同步预算台账。
+原 CN **只读审批工作台**继续提供经营总览、预算执行、支出分析、报表中心、审批台账、数据核对，作为审批核对及配置入口保留。覆盖预算申报、运营支出、采购支出三类单据，保留审批原单入口。查看页面和刷新不会办理付款、记账、修改 OA 审批或同步预算台账。
 
 页面实现位于 `public/js/cn_approval_workbench.js`、`public/js/cn_approval_management.js`、`public/css/cn_approval_workbench.css`，品牌 App 的 `china_expenses_page.js` 只负责选择并加载资源。复用四个现有 Page，Budget 新增预算执行与报表中心两个 Page；未新增会计业务表。`budget.setup.cn_navigation_items` 仅在六个 Page 都存在时启用新侧栏；品牌 App 的导航合并不会给新只读工作台插入手工日记账。侧栏种子文件直接定义新版六个页面与三个可折叠分组，避免标准元数据同步重新写入旧三项菜单。仅独立安装或 CN 页面尚未安装完整时，安装/迁移钩子显式生成兼容入口；品牌 App 未安装时不使用残留 CN Page 记录。独立 Budget、品牌 App 备用页面及既有财务服务保留各自权限。
 
 ERPNext 的“预算”恢复在“会计”文件夹下，保留原生 Budget、Cost Center、Accounting Dimension、Cost Center Allocation、Budget Variance 五个入口。本 App 的 `setup.apply_budget_nav` 在安装/迁移时清理旧导航挂载，同步独立 CN 入口；`public/js/budget_navigation.js` 清理定制页面旧的 Budget 侧栏记忆，并在 CN 启用时于 Page 渲染前处理退役地址。旧菜单与 CN 旧页面挂载逻辑移除，旧收藏链接只转入新版，不在旧地址下展示新正文。DocType、台账数据及接口保留，不把 MX 排除明细自动写入国内财务数据。导航定义见 `budget/workspace_sidebar/china_operating_expenses.json` 和 `budget/desktop_icon/china_operating_expenses.json`。
 
 模块文档：[docs/README.md](docs/README.md) — 分层、接口清单、配置、错误处理、时序。
+
+## 统一支出管理（2026-11-24）
+
+五个新 Page：`expense-management`（子公司总览）、`expense-analysis`（费用构成/近六个月）、`expense-budget`（公司预算执行）、`expense-details`、`expense-review`。首页默认当月、全部获授权子公司；仅提供月份、子公司、管理分类筛选，没有国家或展示币种选择。点击公司、类别或月份下钻，返回全部公司和原生侧栏切换保留月份。金额卡片/分类/趋势下钻使用可见的“仅已核实审批支出”范围，可切换全部状态；浏览器历史和重新加载保留选择。
+
+- **管理口径**：费用按明确申请日期所在月份、来源状态 `approved`、有效公司归属和可核实原币金额统计。用户确认的例外：MX 来源表单没有申请日期字段时使用已有 OA 提交日期 `request_date`，明细与导出标识 `date_basis=submission`。日期字段存在但空白、异常或冲突时继续待核对，不用提交日期掩盖。旧 CN 接口日期规则不变；旧 MX 财务通过日期口径不变，不能与新的已审批管理金额直接等同。
+- **唯一来源**：共享 `regional_expenses.management_projection()` 读取 CN/MX 分配，先按获授权公司过滤；审批的企业/实例身份去重后，补入未被共享分配接管的 CN 本地行。历史 MX 人工归属作为兼容例外读取该审批全部有效明细（含自动映射的同行），逐行检查公司及跨区权限，并保留排除与来源版本校验，不修改人工决定；已被共享分配接管的审批不再补读。仅有可见历史明细时也可展示、导出，但不据此宣称来源同步完整。预算申报独立保留，不能当支出相加。
+- **管理分类**：MX 分配原本不保存 CN 管理分类；统一报表传入当前分类规则，按原始类别完整路径在读取时精确映射，不回写分配记录。已保存的 CN 分类决定保持不变；未知 MX 类别仍进入未分类和数据核对。
+- **双币种**：人民币 CNY 为大字号主金额，比索 MXN 为小字号辅金额。两者分别从原币金额按该行申请月月初汇率计算，预算仍使用预算月。共享 `Conversion` 和 `reconcile_converted_lines()` 分配舍入尾差，计算使用完整分摊方案，因此只查看部分公司的结果也可与总表核对。API 金额使用十进制字符串；任一纳入行缺少某币种汇率时，该币种合计为 `null`，不返回部分合计或假零。原币、两个金额、汇率、日期来源均可查验和导出。
+- **预算**：复用最新已审批公司/月预算规则。没有预算、预算版本不确定或金额缺失时，相应预算/差额/执行率不可用；不以另一公司的预算掩盖缺口。筛选“未分类”时复用 `unclassified_comparison()`，保留预算和支出金额，但差额、预计差额和执行率不可用，不生成缺预算或超支判断。预算页 Excel 独立导出同口径公司预算矩阵，其他页面按当前明细范围导出。
+- **完整性**：未归属、无日期、金额问题留在数据核对；已核实支出旁明确提示排除数量，汇率缺失不冒充完整金额。来源同步不完整、两期数据待核对或缺少可比较历史时不显示变化率；当月使用同期已过天数，完整月份比较自然月。统计说明、日期来源及更新时间集中在“统计口径”弹窗。刷新只重读已有快照；使用已有自动归属重算守卫，不主动请求 OA 同步。
+- **权限和兼容**：新 Page 与 API 均要求 `System Manager` / `Accounts Manager`，聚合、明细、导出共用授权范围；不向调用方返回完整分摊方案或其他公司的原始审批。`expense_navigation.boot()` 只在统一 Page 原生授权与侧栏完整时隐藏旧桌面图标，旧 URL、原财务核对和配置仍可从菜单访问，未扩大 `Accounts User` 权限。独立 Budget/版本不完整的站点保留原导航。
+
+代码入口：`budget/services/expense_management.py`、`budget/api/expenses.py`、`budget/public/js/expense_management.js`、`budget/public/css/expense_management.css`、`budget/expense_navigation.py`。API 为 `budget.api.expenses.get_options/get_data/get_detail/export_data`；筛选键为 `month/company/category/view/measure`，`get_data` 明细每页 50 行，导出上限 20000 行。没有新增业务字段或数据表；五个 Page、Sidebar、Icon 由安装/迁移钩子同步。英文、中文、西文资源在现有 CSV 中维护。
+
+发布须同时更新两个 App，按目标站点既有发布流程同步 Page/导航和资源、翻译缓存，浏览器完整刷新。开发验证分开记录：Python 合成数据回归；浏览器使用真实前端资源和模拟 API 检查交互；`dev.localhost` 定向安装新页面并验证真实 boot 与本地快照读取。以上不代表生产部署或生产数据验收。
 
 ## CN 只读审批工作台（2026-11-20）
 

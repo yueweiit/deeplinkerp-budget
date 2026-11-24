@@ -1,0 +1,16 @@
+{
+ "doctype": "Page",
+ "name": "expense-review",
+ "page_name": "expense-review",
+ "module": "Budget",
+ "title": "Data Review",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  }
+ ]
+}

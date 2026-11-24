@@ -5,7 +5,7 @@ app_description = "预算与费用审批：钉钉开放平台接口 + OA 只读�
 app_email = "308642281@qq.com"
 app_license = "mit"
 
-boot_session = "budget.setup.boot_session"
+boot_session = ["budget.setup.boot_session", "budget.expense_navigation.boot"]
 
 app_include_js = [
 	"/assets/budget/js/budget_navigation.js",
@@ -18,11 +18,11 @@ app_include_js = [
 # 站点开着 scheduler 时走 daily_long；站点 enable_scheduler=0 时由外部 cron 调
 # budget.services.oa_budget_sync.scheduled_sync，两者链路完全一致（含每日整表对账）。
 
-# CN 定制入口独立于 ERPNext 原生 Budget。迁移时清理旧预算导航挂载并
-# 同步 CN Sidebar/Icon；只改变导航，不迁移或删除预算业务数据。
-after_install = ["budget.setup.apply_budget_nav"]
-after_migrate = ["budget.setup.apply_budget_nav"]
-before_uninstall = ["budget.setup.restore_budget_nav"]
+# 定制入口独立于 ERPNext 原生 Budget；同步 CN 兼容入口和统一支出管理入口。
+# 统一入口按原生 Page 权限显示，不迁移或删除预算、审批业务数据。
+after_install = ["budget.setup.apply_budget_nav", "budget.expense_navigation.install"]
+after_migrate = ["budget.setup.apply_budget_nav", "budget.expense_navigation.install"]
+before_uninstall = ["budget.expense_navigation.uninstall", "budget.setup.restore_budget_nav"]
 
 # 只读 PG 连接按请求复用，响应返回后统一关闭，避免连接泄漏（见 integrations/pg.py）
 after_request = ["budget.integrations.pg.close_all"]

@@ -272,7 +272,12 @@ def convert_lines(rows, target, *, loader=None):
 	source-order tie break. It is calculated from the complete allocation
 	before company/category filtering, so subreports always reconcile.
 	"""
-	converted, adjustments = fx.convert(rows, target, loader=loader), {}
+	return reconcile_converted_lines(fx.convert(rows, target, loader=loader))
+
+
+def reconcile_converted_lines(converted):
+	"""Allocate rounding cents using the full source, before visibility filters."""
+	adjustments = {}
 	for row in converted:
 		parts = row.get("allocation_amounts") or []
 		if not parts or row.get("exchange_rate") is None:

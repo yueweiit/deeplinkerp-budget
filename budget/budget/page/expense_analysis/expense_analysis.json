@@ -1,0 +1,16 @@
+{
+ "doctype": "Page",
+ "name": "expense-analysis",
+ "page_name": "expense-analysis",
+ "module": "Budget",
+ "title": "Expenditure Analysis",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  }
+ ]
+}

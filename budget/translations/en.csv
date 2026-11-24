@@ -3,3 +3,101 @@ CN Approval Workspace,Expenses (CN)
 Cross-region expense allocation,Cross-region expense allocation
 Cross-region allocation requires review,Cross-region allocation requires review
 Approval source,Approval source
+All Subsidiaries,All Subsidiaries
+Amount,Amount
+Amount in CNY,Amount in CNY
+Amount in MXN,Amount in MXN
+Amount is not finalized,Amount is not finalized
+Application date,Application date
+Application month,Application month
+Applications,Applications
+Approval number,Approval number
+Approval status,Approval status
+Approved budget occupation,Approved budget occupation
+Approved expenses by application month; approval does not confirm payment.,Approved expenses by application month; approval does not confirm payment.
+Budget Execution,Budget Execution
+Budget difference,Budget difference
+Budget execution rate,Budget execution rate
+Budget policy,Budget policy
+Budgets keep their budget month. The latest approved budget per subsidiary is used; a missing budget is not zero.,Budgets keep their budget month. The latest approved budget per subsidiary is used; a missing budget is not zero.
+CN approval and budget settings,CN approval and budget settings
+CNY and MXN are converted independently from original amounts using the application month-start rate.,CNY and MXN are converted independently from original amounts using the application month-start rate.
+CNY exchange rate,CNY exchange rate
+CNY primary · MXN secondary,CNY primary · MXN secondary
+Company budget execution,Company budget execution
+Company not matched,Company not matched
+Compared with the same period last month,Compared with the same period last month
+Comparison period,Comparison period
+"Current-month comparison uses matching elapsed days. Incomplete sources, unverified data or missing history disable comparison.","Current-month comparison uses matching elapsed days. Incomplete sources, unverified data or missing history disable comparison."
+Data Review,Data Review
+Data updated at,Data updated at
+Date source,Date source
+Detail item,Detail item
+Detail lines,Detail lines
+Detail total differs from the application amount,Detail total differs from the application amount
+Effective budget,Effective budget
+Exchange rate date,Exchange rate date
+Expenditure Analysis,Expenditure Analysis
+Expense Details,Expense Details
+Expense Management,Expense Management
+Expense Overview,Expense Overview
+Expense allocation storage is not installed. Run the application migration.,Expense allocation storage is not installed. Run the application migration.
+Expense analysis exceeds 50000 detail lines. Narrow the configured scope.,Expense analysis exceeds 50000 detail lines. Narrow the configured scope.
+Expense composition,Expense composition
+Expense data could not be loaded. Retry or check the source workbenches.,Expense data could not be loaded. Retry or check the source workbenches.
+Expense detail,Expense detail
+Expense detail is unavailable or outside your permitted scope.,Expense detail is unavailable or outside your permitted scope.
+Expense export exceeds 20000 rows. Narrow the subsidiary or category.,Expense export exceeds 20000 rows. Narrow the subsidiary or category.
+Expense line identity needs review,Expense line identity needs review
+Expense ownership is being updated automatically. Please wait.,Expense ownership is being updated automatically. Please wait.
+Export Excel,Export Excel
+Export failed,Export failed
+In progress,In progress
+Included in approved expenditure,Included in approved expenditure
+Invalid expense management filters.,Invalid expense management filters.
+Invalid expense page offset.,Invalid expense page offset.
+Last six months,Last six months
+Loading expense data…,Loading expense data…
+MX financial reconciliation,MX financial reconciliation
+MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.,MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.
+MXN exchange rate,MXN exchange rate
+Management category,Management category
+Missing exchange rates are shown as unavailable; no partial currency total is presented.,Missing exchange rates are shown as unavailable; no partial currency total is presented.
+Needs review,Needs review
+No local approval snapshot is available yet.,No local approval snapshot is available yet.
+No local approval snapshot is available yet. Wait for synchronization before exporting.,No local approval snapshot is available yet. Wait for synchronization before exporting.
+No records in this month,No records in this month
+No verified budget,No verified budget
+Not comparable,Not comparable
+OA submission date,OA submission date
+Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.,Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.
+Original amount,Original amount
+Previous page,Previous page
+Refresh,Refresh
+Reporting policy,Reporting policy
+Retry,Retry
+Review issues,Review issues
+Review unassigned expenses,Review unassigned expenses
+Share,Share
+Snapshot complete,Snapshot complete
+Source data incomplete,Source data incomplete
+Subsidiaries,Subsidiaries
+Subsidiary expense overview,Subsidiary expense overview
+Verified approved expenditure,Verified approved expenditure
+You do not have permission to view this subsidiary.,You do not have permission to view this subsidiary.
+{0} applications · {1} lines,{0} applications · {1} lines
+{0} lines without application dates,{0} lines without application dates
+{0} pending approval lines,{0} pending approval lines
+{0} unverified lines excluded,{0} unverified lines excluded
+{0}–{1} of {2},{0}–{1} of {2}
+Expense management navigation conflicts with an existing page.,Expense management navigation conflicts with an existing page.
+All categories,All categories
+Comparison details,Comparison details
+Next month,Next month
+Next page,Next page
+Previous month,Previous month
+This month,This month
+All statuses,All statuses
+Verified approvals only,Verified approvals only
+Budget month,Budget month
+Reporting month,Reporting month
