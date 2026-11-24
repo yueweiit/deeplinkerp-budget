@@ -83,6 +83,55 @@ def test_first_sync_is_distinct_from_a_successful_empty_snapshot(runtime):
 	assert sync.get_status()['auto_sync_due'] is False
 
 
+@pytest.mark.parametrize('seconds, due', [(299, False), (300, True), (301, True)])
+def test_auto_sync_becomes_due_after_five_minutes_without_shortening_worker_lease(runtime, seconds, due):
+	record = runtime.records[runtime.key]
+	record.update(last_success_at=runtime.now - timedelta(seconds=seconds),
+		queued_at=runtime.now - timedelta(seconds=seconds))
+	assert sync.get_status()['auto_sync_due'] is due
+	record.update(sync_status='running', started_at=runtime.now - timedelta(seconds=seconds),
+		heartbeat_at=runtime.now - timedelta(seconds=seconds))
+	assert sync.get_status()['active']
+	assert not sync.get_status()['auto_sync_due']
+
+
+def scheduled_runtime(runtime, monkeypatch):
+	monkeypatch.setattr(frappe, 'get_installed_apps', lambda: ['deeplinkerp_branding'])
+	monkeypatch.setattr(frappe.db, 'table_exists', lambda doctype: True, raising=False)
+	return runtime.records[runtime.key]
+
+
+def test_cron_runs_next_five_minute_tick_even_when_previous_scan_finished_later(runtime, monkeypatch):
+	record = scheduled_runtime(runtime, monkeypatch)
+	started = runtime.now
+	record.update(queued_at=started, last_success_at=started + timedelta(seconds=20))
+	runtime.now = started + timedelta(minutes=5)
+	assert not sync.get_status()['auto_sync_due'], 'page freshness backoff is unchanged'
+	sync.scheduled_sync()
+	assert record['sync_status'] == 'queued'
+	assert len(runtime.callbacks) == 1
+	# A concurrent scheduler/page attempt must reuse the claim even before enqueue.
+	sync.scheduled_sync()
+	assert len(runtime.callbacks) == 1
+
+
+@pytest.mark.parametrize('state', ['queued', 'running'])
+def test_cron_reuses_live_job_instead_of_starting_another_scan(runtime, monkeypatch, state):
+	record = scheduled_runtime(runtime, monkeypatch)
+	record.update(sync_status=state, queued_at=runtime.now - timedelta(minutes=5),
+		started_at=runtime.now - timedelta(minutes=5), heartbeat_at=runtime.now)
+	sync.scheduled_sync()
+	assert record['sync_status'] == state
+	assert not runtime.callbacks
+
+
+def test_cron_respects_disabled_sync(runtime, monkeypatch):
+	scheduled_runtime(runtime, monkeypatch)
+	monkeypatch.setattr(sync, 'enabled', lambda: False)
+	sync.scheduled_sync()
+	assert not runtime.callbacks
+
+
 def test_region_filtered_snapshot_requires_one_rebuild_then_reuses_local_data(runtime, monkeypatch):
 	# Before region filtering was removed, the durable key excluded the version.
 	legacy_key = hashlib.sha256(json.dumps(['url', []], sort_keys=True).encode()).hexdigest()

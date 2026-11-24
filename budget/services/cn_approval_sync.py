@@ -13,7 +13,7 @@ from ..integrations import cn_approval_source as source
 from ..integrations import cn_approval_store as store
 from . import cn_approval_settings as settings
 
-SYNC_INTERVAL = 900
+SYNC_INTERVAL = 300
 QUEUE_LEASE = 900
 # Leave time after the scan for ownership projection and atomic publication.
 JOB_TIMEOUT = source.SCAN_TIMEOUT + 300
@@ -67,7 +67,7 @@ def status(record=None, *, key=None):
 def get_status():
 	url, templates = source.configuration()
 	key = identity(url, templates)
-	return status(store.read(key), key=key)
+	return {**status(store.read(key), key=key), "configured": bool(templates)}
 
 
 def read_snapshot():
@@ -231,4 +231,7 @@ def scheduled_sync():
 		source.configuration()
 	except (frappe.ValidationError, ImportError):
 		return
-	request_sync(if_stale=True)
+	# Cron already provides the five-minute cadence. Measuring freshness from
+	# scan completion as well would skip the next tick after a nonzero-duration
+	# scan. claim_sync still reuses queued/running jobs under its database lock.
+	request_sync()

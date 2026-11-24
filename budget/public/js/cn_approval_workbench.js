@@ -5,7 +5,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
 	"use strict";
 	const ENDPOINT = "budget.api.cn_approvals.";
-	const AUTO_SYNC_BACKOFF = 15 * 60 * 1000;
+	const AUTO_SYNC_BACKOFF = 5 * 60 * 1000;
 	const SYNC_ERRORS = new Map([
 		["sync_timeout", "Synchronization timed out. Retry synchronization."],
 		["scan_timeout", "Approval scanning exceeded its time limit. Retry synchronization."],

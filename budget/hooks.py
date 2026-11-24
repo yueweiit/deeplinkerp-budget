@@ -32,7 +32,7 @@ after_request = ["budget.integrations.pg.close_all"]
 # 需要立刻更新时分别调 budget.api.budget_ledger.sync_budget_entries 与
 # budget.services.quota_sync.run_quota_sync。
 scheduler_events = {
-	"cron": {"*/15 * * * *": ["budget.services.cn_approval_sync.scheduled_sync"]},
+	"cron": {"*/5 * * * *": ["budget.services.cn_approval_sync.scheduled_sync"]},
 	"daily_long": [
 		"budget.services.budget_ledger_sync.sync_budget_entries",
 	],
