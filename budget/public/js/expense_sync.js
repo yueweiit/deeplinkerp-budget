@@ -264,6 +264,7 @@
       const paths = [
         "/assets/budget/css/cn_approval_workbench.css",
         "/assets/budget/js/cn_approval_settings.js",
+        "/assets/budget/js/expense_company_mappings.js",
         "/assets/budget/js/expense_sync_settings.js",
       ];
       try {

@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const settings = require("../public/js/expense_sync_settings.js");
 const helpers = require("../public/js/cn_approval_settings.js");
+const mappings = require("../public/js/expense_company_mappings.js");
 const {esc} = require("../public/js/cn_approval_workbench.js");
 
 function runtime() {
@@ -15,6 +16,9 @@ function runtime() {
   global.__ = (key,args=[]) => key.replace(/\{(\d+)\}/g, (_, index) => args[index] ?? `{${index}}`);
   global.CNApprovalSettings = {...helpers,
     guardGrid() {}, flushGridEditors(grid) {state.flushed.push(grid.name);}};
+  global.ExpenseCompanyMappings = {...mappings, Controller: class extends mappings.Controller {
+    constructor(options) { super(options); state.mappingEditor = this; }
+  }};
   global.frappe = {utils:{escape_html:esc},
     call:async args => {state.calls.push(args);if (state.fail && args.method.endsWith("save_sync_settings")) throw Error("rejected");return {message:saved};},
     msgprint:text=>state.alerts.push(text), show_alert:text=>state.alerts.push(text),
@@ -27,11 +31,18 @@ function runtime() {
           value:"",events:{},text(value){this.value=value;},html(value){this.value=value;},empty(){this.value="";},
           find(selector){return {on:(_event,handler)=>{this.events[selector]=handler;}};}
         }}]));
+        for (const field of Object.values(this.fields_dict)) {
+          const nodes=new Map();
+          field.$wrapper[0] = {
+            ownerDocument:{activeElement:null}, contains:()=>false, addEventListener(){},removeEventListener(){},
+            querySelector(selector){if(!nodes.has(selector))nodes.set(selector,{});return nodes.get(selector);},
+          };
+        }
         this.$wrapper={addClass(){}};
       }
       get_values(){return state.values ||= {sync_mode:"mixed",business_timezone:saved.business_timezone,
         common_corp_id:saved.template_defaults.corp_id,common_processing_rule:saved.template_defaults.processing_rule,
-        templates:saved.templates,company_mappings:[],warning_percent:90,
+        templates:saved.templates,company_mappings:this.fields_dict.company_mappings.grid.get_data(),warning_percent:90,
         category_mappings:this.fields_dict.category_mappings.df.data};}
       get_value(name){return this.get_values()[name];}
       show(){this.visible=this.is_visible=true;} hide(){this.visible=this.is_visible=false;this.config.onhide?.();}
@@ -162,18 +173,49 @@ test("category candidates display a path but submit the untouched JSON identity"
   assert.equal(dialog.fields_dict.company_mappings.df.fields.find(f=>f.fieldname==="source_name").fieldtype,"Small Text");
 });
 
-test("candidate requests are explicit, escape source content, and ignore late responses",async()=>{
+test("the combined mapping workspace reads local candidates, escapes names and ignores closed responses",async()=>{
   const state=runtime(), dialog=await settings.open();
   assert.equal(state.calls.length,1);
+  assert.equal(dialog.fields_dict.company_mappings.df.hidden,1);
+  assert.equal(dialog.fields_dict.discover_organizations,undefined);
+  assert.equal(dialog.fields_dict.discover_entities,undefined);
   global.frappe.call=async()=>({message:{rows:[{corp_id:"corp",source_name:"<img src=x>",count:2}],start:0,has_more:true}});
-  await dialog.fields_dict.discover_organizations.df.click();
-  const wrapper=dialog.fields_dict.organizations_candidates.$wrapper;
-  assert.match(wrapper.value,/&lt;img src=x&gt;/);assert.doesNotMatch(wrapper.value,/<img/);
-  let resolve;
-  global.frappe.call=()=>new Promise(done=>{resolve=done;});
-  const pending=dialog.fields_dict.discover_organizations.df.click();
-  dialog.hide();resolve({message:{rows:[],has_more:false}});await pending;
-  assert.equal(wrapper.value,"Loading approvals…");
+  // The expense stream has its own matching domain even for identical labels.
+  global.frappe.call=async args=>({message:{rows:[{corp_id:"corp",match_kind:"entity",source_name:"<img src=x>",count:2}],start:args.args.start,has_more:true}});
+  await state.mappingEditor.load();
+  const element=dialog.fields_dict.company_mapping_workspace.$wrapper[0];
+  const html=element.querySelector('[data-mapping-part="results"]').innerHTML;
+  assert.match(html,/&lt;img src=x&gt;/);assert.doesNotMatch(html,/<img/);
+  const before=state.mappingEditor.model.candidates.size, resolves=[];
+  global.frappe.call=()=>new Promise(done=>{resolves.push(done);});
+  const pending=state.mappingEditor.load();
+  dialog.hide();resolves.forEach(resolve=>resolve({message:{rows:[],has_more:false}}));await pending;
+  assert.equal(state.mappingEditor.model.candidates.size,before);
+  assert.equal(state.mappingEditor.active,false);
+});
+
+test("mapping filters do not truncate the atomic settings payload and failed saves retain drafts",async()=>{
+  const state=runtime(), dialog=await settings.open(), editor=state.mappingEditor;
+  editor.model.put({match_kind:"entity",source_name:"One",company:"MX"});
+  editor.model.put({match_kind:"organization",corp_id:"corp",source_name:"Two",company:"CN"});
+  editor.tab="mapped";editor.query="One";editor.render();
+  assert.equal(editor.visible.length,1);
+  state.fail=true;
+  await assert.rejects(dialog.config.primary_action(),/rejected/);
+  assert.equal(editor.model.rows.length,2);
+  assert.equal(editor.active,true);
+  state.fail=false;
+  await dialog.config.primary_action();
+  assert.equal(state.calls.at(-1).args.values.company_mappings.length,2);
+  assert.equal(editor.active,false);
+});
+
+test("clearing all mappings sends an explicit empty list when native Table omits its value",async()=>{
+  const state=runtime(), dialog=await settings.open();
+  state.values=dialog.get_values();
+  delete state.values.company_mappings;
+  await dialog.config.primary_action();
+  assert.deepEqual(state.calls.at(-1).args.values.company_mappings,[]);
 });
 
 test("pasted codes normalize before save and duplicate checks without rewriting historical identities",async()=>{

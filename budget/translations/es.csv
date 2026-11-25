@@ -814,3 +814,42 @@ The first synchronization reads all approvals. Changes synchronize every 5 minut
 Synchronizing OA approvals and recalculating local mappings…,Sincronizando aprobaciones de OA y recalculando asignaciones locales…
 Synchronizing OA approvals…,Sincronizando aprobaciones de OA…
 Recalculating local mappings…,Recalculando asignaciones locales…
+Unmapped sources,Fuentes sin asignar
+Mapped sources,Fuentes asignadas
+Unsaved changes,Cambios sin guardar
+Refresh sources,Actualizar fuentes
+Add mapping manually,Añadir asignación manual
+Search mappings,Buscar asignaciones
+Source name or subsidiary,Nombre de origen o filial
+Source type,Tipo de origen
+All source types,Todos los tipos de origen
+All subsidiaries,Todas las filiales
+Choose a subsidiary,Seleccione una filial
+{0} selected on this page,{0} seleccionadas en esta página
+Batch subsidiary,Filial para asignación en lote
+Apply to selected sources,Aplicar a fuentes seleccionadas
+Some sources could not be loaded. Existing edits are retained.,No se pudieron cargar algunas fuentes. Se conservan los cambios realizados.
+Select this page,Seleccionar esta página
+Load local sources to assign their subsidiaries.,Cargue las fuentes sin asignar para elegir sus filiales.
+No mappings match the current filters.,No hay asignaciones que coincidan con los filtros actuales.
+Load unmapped sources,Ver fuentes sin asignar
+Loading mapping sources…,Cargando fuentes de asignación…
+{0} matching sources,{0} fuentes coinciden con los filtros
+Load more sources,Cargar más fuentes
+Search covers saved mappings and loaded sources. Changes take effect after Save Settings.,La búsqueda incluye las asignaciones guardadas y las fuentes cargadas. Los cambios se aplican al guardar la configuración.
+Removed in draft,Eliminación pendiente
+Not saved,Sin guardar
+Excluded,Excluida
+Mapped,Asignada
+Unmapped,Sin asignar
+Select {0},Seleccionar {0}
+Subsidiary for {0},Filial de {0}
+Undo,Deshacer
+Edit subsidiary mapping,Editar asignación de filial
+Apply to draft,Aplicar al borrador
+Choose a subsidiary available to every selected source.,Seleccione una filial disponible para todas las fuentes seleccionadas.
+Complete the source information first,Complete primero la información de origen
+A reason is required for non-Mexico expenses; leave the subsidiary empty,"Para excluir gastos del ámbito de México, indique el motivo y deje la filial vacía"
+Actions,Acciones
+Reason,Motivo
+Remove mapping,Quitar asignación

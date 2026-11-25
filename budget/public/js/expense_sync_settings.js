@@ -99,7 +99,9 @@
       sync_mode: values.sync_mode, business_timezone: values.business_timezone, processing_mode: "approval",
       versions: saved.versions, templates: values.templates.map(row => normalizeTemplate(inheritDefaults(row, defaults))),
       template_defaults: defaults, template_defaults_version: saved.template_defaults_version,
-      company_mappings: values.company_mappings,
+      // Native Table omits an empty value; clearing all mappings is still an
+      // explicit empty replacement in the versioned save command.
+      company_mappings: values.company_mappings || [],
       management_rules: {warning_percent: values.warning_percent,
         category_mappings: (values.category_mappings || []).map(row => ({kind: row.kind,
           source_path: typeof row.source_path === "string" ? JSON.parse(row.source_path) : row.source_path,
@@ -113,7 +115,7 @@
     const helpers = root.CNApprovalSettings;
     const persistedRows = new WeakSet(saved.templates), candidateSequences = {};
     const defaults = saved.template_defaults || {};
-    let dialog, saving = false, previewSequence = 0;
+    let dialog, mappingEditor, saving = false, previewSequence = 0;
     const commonValues = () => ({corp_id: dialog.get_value("common_corp_id") || ""});
     function invalidatePreview() {
       previewSequence++;
@@ -220,7 +222,10 @@
       }},
       {fieldname: "preview_result", fieldtype: "HTML"},
       {fieldname: "mapping_section", fieldtype: "Section Break", label: t("Subsidiary mappings"), collapsible: 1},
-      {fieldname: "company_mappings", label: t("Subsidiary mappings"), fieldtype: "Table", data: saved.company_mappings,
+      {fieldname: "company_mapping_workspace", fieldtype: "HTML"},
+      // Retain the native Table as the single payload/validation store. The
+      // mapping workspace edits this same array; filtering never drops rows.
+      {fieldname: "company_mappings", label: t("Subsidiary mappings"), fieldtype: "Table", hidden: 1, data: saved.company_mappings,
         fields: helpers.textFields([
           select("match_kind", "Match by", MATCHES, {reqd: 1, in_list_view: 1, columns: 2}),
           {fieldname: "corp_id", label: t("Corporation ID"), fieldtype: "Select", options: helpers.textOptions(saved.corporations), depends_on: doc => doc.match_kind === "organization"},
@@ -231,10 +236,6 @@
           {fieldname: "excluded", label: t("Keep outside legacy expense scope"), fieldtype: "Check", depends_on: doc => doc.match_kind !== "organization"},
           {fieldname: "reason", label: t("Reason"), fieldtype: "Small Text", depends_on: "eval:doc.excluded"},
         ])},
-      {fieldname: "discover_organizations", label: t("Unmapped source organizations"), fieldtype: "Button", click: () => loadCandidates("organizations")},
-      {fieldname: "organizations_candidates", fieldtype: "HTML"},
-      {fieldname: "discover_entities", label: t("Unmapped expense entities and departments"), fieldtype: "Button", click: () => loadCandidates("entities")},
-      {fieldname: "entities_candidates", fieldtype: "HTML"},
       {fieldname: "category_section", fieldtype: "Section Break", label: t("Management category mappings"), collapsible: 1},
       {fieldname: "warning_percent", label: t("Budget warning percentage"), fieldtype: "Percent", default: saved.management_rules.warning_percent, reqd: 1},
       {fieldname: "category_mappings", label: t("Management category mappings"), fieldtype: "Table", cannot_add_rows: true,
@@ -251,7 +252,7 @@
       {fieldname: "business_timezone", label: t("OA business timezone"), fieldtype: "Data", default: saved.business_timezone, reqd: 1, onchange: invalidatePreview},
     ];
     dialog = new root.frappe.ui.Dialog({title: t("Configure OA Synchronization"), size: "extra-large", fields,
-      onhide: invalidatePreview,
+      onhide: () => {invalidatePreview(); mappingEditor?.destroy();},
       // Native collapsible sections inspect layout.doc for required fields.
       doc: {warning_percent: saved.management_rules.warning_percent, business_timezone: saved.business_timezone,
         common_corp_id: defaults.corp_id || (saved.corporations.length === 1 ? saved.corporations[0] : "")},
@@ -266,13 +267,14 @@
         const error = validateTemplates(data.templates, saved.corporations);
         if (error) return root.frappe.msgprint(error);
         saving = true;
+        mappingEditor?.render();
         dialog.disable_primary_action();
         try {
           await call("save_sync_settings", {values: data});
           dialog.hide();
           await onSaved?.();
           root.frappe.show_alert({message: t("Settings saved; cached records will be rechecked"), indicator: "green"});
-        } finally { saving = false; dialog.enable_primary_action(); }
+        } finally { saving = false; dialog.enable_primary_action(); mappingEditor?.render(); }
       },
     });
     for (const name of ["templates", "company_mappings", "category_mappings"])
@@ -282,6 +284,12 @@
     dialog.fields_dict.templates.grid.wrapper.on("input.expense-sync-preview change.expense-sync-preview", invalidatePreview);
     dialog.$wrapper.addClass("cnaw-settings-dialog");
     dialog.show();
+    mappingEditor = new root.ExpenseCompanyMappings.Controller({
+      element: dialog.fields_dict.company_mapping_workspace.$wrapper[0],
+      grid: dialog.fields_dict.company_mappings.grid, saved, call,
+      isCurrent: () => dialog.is_visible && (!options.isCurrent || options.isCurrent()),
+      isSaving: () => saving,
+    });
     return dialog;
   }
   return {open, payload, appendCandidate, removeDraftTemplates, inheritDefaults, validateTemplates};

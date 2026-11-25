@@ -814,3 +814,42 @@ The first synchronization reads all approvals. Changes synchronize every 5 minut
 Synchronizing OA approvals and recalculating local mappings…,正在同步 OA 审批并重算本地映射…
 Synchronizing OA approvals…,正在同步 OA 审批…
 Recalculating local mappings…,正在重算本地映射…
+Unmapped sources,待映射
+Mapped sources,已映射
+Unsaved changes,本次修改
+Refresh sources,刷新来源
+Add mapping manually,手动添加映射
+Search mappings,搜索映射
+Source name or subsidiary,来源名称或子公司
+Source type,来源类型
+All source types,全部来源类型
+All subsidiaries,全部子公司
+Choose a subsidiary,选择子公司
+{0} selected on this page,本页已选 {0} 项
+Batch subsidiary,批量归属子公司
+Apply to selected sources,应用到已选来源
+Some sources could not be loaded. Existing edits are retained.,部分来源加载失败，已有修改已保留。
+Select this page,选择本页
+Load local sources to assign their subsidiaries.,加载待映射来源后，可直接选择归属子公司。
+No mappings match the current filters.,没有符合当前筛选条件的映射。
+Load unmapped sources,查看待映射来源
+Loading mapping sources…,正在加载映射来源…
+{0} matching sources,共 {0} 项符合筛选条件
+Load more sources,加载更多来源
+Search covers saved mappings and loaded sources. Changes take effect after Save Settings.,搜索范围为已保存映射及已加载来源；点击“保存设置”后，本次修改统一生效。
+Removed in draft,待移除
+Not saved,待保存
+Excluded,已排除
+Mapped,已映射
+Unmapped,待映射
+Select {0},选择 {0}
+Subsidiary for {0},{0} 的归属子公司
+Undo,撤销
+Edit subsidiary mapping,编辑子公司映射
+Apply to draft,应用到草稿
+Choose a subsidiary available to every selected source.,请选择所有已选来源均可使用的子公司。
+Complete the source information first,请先补全来源信息
+A reason is required for non-Mexico expenses; leave the subsidiary empty,排除墨西哥费用范围时，请填写原因并留空子公司
+Actions,操作
+Reason,原因
+Remove mapping,移除映射

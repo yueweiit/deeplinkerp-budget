@@ -199,3 +199,49 @@ The first synchronization reads all approvals. Changes synchronize every 5 minut
 Synchronizing OA approvals and recalculating local mappings…,Synchronizing OA approvals and recalculating local mappings…
 Synchronizing OA approvals…,Synchronizing OA approvals…
 Recalculating local mappings…,Recalculating local mappings…
+Unmapped sources,Unmapped sources
+Mapped sources,Mapped sources
+Unsaved changes,Unsaved changes
+Refresh sources,Refresh sources
+Add mapping manually,Add mapping manually
+Search mappings,Search mappings
+Source name or subsidiary,Source name or subsidiary
+Source type,Source type
+All source types,All source types
+All subsidiaries,All subsidiaries
+Choose a subsidiary,Choose a subsidiary
+{0} selected on this page,{0} selected on this page
+Batch subsidiary,Batch subsidiary
+Apply to selected sources,Apply to selected sources
+Some sources could not be loaded. Existing edits are retained.,Some sources could not be loaded. Existing edits are retained.
+Select this page,Select this page
+Load local sources to assign their subsidiaries.,Load local sources to assign their subsidiaries.
+No mappings match the current filters.,No mappings match the current filters.
+Load unmapped sources,Load unmapped sources
+Loading mapping sources…,Loading mapping sources…
+{0} matching sources,{0} matching sources
+Load more sources,Load more sources
+Search covers saved mappings and loaded sources. Changes take effect after Save Settings.,Search covers saved mappings and loaded sources. Changes take effect after Save Settings.
+Removed in draft,Removed in draft
+Not saved,Not saved
+Excluded,Excluded
+Mapped,Mapped
+Unmapped,Unmapped
+Select {0},Select {0}
+Subsidiary for {0},Subsidiary for {0}
+Undo,Undo
+Details,Details
+Edit subsidiary mapping,Edit subsidiary mapping
+Apply to draft,Apply to draft
+Choose a subsidiary available to every selected source.,Choose a subsidiary available to every selected source.
+Complete the source information first,Complete the source information first
+A reason is required for non-Mexico expenses; leave the subsidiary empty,A reason is required for non-Mexico expenses; leave the subsidiary empty
+Actions,Actions
+Reason,Reason
+Corporation ID,Corporation ID
+Next,Next
+Previous,Previous
+Status,Status
+Subsidiary,Subsidiary
+This source organization is already in the mapping table.,This source organization is already in the mapping table.
+Remove mapping,Remove mapping
