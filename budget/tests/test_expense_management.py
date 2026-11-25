@@ -89,8 +89,90 @@ def test_finance_date_issue_does_not_block_application_month_but_amount_pending_
 	assert not line(issues=["detail_mismatch"])["eligible"]
 
 
+def test_optional_management_classification_does_not_inflate_review_or_block_comparison(monkeypatch):
+	original = dict(key="source", source_key="source", company="A", number="source", month="2026-11",
+		application_date="2026-11-10", kind="operating", status="approved", amount="100", currency="CNY",
+		management_category="", issues=["management_category"], source_path=["Servicios", "Nómina"], budget_state="")
+	current = s.normalize(original)
+	assert original["issues"] == ["management_category"]
+	dataset(monkeypatch, [current, line("prior", amount="50", month="2026-10", application_date="2026-10-10",
+		management_category="", issues=["management_category"], source_path=["Servicios", "Nómina"])])
+	result = s.query()
+	assert result["summary"]["review"] == result["summary"]["excluded"] == 0
+	assert result["comparison"]["percent"] == "100.0"
+	assert s.query({"view": "review"})["rows"] == []
+	assert "management_category" not in s.ISSUES
+	assert "management_category" in s.management.ISSUES  # Legacy CN behavior is intact.
+
+
+@pytest.mark.parametrize("issue", ["amount", "organization", "period", "currency", "regional_allocation", "detail_mismatch"])
+def test_optional_classification_never_suppresses_blocking_validation(issue):
+	row = line(issues=["management_category", issue], management_category="")
+	assert row["issues"] == [issue]
+	assert not row["eligible"]
+
+
+def test_raw_category_identity_preserves_full_path_and_never_infers_from_description():
+	first = line(source_path=["Services / External", "Other"])
+	assert first["source_path"] == ["Services / External", "Other"]
+	assert first["source_category_key"] != line(source_path=["Services", "External / Other"])["source_category_key"]
+	assert first["source_category_key"] != line(source_path=["Services / External", "Other"], kind="purchase")["source_category_key"]
+	missing = line(source_path=[], description="Salary payroll", management_category="", issues=["management_category"])
+	assert missing["source_category_key"] == "missing" and missing["source_path"] == []
+	assert missing["eligible"] and not missing["issues"]
+
+
+def test_raw_category_aggregation_drilldown_and_export_reconcile_without_mapping(monkeypatch):
+	source = ["公用运营", "专业服务", "Nómina / gestión"]
+	a = line("a", amount="10", source_path=source, management_category="", issues=["management_category"])
+	b = line("b", amount="20", source_path=source, management_category="", issues=["management_category"])
+	other = line("other", amount="30", source_path=["另一类别"])
+	foreign = line("foreign", company="B", source_path=["Other company category"])
+	old = line("old", month="2026-10", application_date="2026-10-10", source_path=["Old month category"])
+	dataset(monkeypatch, [a, b, other, foreign, old])
+	f = {"company": "A", "source_category": a["source_category_key"]}
+	result = s.query(f)
+	assert result["summary"]["amounts"]["CNY"] == "30.00"
+	assert result["source_category_rows"][0]["source_path"] == source
+	assert result["source_category_rows"][0]["count"] == 2
+	assert {tuple(item["source_path"]) for item in result["source_categories"]} == {tuple(source), ("另一类别",)}
+	details = s.query({**f, "view": "details", "measure": "approved"})["rows"]
+	assert {item["key"] for item in details} == {"a", "b"}
+	assert details == s.export_rows(f)[0]
+	assert s.detail("a", f)["row"]["source_path"] == source
+	with pytest.raises(ValueError, match="permitted"):
+		s.detail("other", f)
+	assert not s.query({"source_category": "f" * 64})["summary"]["count"]
+
+
+def test_raw_category_filter_does_not_claim_a_budget_category_match(monkeypatch):
+	dataset(monkeypatch, [line("budget", kind="budget", budget_state="effective", amount="100",
+		management_category="", source_path=[]), line("expense", amount="20", management_category="", source_path=[])],
+		companies=("A",))
+	metrics = s.query({"view": "budget", "source_category": "missing"})["budgets"][0]["metrics"]["CNY"]
+	assert metrics["budget"] == "100.00" and metrics["approved"] == "20.00"
+	assert metrics["balance"] is metrics["forecast_balance"] is metrics["execution_rate"] is None
+	assert metrics["flags"] == ["incomplete"]
+
+
+def test_export_preserves_oa_categories_and_description_without_management_warnings(monkeypatch):
+	from budget.api import expenses as api
+	dataset(monkeypatch, [line("a", source_path=["Servicios", "Nómina"], description="Approval line text",
+		management_category="", issues=["management_category"])])
+	monkeypatch.setattr(api, "_", lambda value: value)
+	monkeypatch.setattr(api, "workbook", lambda data, filename: data)
+	data = api.export_data({"view": "details"})
+	headers = next(row for row in data if row and row[0] == "Approval number")
+	values = dict(zip(headers, data[-1]))
+	assert values["OA expense category"] == "Servicios"
+	assert values["OA expense subcategory"] == "Nómina"
+	assert values["Detail item"] == "Approval line text"
+	assert values["Review issues"] == values["Management category (optional)"] == ""
+	assert values["Amount in CNY"] == 100
+
+
 @pytest.mark.parametrize("values", [{"country":"Mexico"}, {"month":"2026-13"}, {"month":"2026-12"},
-	{"month":"1899-12"}, {"view":"other"}, {"category":"invented"}, []])
+	{"month":"1899-12"}, {"view":"other"}, {"category":"invented"}, {"source_category":"unrecognized"}, []])
 def test_invalid_or_unimplemented_filters_rejected(values):
 	with pytest.raises(ValueError): s.filters(values)
 
@@ -306,14 +388,17 @@ def test_legacy_manual_approval_keeps_mapped_siblings_once_in_totals_details_and
 		assert s.query({"company": "B"})["summary"]["amounts"]["CNY"] == "70.00"
 
 
-def test_legacy_category_identity_is_available_to_mapping_discovery_but_not_public_rows(monkeypatch):
+def test_legacy_source_categories_are_available_in_details_without_requiring_management_mapping(monkeypatch):
 	stored = legacy_dataset(monkeypatch)
 	for row in stored:
 		row.classification_path = '[{"label":"New source category"}]'
 	rows, _, _, _ = s.load()
 	assert all(row["source_path"] == ["New source category"] for row in rows)
 	assert all(not row["management_category"] for row in rows)
-	assert all("source_path" not in row for row in s.query({"view": "details"})["rows"])
+	details = s.query({"view": "details"})["rows"]
+	assert all(row["source_path"] == ["New source category"] for row in details)
+	assert all("management_category" not in row["issues"] for row in details)
+	assert s.query()["summary"]["review"] == 0
 
 
 def test_legacy_siblings_keep_company_and_regional_permissions(monkeypatch):

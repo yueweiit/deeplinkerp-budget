@@ -853,3 +853,12 @@ A reason is required for non-Mexico expenses; leave the subsidiary empty,"Para e
 Actions,Acciones
 Reason,Motivo
 Remove mapping,Quitar asignación
+OA expense category,Categoría de gasto de OA
+OA expense subcategory,Subcategoría de gasto de OA
+Category not provided,Categoría no indicada
+Selected OA category,Categoría de OA seleccionada
+Management category (optional),Categoría de gestión (opcional)
+Unified classification (optional),Clasificación unificada (opcional)
+Advanced: unified classification (optional),Configuración avanzada: clasificación unificada (opcional)
+OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.,Se utilizan directamente las categorías de OA. La clasificación unificada es opcional para resumir varias plantillas y comparar presupuestos por categoría.
+Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.,"Al filtrar por categoría de OA, no se calculan diferencias ni porcentajes de ejecución presupuestaria. Utilice categorías unificadas para comparar presupuestos por categoría."

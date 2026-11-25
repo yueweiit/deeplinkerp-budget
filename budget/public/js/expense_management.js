@@ -56,6 +56,12 @@
       amounts?.CNY
     )}</strong><small><span class="em-currency">MXN</span> ${textMoney(amounts?.MXN)}</small></span>`;
   }
+  function sourceLabels(row) {
+    const path = [...(row.source_path || [])];
+    const groups = {hr: "Personnel budget", office: "Office premises budget", operation: "Operating budget"};
+    if (row.kind === "budget" && groups[path[0]]) path[0] = t(groups[path[0]]);
+    return path;
+  }
   function readFilters(search) {
     let incoming;
     try {
@@ -67,6 +73,7 @@
       month: monthNow(),
       company: "",
       category: "",
+      source_category: "",
       measure: "",
     };
     if (incoming && typeof incoming === "object" && !Array.isArray(incoming)) {
@@ -226,7 +233,7 @@
       this.call("get_options")
         .then((options) => {
           if (!this.current() || optionsToken !== this.optionsSeq) return;
-          this.options = options;
+          this.options = { ...this.options, ...options };
           this.controls();
         })
         .catch(() => {
@@ -299,6 +306,11 @@
           )
           .join("")}</select></label>`;
       const companies = [...(this.options.companies || [])];
+      const sourceCategories = (this.options.source_categories || []).map((row) => [
+        row.key, sourceLabels(row).join(" / ") || t("Category not provided"),
+      ]);
+      if (f.source_category && !sourceCategories.some(([key]) => key === f.source_category))
+        sourceCategories.push([f.source_category, t("Selected OA category")]);
       // Preserve a failed/forbidden selection until the user explicitly clears it.
       if (f.company && !companies.includes(f.company))
         companies.push(f.company);
@@ -307,7 +319,7 @@
       ).innerHTML = `<div class="em-heading"><h2>${esc(
         f.company || t("Subsidiary expense overview")
       )}</h2><div class="em-heading-actions">${
-        f.company || f.category ? button("all", "All Subsidiaries") : ""
+        f.company || f.category || f.source_category ? button("all", "All Subsidiaries") : ""
       }${button(
         "policy",
         "Reporting policy"
@@ -335,14 +347,19 @@
         companies.map((name) => [name, name]),
         "All Subsidiaries"
       )}${select(
+        "source_category",
+        "OA expense category",
+        sourceCategories,
+        "All categories"
+      )}</div><details class="em-classification-options" ${f.category ? "open" : ""}><summary>${esc(t("Unified classification (optional)"))}</summary>${select(
         "category",
-        "Management category",
+        "Management category (optional)",
         [
           ...Object.entries(categories).map(([key, value]) => [key, t(value)]),
           ["unclassified", t("Unclassified")],
         ],
         "All categories"
-      )}</div>`;
+      )}<p class="em-muted">${esc(t("OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons."))}</p></details>`;
       const range = root.DeepLinkERPMexicoExpenseDateRange.wholeMonths(
         f.month,
         f.month
@@ -381,6 +398,7 @@
           ...this.options,
           companies: result.companies,
           categories: result.categories,
+          source_categories: result.source_categories,
           issues: result.issues,
         };
         if (!preserveControls) this.controls();
@@ -510,10 +528,10 @@
     }
     analysis() {
       const d = this.data,
-        rows = d.category_rows.map((row) => [
-          `<button class="em-link" data-action="category" data-category="${esc(
+        rows = (d.source_category_rows || []).map((row) => [
+          `<button class="em-link" data-action="source-category" data-category="${esc(
             row.category
-          )}">${esc(t(d.categories[row.category] || "Unclassified"))}</button>`,
+          )}">${esc(sourceLabels(row).join(" / ") || t("Category not provided"))}</button>`,
           dual(row.amounts),
           row.count,
         ]);
@@ -523,7 +541,7 @@
       );
       return `<div class="em-analysis"><section class="em-panel"><div class="em-panel-title"><h3>${esc(
         t("Expense composition")
-      )}</h3></div>${table(["Management category", "Verified approved expenditure", "Detail lines"], rows)}</section><section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Last six months"))}</h3></div><div class="em-trend">${d.trend.map((row) => `<button class="em-trend-row" data-action="trend" data-month="${row.month}"><span>${esc(row.month)}</span><i style="--share:${(Math.max(0, Number(row.amounts.CNY) || 0) / max) * 100}%"></i>${dual(row.amounts)}</button>`).join("")}</div></section></div>`;
+      )}</h3></div>${table(["OA expense category", "Verified approved expenditure", "Detail lines"], rows)}</section><section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Last six months"))}</h3></div><div class="em-trend">${d.trend.map((row) => `<button class="em-trend-row" data-action="trend" data-month="${row.month}"><span>${esc(row.month)}</span><i style="--share:${(Math.max(0, Number(row.amounts.CNY) || 0) / max) * 100}%"></i>${dual(row.amounts)}</button>`).join("")}</div></section></div>`;
     }
     budget() {
       const rows = this.data.budgets.map((row) => {
@@ -550,7 +568,7 @@
       });
       return `<section class="em-panel"><div class="em-panel-title"><h3>${esc(
         t("Company budget execution")
-      )}</h3>${button("policy", "Budget policy")}</div>${table(["Subsidiary", "Effective budget", "Approved budget occupation", "Budget difference", "Budget execution rate"], rows)}</section>`;
+      )}</h3>${button("policy", "Budget policy")}</div>${this.filters.source_category ? `<p class="em-category-note">${esc(t("Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons."))}</p>` : ""}${table(["Subsidiary", "Effective budget", "Approved budget occupation", "Budget difference", "Budget execution rate"], rows)}</section>`;
     }
     details() {
       const d = this.data,
@@ -562,7 +580,7 @@
         esc(row.company || t("Company not matched")),
         esc(row.application_date || "—"),
         esc(t(STATUS[row.status] || "Unknown")),
-        esc(t(d.categories[row.management_category] || "Unclassified")),
+        esc(sourceLabels(row).join(" / ") || t("Category not provided")),
         dual(row.amounts),
         row.issues.length
           ? `<button class="em-link em-warning" data-action="detail" data-key="${esc(
@@ -576,7 +594,7 @@
       ]);
       return `<section class="em-panel"><div class="em-panel-title"><h3>${esc(
         t(TITLES[this.view])
-      )}<span class="em-count">${d.total}</span></h3></div>${table(["Approval number", "Subsidiary", "Application date", "Approval status", "Management category", "Amount", "Review issues"], rows)}<div class="em-pagination">${button("page-prev", "Previous page", d.start <= 0 ? "disabled" : "")}<span>${esc(t("{0}–{1} of {2}", [d.total ? d.start + 1 : 0, Math.min(d.start + 50, d.total), d.total]))}</span>${button("page-next", "Next page", !d.has_more ? "disabled" : "")}</div></section>`;
+      )}<span class="em-count">${d.total}</span></h3></div>${table(["Approval number", "Subsidiary", "Application date", "Approval status", "OA expense category", "Amount", "Review issues"], rows)}<div class="em-pagination">${button("page-prev", "Previous page", d.start <= 0 ? "disabled" : "")}<span>${esc(t("{0}–{1} of {2}", [d.total ? d.start + 1 : 0, Math.min(d.start + 50, d.total), d.total]))}</span>${button("page-next", "Next page", !d.has_more ? "disabled" : "")}</div></section>`;
     }
     async detail(key) {
       const token = ++this.detailSeq,
@@ -592,6 +610,7 @@
       try {
         const { row } = await this.call("get_detail", { key, filters });
         if (!this.current() || token !== this.detailSeq) return;
+        const path = sourceLabels(row);
         body.innerHTML = `<div class="em-detail">${dual(
           row.amounts
         )}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
@@ -618,7 +637,7 @@
           t("MXN exchange rate")
         )}</dt><dd>${esc(row.rates.MXN || "—")}</dd><dt>${esc(
           t("Detail item")
-        )}</dt><dd>${esc(row.line_label || row.description || "—")}</dd></dl>${
+        )}</dt><dd>${esc(row.line_label || row.description || "—")}</dd><dt>${esc(t("OA expense category"))}</dt><dd>${esc(path[0] || t("Category not provided"))}</dd><dt>${esc(t("OA expense subcategory"))}</dt><dd>${esc(path.slice(1).join(" / ") || "—")}</dd></dl>${
           row.issues.length
             ? `<ul>${row.issues
                 .map(
@@ -642,6 +661,7 @@
         "Approved expenses by application month; approval does not confirm payment.",
         "MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.",
         "Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.",
+        "OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.",
         "CNY and MXN are converted independently from original amounts using the application month-start rate.",
         "Missing exchange rates are shown as unavailable; no partial currency total is presented.",
         "Current-month comparison uses matching elapsed days. Incomplete sources, unverified data or missing history disable comparison.",
@@ -703,7 +723,7 @@
       if (!item || item.disabled) return;
       const action = item.dataset.action;
       if (action === "all")
-        return this.go("overview", { company: "", category: "" });
+        return this.go("overview", { company: "", category: "", source_category: "" });
       if (action === "company")
         return this.go("analysis", { company: item.dataset.company });
       if (action === "company-review")
@@ -713,6 +733,11 @@
       if (action === "category")
         return this.go("details", {
           category: item.dataset.category,
+          measure: "approved",
+        });
+      if (action === "source-category")
+        return this.go("details", {
+          source_category: item.dataset.category,
           measure: "approved",
         });
       if (action === "trend")
@@ -740,5 +765,5 @@
       if (action === "retry") return this.load();
     }
   }
-  return { Workbench, dual, readFilters, shiftMonth, errorMessage, ROUTES };
+  return { Workbench, dual, readFilters, shiftMonth, errorMessage, sourceLabels, ROUTES };
 });

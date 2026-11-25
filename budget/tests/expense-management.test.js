@@ -20,6 +20,7 @@ test("current month defaults and corrupt bookmarks cannot break the month picker
     month: "2026-11",
     company: "",
     category: "",
+    source_category: "",
     measure: "",
   });
   for (const month of ["invalid", "2026-13", "2026-12", "1899-12"]) {
@@ -55,6 +56,7 @@ test("all-company navigation explicitly clears company and category while retain
       month: "2026-10",
       company: "",
       category: "",
+      source_category: "",
       measure: "",
     },
   });
@@ -63,6 +65,58 @@ test("all-company navigation explicitly clears company and category while retain
 test("month navigation crosses years correctly", () => {
   assert.equal(shiftMonth("2026-01", -1), "2025-12");
   assert.equal(shiftMonth("2026-12", 1), "2027-01");
+});
+
+test("source category bookmarks and drilldowns retain exact scope alongside optional legacy filters", () => {
+  const filters = {month: "2026-10", company: "A", source_category: "a".repeat(64), category: "service"};
+  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters))), {...filters, measure: ""});
+  const work = Object.create(Workbench.prototype);
+  work.filters = filters;
+  let target;
+  work.go = (view, values) => {target = {view, values};};
+  work.click({target: {closest: () => ({dataset: {action: "source-category", category: "b".repeat(64)}})}});
+  assert.deepEqual(target, {view: "details", values: {source_category: "b".repeat(64), measure: "approved"}});
+});
+
+test("expense composition and detail tables use escaped OA paths without requiring management categories", () => {
+  const work = Object.create(Workbench.prototype), path = ["Services <source>", "Payroll"];
+  work.view = "details";
+  work.data = {
+    source_category_rows: [{category: "a".repeat(64), source_path: path, count: 1, amounts: {CNY: "10", MXN: "25"}}],
+    category_rows: [{category: "unclassified", count: 1}], categories: {}, trend: [],
+    rows: [{key: "a", number: "approval", company: "A", application_date: "2026-11-10", status: "approved",
+      source_path: path, management_category: "", issues: [], amounts: {CNY: "10", MXN: "25"}}],
+    total: 1, start: 0, has_more: false,
+  };
+  const analysis = work.analysis(), details = work.details();
+  assert.match(analysis, /data-action="source-category"/);
+  assert.match(analysis, /Services &lt;source&gt; \/ Payroll/);
+  assert.match(details, /OA expense category/);
+  assert.match(details, /Services &lt;source&gt; \/ Payroll/);
+  assert.doesNotMatch(details, /Unclassified|Needs review/);
+  work.data.rows[0].source_path = [];
+  assert.match(work.details(), /Category not provided/);
+});
+
+test("native expense detail displays source category and subcategory separately", async () => {
+  const previous = global.frappe.ui;
+  let body;
+  global.frappe.ui = {Dialog: class {
+    constructor() {body = {}; this.fields_dict = {body: {$wrapper: [body]}};}
+    show() {}
+  }};
+  try {
+    const work = Object.create(Workbench.prototype);
+    Object.assign(work, {detailSeq: 0, filters: {}, view: "details", options: {issues: {}},
+      current: () => true, call: async () => ({row: {number: "approval", company: "A", source_path: ["Services", "Payroll"],
+        amount: "990", currency: "MXN", amounts: {CNY: "346.50", MXN: "990"}, rates: {CNY: "0.35", MXN: "1"},
+        issues: [], description: "Original approval text"}})});
+    await work.detail("a");
+    assert.match(body.innerHTML, /OA expense category<\/dt><dd>Services/);
+    assert.match(body.innerHTML, /OA expense subcategory<\/dt><dd>Payroll/);
+    assert.match(body.innerHTML, /Original approval text/);
+    assert.doesNotMatch(body.innerHTML, /Management category|Needs review/);
+  } finally {global.frappe.ui = previous;}
 });
 
 function pending() {

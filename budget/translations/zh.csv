@@ -853,3 +853,12 @@ A reason is required for non-Mexico expenses; leave the subsidiary empty,排除�
 Actions,操作
 Reason,原因
 Remove mapping,移除映射
+OA expense category,审批费用类别
+OA expense subcategory,审批费用子类别
+Category not provided,未填写类别
+Selected OA category,已选审批类别
+Management category (optional),管理费用类别（可选）
+Unified classification (optional),统一管理分类（可选）
+Advanced: unified classification (optional),高级设置：统一管理分类（可选）
+OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.,直接使用审批原始类别；需要跨模板汇总或按类别对比预算时，可选配统一管理分类。
+Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.,按审批原始类别筛选时，暂不计算预算差额和执行率；按类别对比预算请使用统一管理分类。

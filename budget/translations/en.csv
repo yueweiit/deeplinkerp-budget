@@ -245,3 +245,12 @@ Status,Status
 Subsidiary,Subsidiary
 This source organization is already in the mapping table.,This source organization is already in the mapping table.
 Remove mapping,Remove mapping
+OA expense category,OA expense category
+OA expense subcategory,OA expense subcategory
+Category not provided,Category not provided
+Selected OA category,Selected OA category
+Management category (optional),Management category (optional)
+Unified classification (optional),Unified classification (optional)
+Advanced: unified classification (optional),Advanced: unified classification (optional)
+OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.,OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.
+Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.,Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.

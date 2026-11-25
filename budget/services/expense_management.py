@@ -8,6 +8,8 @@ from collections import defaultdict
 from calendar import monthrange
 from decimal import Decimal
 from functools import lru_cache
+import hashlib
+import json
 import re
 
 import frappe
@@ -25,17 +27,18 @@ BLOCKING = {"amount", "amount_pending", "total", "currency", "structure", "ident
 	"allocation", "regional_allocation", "organization", "period", "detail_amount", "detail_mismatch", "detail_currency"}
 ISSUES = {**approvals.ISSUES, **management.ISSUES, "amount_pending": "Amount is not finalized",
 	"total": "Detail total differs from the application amount", "identity": "Expense line identity needs review"}
+ISSUES.pop("management_category", None)
 VIEWS = {"overview", "analysis", "budget", "details", "review"}
 PUBLIC = ("key", "company", "number", "application_date", "month", "kind", "status",
-	"management_category", "description", "line_label", "amount", "currency", "issues",
+	"management_category", "source_path", "source_category_key", "description", "line_label", "amount", "currency", "issues",
 	"amounts", "rates", "rate_date", "eligible", "budget_state", "date_basis")
 
 
 def filters(values=None):
 	values = frappe.parse_json(values) if isinstance(values, str) else {} if values is None else values
-	if not isinstance(values, dict) or set(values) - {"month", "company", "category", "view", "measure"}:
+	if not isinstance(values, dict) or set(values) - {"month", "company", "category", "source_category", "view", "measure"}:
 		frappe.throw(_("Invalid expense management filters."))
-	result = {key: str(values.get(key) or "").strip() for key in ("month", "company", "category", "view", "measure")}
+	result = {key: str(values.get(key) or "").strip() for key in ("month", "company", "category", "source_category", "view", "measure")}
 	result["month"] = result["month"] or frappe.utils.today()[:7]
 	result["view"] = result["view"] or "overview"
 	if (not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", result["month"])
@@ -43,6 +46,7 @@ def filters(values=None):
 			or result["view"] not in VIEWS
 			or result["measure"] not in ("", "approved")
 			or len(result["company"]) > 140
+			or result["source_category"] and not re.fullmatch(r"missing|[0-9a-f]{64}", result["source_category"])
 			or result["category"] and result["category"] not in management.rules_service.CATEGORIES | {"unclassified": ""}):
 		frappe.throw(_("Invalid expense management filters."))
 	return result
@@ -137,8 +141,15 @@ def legacy_projection(legacy_ids, context, rules):
 
 
 def normalize(row):
-	row = {**row, "issues": list(row.get("issues") or []),
+	# Unified classification is optional here. Keep the underlying CN/MX
+	# projections and all amount/company/date validation unchanged.
+	row = {**row, "issues": sorted(set(row.get("issues") or []) - {"management_category"}),
 		"date_basis": row.get("date_basis") or ("budget" if row.get("kind") == "budget" else "application")}
+	path = [part for part in row.get("source_path") or [] if isinstance(part, str) and part.strip()]
+	if path == ["unitemized"] and row.get("kind") == "budget":
+		path = []
+	row["source_path"] = path
+	row["source_category_key"] = hashlib.sha256(json.dumps([row.get("kind"), path], ensure_ascii=False).encode()).hexdigest() if path else "missing"
 	# Financial-approval period is irrelevant to this view. It remains intact
 	# in the MX reconciliation API. The explicit application date is required.
 	original = set(row.get("original_issues") or []) & (BLOCKING - {"period", "allocation", "organization"})
@@ -150,6 +161,21 @@ def normalize(row):
 	row["eligible"] = bool(row.get("company") and row.get("month")
 		and row.get("amount") is not None and not BLOCKING.intersection(row["issues"]))
 	return row
+
+
+def source_category_options(rows, f):
+	# Offer alternatives from this user's company/month scope, before category
+	# filtering, so choosing one option does not hide the other options.
+	options = {}
+	for row in rows:
+		if f["company"] and row.get("company") != f["company"]:
+			continue
+		if row.get("month") != f["month"] and not (f["view"] == "review" and not row.get("month")):
+			continue
+		if row["kind"] == "budget" and f["view"] not in ("review", "budget"):
+			continue
+		options[row["source_category_key"]] = {"key": row["source_category_key"], "kind": row["kind"], "source_path": row["source_path"]}
+	return sorted(options.values(), key=lambda row: (row["source_path"], row["kind"]))
 
 
 def converter(loader=None):
@@ -210,19 +236,20 @@ def summarize(rows):
 		"excluded": len([row for row in spending if row["status"] == "approved" and not row["eligible"]])}
 
 
-def budget_metrics(rows, threshold, *, category_scope=""):
+def budget_metrics(rows, threshold, *, category_scope="", source_scope=""):
 	result = {}
 	for currency in CURRENCIES:
 		projected = [{**row, "converted_amount": row["amounts"][currency]} for row in rows]
 		result[currency] = management.metrics(projected, threshold)
-		if category_scope == "unclassified":
+		if category_scope == "unclassified" or source_scope:
 			management.unclassified_comparison(result[currency])
 	return result
 
 
 def scope(rows, f):
 	return [row for row in rows if (not f["company"] or row["company"] == f["company"])
-		and (not f["category"] or (row.get("management_category") or "unclassified") == f["category"])]
+		and (not f["category"] or (row.get("management_category") or "unclassified") == f["category"])
+		and (not f["source_category"] or row["source_category_key"] == f["source_category"])]
 
 
 def prepare(values=None):
@@ -230,6 +257,7 @@ def prepare(values=None):
 	rows, context, rules, metadata = load()
 	if f["company"] and f["company"] not in context["companies"]:
 		frappe.throw(_("You do not have permission to view this subsidiary."), frappe.PermissionError)
+	metadata = {**metadata, "source_categories": source_category_options(rows, f)}
 	return scope(rows, f), context, rules, metadata, f
 
 
@@ -261,7 +289,7 @@ def query(values=None, start=0):
 	undated = [row for row in rows if not row.get("month")
 		and row["status"] in ("approved", "pending", "unknown")]
 	response = {"filters": f, "companies": sorted(context["companies"]),
-		"categories": management.rules_service.CATEGORIES, "issues": ISSUES, "metadata": metadata,
+		"categories": management.rules_service.CATEGORIES, "source_categories": metadata["source_categories"], "issues": ISSUES, "metadata": metadata,
 		"summary": summarize(current), "undated": len(undated)}
 	names = [f["company"]] if f["company"] else sorted(context["companies"])
 	groups = defaultdict(list)
@@ -273,7 +301,7 @@ def query(values=None, start=0):
 	response["unassigned"] = summarize(groups[""])["review"]
 	if f["view"] == "budget":
 		response["budgets"] = [{"company": name,
-				"metrics": budget_metrics(groups[name], rules["warning_percent"], category_scope=f["category"])} for name in names]
+				"metrics": budget_metrics(groups[name], rules["warning_percent"], category_scope=f["category"], source_scope=f["source_category"])} for name in names]
 		if not metadata["complete"]:
 			for company in response["budgets"]:
 				for metrics in company["metrics"].values():
@@ -286,6 +314,15 @@ def query(values=None, start=0):
 				category_groups[row.get("management_category") or "unclassified"].append(row)
 		response["category_rows"] = [{"category": key, **summarize(group)} for key, group in category_groups.items()]
 		response["category_rows"].sort(key=lambda item: -Decimal(item["amounts"]["CNY"] or 0))
+		# Preserve management-category API fields for existing consumers; the
+		# unified UI uses this additional exact-source breakdown by default.
+		source_groups = defaultdict(list)
+		for row in current:
+			if row["kind"] != "budget":
+				source_groups[row["source_category_key"]].append(row)
+		response["source_category_rows"] = [{"category": key, "kind": group[0]["kind"],
+			"source_path": group[0]["source_path"], **summarize(group)} for key, group in source_groups.items()]
+		response["source_category_rows"].sort(key=lambda item: -Decimal(item["amounts"]["CNY"] or 0))
 		months = [month for delta in range(5, -1, -1) if (month := management.shift_month(f["month"], -delta)) >= "1900-01"]
 		history = convert([row for row in rows if row.get("month") in months and row.get("month") != f["month"]]) + current
 		history_groups = defaultdict(list)
