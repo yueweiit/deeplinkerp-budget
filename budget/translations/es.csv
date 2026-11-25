@@ -863,3 +863,34 @@ Unified classification (optional),Clasificación unificada (opcional)
 Advanced: unified classification (optional),Configuración avanzada: clasificación unificada (opcional)
 OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.,Se utilizan directamente las categorías de OA. La clasificación unificada es opcional para resumir varias plantillas y comparar presupuestos por categoría.
 Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.,"Al filtrar por categoría de OA, no se calculan diferencias ni porcentajes de ejecución presupuestaria. Utilice categorías unificadas para comparar presupuestos por categoría."
+Expense reporting data is being prepared. Please retry shortly.,Los datos de gastos se están preparando. Vuelva a intentarlo en breve.
+Expense reports are being updated. Showing the last completed version.,Los informes de gastos se están actualizando. Se muestra la última versión completa.
+Expense reporting records are maintained automatically.,El sistema mantiene automáticamente los registros de los informes de gastos.
+Expense Report State,Estado de publicación de gastos
+Expense Report Line,Línea de informe de gastos
+Publication Version,Versión publicada
+Source Revision,Revisión de origen
+Ownership Rules Revision,Revisión de reglas de asignación
+Published At,Fecha de publicación
+Exchange Rates Missing,Faltan tipos de cambio
+Reporting Metadata,Metadatos del informe
+Reporting Rules,Reglas del informe
+Verified Month-start Rates,Tipos de cambio verificados al inicio del mes
+Source Key,Clave de origen
+Additional Permission Company,Empresa con permiso adicional
+Reporting Month,Mes del informe
+Approval Type,Tipo de aprobación
+Approval Status,Estado de aprobación
+Management Category,Categoría de gestión
+OA Category Key,Clave de categoría OA
+OA Category Path,Ruta de categoría OA
+Original Amount,Importe original
+Original Amount Available,Importe original disponible
+CNY Amount Available,Importe en CNY disponible
+MXN Amount Available,Importe en MXN disponible
+Eligible for Reporting,Apto para el informe
+Needs Review,Requiere revisión
+Reporting Line Fingerprint,Huella de la línea del informe
+Reporting Line Details,Detalles de la línea del informe
+Historical MX Exception,Excepción histórica de MX
+Exchange Rates Checked At,Fecha de verificación de tipos de cambio

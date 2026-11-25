@@ -428,6 +428,7 @@
         ? `<div class="em-status"><span class="em-chip">${esc(t("Verified approvals only"))}</span>${button("all-statuses", "All statuses")}</div>`
         : "";
       const notices = [];
+      if (d.metadata.reporting_pending) notices.push(t("Expense reports are being updated. Showing the last completed version."));
       if (!d.metadata.complete) notices.push(t("Source data incomplete"));
       if (s.excluded) notices.push(t("{0} unverified lines excluded", [s.excluded]));
       if (d.undated) notices.push(t("{0} lines without application dates", [d.undated]));

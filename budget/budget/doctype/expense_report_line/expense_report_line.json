@@ -1,0 +1,177 @@
+{
+ "doctype": "DocType",
+ "name": "Expense Report Line",
+ "module": "Budget",
+ "engine": "InnoDB",
+ "autoname": "hash",
+ "field_order": [
+  "source_key",
+  "company",
+  "scope_company",
+  "reporting_month",
+  "application_date",
+  "kind",
+  "approval_status",
+  "management_category",
+  "source_category_key",
+  "source_path_json",
+  "currency",
+  "original_amount",
+  "original_amount_known",
+  "amount_cny",
+  "cny_known",
+  "amount_mxn",
+  "mxn_known",
+  "eligible",
+  "has_issues",
+  "row_hash",
+  "detail_json",
+  "is_legacy"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_key",
+   "fieldtype": "Data",
+   "label": "Source Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Subsidiary",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scope_company",
+   "fieldtype": "Data",
+   "label": "Additional Permission Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reporting_month",
+   "fieldtype": "Data",
+   "label": "Reporting Month",
+   "read_only": 1
+  },
+  {
+   "fieldname": "application_date",
+   "fieldtype": "Date",
+   "label": "Application Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "kind",
+   "fieldtype": "Data",
+   "label": "Approval Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_status",
+   "fieldtype": "Data",
+   "label": "Approval Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "management_category",
+   "fieldtype": "Data",
+   "label": "Management Category",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_category_key",
+   "fieldtype": "Data",
+   "label": "OA Category Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_path_json",
+   "fieldtype": "Long Text",
+   "label": "OA Category Path",
+   "read_only": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Data",
+   "label": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "original_amount",
+   "fieldtype": "Currency",
+   "label": "Original Amount",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "original_amount_known",
+   "fieldtype": "Check",
+   "label": "Original Amount Available",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount_cny",
+   "fieldtype": "Currency",
+   "label": "Amount in CNY",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "cny_known",
+   "fieldtype": "Check",
+   "label": "CNY Amount Available",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount_mxn",
+   "fieldtype": "Currency",
+   "label": "Amount in MXN",
+   "read_only": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "mxn_known",
+   "fieldtype": "Check",
+   "label": "MXN Amount Available",
+   "read_only": 1
+  },
+  {
+   "fieldname": "eligible",
+   "fieldtype": "Check",
+   "label": "Eligible for Reporting",
+   "read_only": 1
+  },
+  {
+   "fieldname": "has_issues",
+   "fieldtype": "Check",
+   "label": "Needs Review",
+   "read_only": 1
+  },
+  {
+   "fieldname": "row_hash",
+   "fieldtype": "Data",
+   "label": "Reporting Line Fingerprint",
+   "read_only": 1
+  },
+  {
+   "fieldname": "detail_json",
+   "fieldtype": "Long Text",
+   "label": "Reporting Line Details",
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_legacy",
+   "fieldtype": "Check",
+   "label": "Historical MX Exception",
+   "read_only": 1
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "index_web_pages_for_search": 0,
+ "track_changes": 0,
+ "allow_rename": 0
+}

@@ -222,6 +222,8 @@ def run_sync(key, token):
 					"last_success_at": payload["fetched_at"], "sync_status": "success", "finished_at": now_datetime(),
 					"heartbeat_at": now_datetime(), "completed_templates": len(templates), "error_code": None})
 				# Ownership, complete snapshot and watermarks publish atomically.
+				from .expense_report_refresh import after_source_change
+				after_source_change()
 				frappe.db.commit()
 				break
 			except frappe.QueryDeadlockError:

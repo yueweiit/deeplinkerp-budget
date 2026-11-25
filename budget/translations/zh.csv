@@ -863,3 +863,34 @@ Unified classification (optional),统一管理分类（可选）
 Advanced: unified classification (optional),高级设置：统一管理分类（可选）
 OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.,直接使用审批原始类别；需要跨模板汇总或按类别对比预算时，可选配统一管理分类。
 Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.,按审批原始类别筛选时，暂不计算预算差额和执行率；按类别对比预算请使用统一管理分类。
+Expense reporting data is being prepared. Please retry shortly.,支出查询数据正在准备中，请稍后重试。
+Expense reports are being updated. Showing the last completed version.,支出报表正在更新，当前显示上一次完整结果。
+Expense reporting records are maintained automatically.,支出查询记录由系统自动维护。
+Expense Report State,支出查询发布状态
+Expense Report Line,支出查询明细
+Publication Version,发布版本
+Source Revision,来源版本
+Ownership Rules Revision,归属规则版本
+Published At,发布时间
+Exchange Rates Missing,汇率缺失
+Reporting Metadata,查询元数据
+Reporting Rules,查询规则
+Verified Month-start Rates,已核验月初汇率
+Source Key,来源标识
+Additional Permission Company,额外权限公司
+Reporting Month,统计月份
+Approval Type,审批类型
+Approval Status,审批状态
+Management Category,管理分类
+OA Category Key,OA 类别标识
+OA Category Path,OA 类别路径
+Original Amount,原币金额
+Original Amount Available,原币金额可用
+CNY Amount Available,人民币金额可用
+MXN Amount Available,比索金额可用
+Eligible for Reporting,符合统计条件
+Needs Review,待核对
+Reporting Line Fingerprint,查询明细指纹
+Reporting Line Details,查询明细内容
+Historical MX Exception,历史 MX 人工归属例外
+Exchange Rates Checked At,汇率核验时间

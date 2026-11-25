@@ -14,14 +14,14 @@ app_include_js = [
 ]
 
 # 本 app 读钉钉 / OA 一侧的数据写入本地账本（Budget Ledger Entry / Detail），
-# 不接管任何 DocType 事件，也不改上游 app。同步的触发方式见文件末尾：
+# 不接管上游业务；下方事件仅在本地事实提交后通知报表刷新。同步的触发方式见文件末尾：
 # 站点开着 scheduler 时走 daily_long；站点 enable_scheduler=0 时由外部 cron 调
 # budget.services.oa_budget_sync.scheduled_sync，两者链路完全一致（含每日整表对账）。
 
 # 定制入口独立于 ERPNext 原生 Budget；同步 CN 兼容入口和统一支出管理入口。
 # 统一入口按原生 Page 权限显示，不迁移或删除预算、审批业务数据。
-after_install = ["budget.setup.apply_budget_nav", "budget.expense_navigation.install"]
-after_migrate = ["budget.setup.apply_budget_nav", "budget.expense_navigation.install"]
+after_install = ["budget.setup.apply_budget_nav", "budget.expense_navigation.install", "budget.patches.add_expense_reporting.setup"]
+after_migrate = ["budget.setup.apply_budget_nav", "budget.expense_navigation.install", "budget.patches.add_expense_reporting.setup"]
 before_uninstall = ["budget.expense_navigation.uninstall", "budget.setup.restore_budget_nav"]
 
 # 只读 PG 连接按请求复用，响应返回后统一关闭，避免连接泄漏（见 integrations/pg.py）
@@ -32,10 +32,18 @@ after_request = ["budget.integrations.pg.close_all"]
 # 需要立刻更新时分别调 budget.api.budget_ledger.sync_budget_entries 与
 # budget.services.quota_sync.run_quota_sync。
 scheduler_events = {
-	"cron": {"*/5 * * * *": ["budget.services.cn_approval_sync.scheduled_sync"]},
+	"cron": {"*/5 * * * *": ["budget.services.cn_approval_sync.scheduled_sync"],
+		"* * * * *": ["budget.services.expense_report_refresh.scheduled_refresh"]},
 	"daily_long": [
 		"budget.services.budget_ledger_sync.sync_budget_entries",
 	],
+}
+
+doc_events = {
+	doctype: {"on_update": "budget.services.expense_report_refresh.after_source_change",
+		"on_trash": "budget.services.expense_report_refresh.after_source_change"}
+	for doctype in ("Regional Expense Allocation", "Mexico Expense Line", "Mexico Expense Source",
+		"CN Approval Settings", "Mexico Expense Settings", "Company")
 }
 
 # 站点关闭 scheduler（enable_scheduler: 0）时 daily_long 不会触发，此时由外部定时器

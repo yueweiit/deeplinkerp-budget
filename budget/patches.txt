@@ -8,3 +8,4 @@ budget.patches.add_cn_approval_snapshot
 budget.patches.add_cn_approval_settings
 budget.patches.add_cn_management_views
 budget.patches.add_cn_template_history_state
+budget.patches.add_expense_reporting

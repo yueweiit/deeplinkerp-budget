@@ -81,6 +81,7 @@ def load():
 	complete = bool(snapshot.get("has_snapshot")) and not snapshot.get("missing_history_templates") \
 		and sync.get("status") not in ("queued", "running", "failed") and mx_complete
 	metadata = {"complete": complete, "has_data": bool(snapshot.get("has_snapshot") or rows),
+		"has_snapshot": bool(snapshot.get("has_snapshot")),
 		"updated_at": {"cn": snapshot.get("fetched_at"),
 			"mx": str(min((item.get("last_sync_at") for item in templates if item.get("last_sync_at")), default=""))},
 		"missing_history": snapshot.get("missing_history_templates", 0),
@@ -131,6 +132,8 @@ def legacy_projection(legacy_ids, context, rules):
 		if not category:
 			issues.add("management_category")
 		output.append({"key": line.name, "source_key": line.source, "company": line.company,
+			"is_legacy": True,
+			"scope_company": line.regional_company or "",
 			"number": line.approval_no, "application_date": applied, "month": applied[:7] if applied else None,
 			"date_basis": date_basis,
 			"kind": kind, "status": line.approval_status, "amount": str(line.amount) if line.amount is not None else None,
@@ -283,6 +286,9 @@ def pagination(start):
 
 
 def query(values=None, start=0):
+	from . import expense_report_store, expense_reporting
+	if expense_report_store.installed():
+		return expense_reporting.query(values, start)
 	rows, context, rules, metadata, f = prepare(values)
 	convert = converter()
 	current = convert([row for row in rows if row.get("month") == f["month"]])
@@ -360,6 +366,9 @@ def public(row):
 
 
 def detail(key, values=None):
+	from . import expense_report_store, expense_reporting
+	if expense_report_store.installed():
+		return expense_reporting.detail(key, values)
 	rows, _context, _rules, metadata, f = prepare(values)
 	row = next((item for item in rows if item["key"] == key and (item.get("month") == f["month"]
 		or f["view"] == "review" and not item.get("month"))), None)
@@ -371,6 +380,9 @@ def detail(key, values=None):
 
 
 def export_rows(values=None):
+	from . import expense_report_store, expense_reporting
+	if expense_report_store.installed():
+		return expense_reporting.export_rows(values)
 	rows, _context, _rules, metadata, f = prepare(values)
 	if not metadata["has_data"]:
 		frappe.throw(_("No local approval snapshot is available yet. Wait for synchronization before exporting."))

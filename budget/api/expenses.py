@@ -10,7 +10,13 @@ from ..services import expense_management as service
 @frappe.whitelist()
 def get_sync_status():
 	from ..services import expense_sync
-	return expense_sync.get_status()
+	result = expense_sync.get_status()
+	from ..services import expense_report_store as store
+	if store.installed():
+		state = store.state() or {}
+		cn = result["sources"]["cn"]
+		cn["revision"] = [*(cn.get("revision") or []), state.get("publication")]
+	return result
 
 
 @frappe.whitelist(methods=["POST"])

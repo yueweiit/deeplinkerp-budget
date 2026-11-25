@@ -1,0 +1,83 @@
+{
+ "doctype": "DocType",
+ "name": "Expense Report State",
+ "module": "Budget",
+ "engine": "InnoDB",
+ "autoname": "hash",
+ "field_order": [
+  "publication",
+  "data_revision",
+  "policy_revision",
+  "built_at",
+  "fx_missing",
+  "metadata_json",
+  "rules_json",
+  "rates_json",
+  "rates_checked_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "publication",
+   "fieldtype": "Data",
+   "label": "Publication Version",
+   "read_only": 1
+  },
+  {
+   "fieldname": "data_revision",
+   "fieldtype": "Data",
+   "label": "Source Revision",
+   "read_only": 1
+  },
+  {
+   "fieldname": "policy_revision",
+   "fieldtype": "Data",
+   "label": "Ownership Rules Revision",
+   "read_only": 1
+  },
+  {
+   "fieldname": "built_at",
+   "fieldtype": "Datetime",
+   "label": "Published At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "fx_missing",
+   "fieldtype": "Check",
+   "label": "Exchange Rates Missing",
+   "read_only": 1
+  },
+  {
+   "fieldname": "metadata_json",
+   "fieldtype": "Long Text",
+   "label": "Reporting Metadata",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rules_json",
+   "fieldtype": "Long Text",
+   "label": "Reporting Rules",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rates_json",
+   "fieldtype": "Long Text",
+   "label": "Verified Month-start Rates",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rates_checked_at",
+   "fieldtype": "Datetime",
+   "label": "Exchange Rates Checked At",
+   "read_only": 1
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "index_web_pages_for_search": 0,
+ "track_changes": 0,
+ "allow_rename": 0
+}
