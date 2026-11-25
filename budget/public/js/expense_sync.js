@@ -170,13 +170,13 @@
         ? t("Site scheduler is disabled")
         : sources.length && sources.every((s) => !s.enabled)
         ? t("Automatic synchronization is disabled")
-        : t("Automatic synchronization every {0} minutes", [5]);
+        : "";
       const node = this.work.host.querySelector(".em-sync-status");
       if (node) {
-        node.innerHTML = `<button type="button" class="em-link ${
+        node.innerHTML = text ? `<button type="button" class="em-link ${
           problem || this.state?.scheduler_enabled === false ? "em-warning" : ""
-        }">${esc(text)}</button>`;
-        node.querySelector("button").onclick = () => this.open();
+        }">${esc(text)}</button>` : "";
+        if (text) node.querySelector("button").onclick = () => this.open();
       }
       this.work.syncButton?.prop(
         "disabled",

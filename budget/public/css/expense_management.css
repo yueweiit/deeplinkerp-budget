@@ -48,7 +48,7 @@
   min-width: 190px;
 }
 .em-filter > span {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted);
 }
 .em-classification-options {
@@ -89,7 +89,7 @@
   border-radius: 6px;
 }
 .em-heading-actions .btn {
-  font-size: 12px;
+  font-size: 13px;
 }
 .em-status {
   display: flex;
@@ -102,6 +102,42 @@
 .em-sync-status {
   margin: 4px 0 12px;
   min-height: 20px;
+  font-size: 14px;
+}
+.em-sync-status:empty {
+  display: none;
+}
+.em-data-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--border-color, #e3e9f2);
+  border-radius: 10px;
+  background: var(--alert-bg-warning, #fffaf0);
+  color: var(--text-color, #26364a);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.em-data-notice > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+}
+.em-data-notice ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 0;
+  padding-left: 18px;
+}
+.em-data-notice .btn {
+  flex-shrink: 0;
+  font-size: 13px;
 }
 .em-sync-source {
   display: flex;
@@ -174,12 +210,12 @@
   color: var(--text-color, #26364a);
 }
 .em-money small {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-muted, #728198);
   font-weight: 400;
 }
 .em-money .em-currency {
-  font-size: 0.74em;
+  font-size: max(12px, 0.74em);
   font-weight: 500;
   margin-right: 3px;
 }
@@ -217,11 +253,11 @@
   background: none;
   padding: 0;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .em-muted {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .em-panel {
   min-width: 0;
@@ -240,7 +276,7 @@
 .em-count {
   margin-left: 10px;
   background: var(--control-bg, #eff3f8);
-  font-size: 12px;
+  font-size: 13px;
   padding: 3px 7px;
   border-radius: 5px;
   color: var(--text-muted);
@@ -256,7 +292,7 @@
 .em-table th {
   padding: 13px 22px;
   background: var(--subtle-fg, #f8fafc);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
   text-align: right;
@@ -265,7 +301,17 @@
   padding: 20px 22px;
   border-top: 1px solid var(--border-color, #e7edf5);
   text-align: right;
-  font-size: 13px;
+  font-size: 14px;
+}
+.em-companies .em-table th {
+  padding-top: 18px;
+  padding-bottom: 18px;
+  background: var(--card-bg, #fff);
+}
+.em-companies .em-table th:first-child {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-color, #26364a);
 }
 .em-table th:first-child,
 .em-table td:first-child {

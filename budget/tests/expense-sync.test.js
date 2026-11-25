@@ -343,6 +343,39 @@ test("disabled, unconfigured and failed states never claim synchronization succe
   );
 });
 
+test("healthy synchronization stays quiet while actionable states retain their dialog entry", () => {
+  const { sync, work } = setup();
+  const button = {}, node = { querySelector: () => button };
+  work.host.querySelector = () => node;
+  let opened = 0;
+  sync.open = () => { opened++; };
+  sync.render();
+  assert.equal(node.innerHTML, "", "unknown status must not claim an active schedule");
+  for (const [change, expected] of [
+    [() => {}, ""],
+    [() => { sync.state.scheduler_enabled = false; }, "Site scheduler is disabled"],
+    [() => { Object.values(sync.state.sources).forEach(s => { s.enabled = false; }); }, "Automatic synchronization is disabled"],
+    [() => { sync.state.sources.cn.configured = false; }, "Synchronization needs attention"],
+    [() => { sync.state.sources.mx.status = "failed"; }, "Synchronization needs attention"],
+    [() => { sync.error = "Synchronization status could not be loaded. Retrying shortly."; }, "Synchronization status could not be loaded"],
+  ]) {
+    sync.state = state();
+    sync.error = "";
+    change();
+    sync.render();
+    if (expected) {
+      assert(node.innerHTML.includes(expected));
+      button.onclick();
+    } else assert.equal(node.innerHTML, "");
+  }
+  assert.equal(opened, 5);
+  sync.error = "";
+  sync.state = state();
+  sync.render();
+  assert.equal(node.innerHTML, "", "recovery clears the previous warning");
+  sync.stop();
+});
+
 test("the dialog has one configuration and sync action with merged template progress", () => {
   const {sync} = setup();
   sync.state = state();

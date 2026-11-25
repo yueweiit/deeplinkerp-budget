@@ -111,9 +111,9 @@
       "Expense data could not be loaded. Retry or check the source workbenches."
     );
   }
-  function table(headers, rows, empty = "No records in this month") {
+  function table(headers, rows, empty = "No records in this month", count = null) {
     return `<div class="em-table-scroll"><table class="em-table"><thead><tr>${headers
-      .map((h) => `<th scope="col">${esc(t(h))}</th>`)
+      .map((h, index) => `<th scope="col">${esc(t(h))}${index === 0 && count != null ? `<span class="em-count">${esc(count)}</span>` : ""}</th>`)
       .join(
         ""
       )}</tr></thead><tbody>${rows.length ? rows.map((cells) => `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${headers.length}" class="em-empty">${esc(t(empty))}</td></tr>`}</tbody></table></div>`;
@@ -424,33 +424,15 @@
     render() {
       const d = this.data,
         s = d.summary;
-      let html = `<div class="em-status"><span class="em-chip">${esc(
-        t("CNY primary · MXN secondary")
-      )}</span>${
-        this.filters.measure === "approved"
-          ? `<span class="em-chip">${esc(
-              t("Verified approvals only")
-            )}</span>${button("all-statuses", "All statuses")}`
-          : ""
-      }${
-        !d.metadata.complete
-          ? `<span class="em-chip em-warning">${esc(
-              t("Source data incomplete")
-            )}</span>`
-          : ""
-      }${
-        s.excluded
-          ? `<button class="em-link em-warning" data-action="review">${esc(
-              t("{0} unverified lines excluded", [s.excluded])
-            )}</button>`
-          : ""
-      }${
-        d.undated
-          ? `<button class="em-link em-warning" data-action="review">${esc(
-              t("{0} lines without application dates", [d.undated])
-            )}</button>`
-          : ""
-      }</div>`;
+      let html = this.filters.measure === "approved"
+        ? `<div class="em-status"><span class="em-chip">${esc(t("Verified approvals only"))}</span>${button("all-statuses", "All statuses")}</div>`
+        : "";
+      const notices = [];
+      if (!d.metadata.complete) notices.push(t("Source data incomplete"));
+      if (s.excluded) notices.push(t("{0} unverified lines excluded", [s.excluded]));
+      if (d.undated) notices.push(t("{0} lines without application dates", [d.undated]));
+      if (notices.length)
+        html += `<aside class="em-data-notice" aria-label="${esc(t("Data Review"))}"><div><strong>${esc(t("Data Review"))}</strong><ul>${notices.map((notice) => `<li>${esc(notice)}</li>`).join("")}</ul></div>${button("review", "View review items")}</aside>`;
       if (!d.metadata.has_data) {
         this.content(
           html +
@@ -522,9 +504,7 @@
           }</button>`,
         ];
       });
-      return `<section class="em-panel"><div class="em-panel-title"><h3>${esc(
-        t("Subsidiaries")
-      )}<span class="em-count">${d.company_rows.length}</span></h3></div>${table(["Subsidiary", "Verified approved expenditure", "Share", "Applications", "Needs review"], rows)}${d.unassigned ? `<div class="em-panel-footer">${button("review", "Review unassigned expenses")} <span class="em-warning">${d.unassigned}</span></div>` : ""}</section>`;
+      return `<section class="em-panel em-companies" aria-label="${esc(t("Subsidiaries"))}">${table(["Subsidiary", "Verified approved expenditure", "Share", "Applications", "Needs review"], rows, "No records in this month", d.company_rows.length)}${d.unassigned ? `<div class="em-panel-footer">${button("review", "Review unassigned expenses")} <span class="em-warning">${d.unassigned}</span></div>` : ""}</section>`;
     }
     analysis() {
       const d = this.data,
@@ -658,6 +638,7 @@
       const meta = this.data?.metadata,
         comparison = this.data?.comparison;
       const lines = [
+        "CNY primary · MXN secondary",
         "Approved expenses by application month; approval does not confirm payment.",
         "MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.",
         "Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.",
