@@ -1,7 +1,6 @@
 """Retain the last published facts of disabled templates in management reports."""
 from copy import deepcopy
 import hashlib
-import json
 
 import frappe
 from frappe import _
@@ -15,7 +14,7 @@ def merge_retired(snapshot, disabled, records, source_hash):
 		if row.get("history_state") != "never_enabled"}
 	output, seen, retained = list(snapshot["rows"]), {row["key"] for row in snapshot["rows"]}, []
 	for record in records:
-		payload = json.loads(record["snapshot_json"])
+		payload = store.decode_snapshot(record["snapshot_json"])
 		if payload.get("source_hash") != source_hash:
 			continue
 		templates = {(row["corp_id"], row["process_code"], row["approval_type"]) for row in payload.get("templates", [])}

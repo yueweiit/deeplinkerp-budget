@@ -194,30 +194,42 @@ def run_sync(key, token):
 		stage = "scan"
 		previous = store.snapshot(store.read(key, payload=True))
 		payload = source.load_snapshot(url, templates, previous=previous, progress=partial(progress, key, token))
-		# Source settings can change while HTTP pages are being read.
-		stage = "configuration"
-		current_url, current_templates = source.configuration()
-		if not enabled() or identity(current_url, current_templates) != key:
-			fail(key, token, "configuration_changed")
-			return
-		owned(key, token)
-		stage = "allocation"
-		from deeplinkerp_branding.services.regional_expenses import refresh_cn
 		refresh = payload.pop("_refresh", None)
-		if refresh is None:
-			refresh_cn(payload["rows"], templates)
-		else:
-			if refresh["full_templates"]:
-				full = {(t["corp_id"], t["process_code"]) for t in refresh["full_templates"]}
-				refresh_cn([r for r in payload["rows"] if (r["corp_id"], r["process_code"]) in full], refresh["full_templates"])
-			if refresh["changed_rows"]:
-				refresh_cn(refresh["changed_rows"], templates, incremental=True)
 		stage = "publish"
-		store.update(key, {"snapshot_json": json.dumps(payload, ensure_ascii=False), "snapshot_id": uuid4().hex,
-			"last_success_at": payload["fetched_at"], "sync_status": "success", "finished_at": now_datetime(),
-			"heartbeat_at": now_datetime(), "completed_templates": len(templates), "error_code": None})
-		# One atomic publication, after every template has completed successfully.
-		frappe.db.commit()
+		# Compress/validate before acquiring business locks or changing ownership.
+		encoded = store.prepare_snapshot(payload)
+		for attempt in range(3):
+			try:
+				# Recheck configuration and token after every transaction restart.
+				stage = "configuration"
+				current_url, current_templates = source.configuration()
+				if not enabled() or identity(current_url, current_templates) != key:
+					fail(key, token, "configuration_changed")
+					return
+				owned(key, token)
+				stage = "allocation"
+				from deeplinkerp_branding.services.regional_expenses import refresh_cn
+				if refresh is None:
+					refresh_cn(payload["rows"], templates)
+				else:
+					if refresh["full_templates"]:
+						full = {(t["corp_id"], t["process_code"]) for t in refresh["full_templates"]}
+						refresh_cn([r for r in payload["rows"] if (r["corp_id"], r["process_code"]) in full], refresh["full_templates"])
+					if refresh["changed_rows"]:
+						refresh_cn(refresh["changed_rows"], templates, incremental=True)
+				stage = "publish"
+				store.update(key, {"snapshot_json": encoded, "snapshot_id": uuid4().hex,
+					"last_success_at": payload["fetched_at"], "sync_status": "success", "finished_at": now_datetime(),
+					"heartbeat_at": now_datetime(), "completed_templates": len(templates), "error_code": None})
+				# Ownership, complete snapshot and watermarks publish atomically.
+				frappe.db.commit()
+				break
+			except frappe.QueryDeadlockError:
+				frappe.db.rollback()
+				frappe.flags.regional_automatic_configuration = None
+				if attempt == 2:
+					raise
+				# Reuse the validated in-memory scan; never read OA again here.
 	except SupersededSync:
 		frappe.db.rollback()
 	except Exception as error:

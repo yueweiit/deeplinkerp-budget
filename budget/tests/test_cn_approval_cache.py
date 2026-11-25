@@ -44,8 +44,10 @@ def runtime(monkeypatch):
 	monkeypatch.setattr(sync, 'now_datetime', lambda: state.now)
 	monkeypatch.setattr(sync, '_', lambda text: text)
 	monkeypatch.setattr(frappe, 'conf', {'cn_approval_sync_enabled': 1})
+	monkeypatch.setattr(frappe, 'flags', frappe._dict())
 	monkeypatch.setattr(frappe, 'throw', lambda msg, *a: (_ for _ in ()).throw(ValueError(msg)))
 	monkeypatch.setattr(frappe, 'db', SimpleNamespace(commit=commit, rollback=lambda: None,
+		db_type='mariadb', sql=lambda *a: [(16 * 1024 * 1024,)], escape=lambda value: repr(value),
 		after_commit=SimpleNamespace(add=state.callbacks.append)))
 	monkeypatch.setattr(frappe, 'enqueue', lambda *a, **kw: state.jobs.append(kw))
 	monkeypatch.setattr(frappe, 'logger', lambda *a: SimpleNamespace(error=lambda *a: state.logs.append(a)))
@@ -356,6 +358,60 @@ def test_failed_publication_records_its_stage_and_retains_previous_snapshot(runt
 	assert sync.read_snapshot()["snapshot_id"] == "old"
 	assert sync.get_status()["error_code"] == "publish_failed"
 	assert "secret database payload" not in repr(runtime.logs)
+
+
+def test_oversized_snapshot_fails_before_allocation_and_keeps_old_watermark(runtime, monkeypatch):
+	from deeplinkerp_branding.services import regional_expenses
+	sync.request_sync(); runtime.commit()
+	monkeypatch.setattr(source, 'load_snapshot', lambda *a, **kw: {'rows': [], 'fetched_at': str(runtime.now)})
+	monkeypatch.setattr(frappe.db, 'sql', lambda *a: [(100,)])
+	monkeypatch.setattr(regional_expenses, 'refresh_cn', lambda *a, **kw: pytest.fail('business writes before size check'))
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	assert sync.read_snapshot()['snapshot_id'] == 'old'
+	assert sync.get_status()['error_code'] == 'publish_failed'
+	assert sync.get_status()['status'] == 'failed'
+
+
+@pytest.mark.parametrize('failures', [1, 2, 3])
+def test_allocation_deadlock_retries_local_transaction_without_rescanning_oa(runtime, monkeypatch, failures):
+	from deeplinkerp_branding.services import regional_expenses
+	from unittest.mock import Mock
+	scan = Mock(return_value={'rows': [], 'fetched_at': str(runtime.now),
+		'sync_states': {'template': {'watermark': 'new'}}})
+	refresh = Mock(side_effect=[frappe.QueryDeadlockError() for _ in range(failures)] + [None])
+	monkeypatch.setattr(source, 'load_snapshot', scan)
+	monkeypatch.setattr(regional_expenses, 'refresh_cn', refresh)
+	sync.request_sync(); runtime.commit()
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	assert scan.call_count == 1 and refresh.call_count == min(failures + 1, 3)
+	result = sync.read_snapshot()
+	if failures < 3:
+		assert result['sync']['status'] == 'success'
+		assert result['sync_states']['template']['watermark'] == 'new'
+	else:
+		assert result['snapshot_id'] == 'old'
+		assert result['sync']['error_code'] == 'allocation_failed'
+
+
+@pytest.mark.parametrize('change', ['configuration', 'token'])
+def test_deadlock_retry_rechecks_configuration_and_worker_ownership(runtime, monkeypatch, change):
+	from deeplinkerp_branding.services import regional_expenses
+	from unittest.mock import Mock
+	monkeypatch.setattr(source, 'load_snapshot', lambda *a, **kw: {'rows': [], 'fetched_at': str(runtime.now)})
+	def conflict(*args):
+		if change == 'configuration':
+			monkeypatch.setattr(source, 'configuration', lambda: ('other', []))
+		else:
+			runtime.records[runtime.key]['sync_token'] = 'replacement'
+		raise frappe.QueryDeadlockError()
+	refresh = Mock(side_effect=conflict)
+	monkeypatch.setattr(regional_expenses, 'refresh_cn', refresh)
+	sync.request_sync(); runtime.commit()
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	assert refresh.call_count == 1
+	assert runtime.records[runtime.key]['snapshot_id'] == 'old'
+	if change == 'configuration':
+		assert runtime.records[runtime.key]['error_code'] == 'configuration_changed'
 
 
 def test_connection_loss_keeps_original_diagnostics_when_rollback_is_rejected(runtime, monkeypatch):

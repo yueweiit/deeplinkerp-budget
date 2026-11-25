@@ -1,6 +1,4 @@
 """Install local CN storage and retain an existing complete v3 cache if available."""
-import json
-
 import frappe
 
 
@@ -20,6 +18,6 @@ def execute():
 	key = identity(url, templates)
 	record = store.ensure(key)
 	if not record.get("snapshot_id") and record.get("sync_status") == "idle":
-		store.update(key, {"snapshot_json": json.dumps(cached, ensure_ascii=False),
+		store.update(key, {"snapshot_json": store.prepare_snapshot(cached),
 			"snapshot_id": cached["snapshot_id"], "last_success_at": cached["fetched_at"],
 			"sync_status": "success", "template_count": len(templates), "completed_templates": len(templates)})
