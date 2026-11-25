@@ -160,7 +160,9 @@ def test_filtered_approval_still_requires_its_own_valid_rate(monkeypatch):
 			call({"reporting_currency": "CNY", "review": True, "issue": "organization"})
 
 
-def test_independent_filter_options_use_company_permissions_without_oa_or_fx(monkeypatch):
+@pytest.mark.parametrize("rebuilding", [False, True])
+def test_independent_filter_options_use_company_permissions_without_oa_or_fx(monkeypatch, rebuilding):
+	from deeplinkerp_branding.services import regional_expense_automatic
 	reader = Mock()
 	companies = Mock(return_value=["Allowed B", "Allowed A"])
 	monkeypatch.setattr(frappe, "only_for", reader)
@@ -168,7 +170,9 @@ def test_independent_filter_options_use_company_permissions_without_oa_or_fx(mon
 	monkeypatch.setattr(service, "load", Mock(side_effect=AssertionError("OA must not be read")))
 	monkeypatch.setattr(service, "access_context", Mock(side_effect=AssertionError("source mappings must not be read")))
 	monkeypatch.setattr(shared_fx, "load_month_rate", Mock(side_effect=AssertionError("FX must not be read")))
-	assert api.get_filter_options() == {"companies": ["Allowed A", "Allowed B"], "reporting_currencies": ["CNY", "MXN", "USD"], "can_manage_settings": False}
+	monkeypatch.setattr(regional_expense_automatic, "ensure_rebuild", lambda: rebuilding)
+	assert api.get_filter_options() == {"companies": ["Allowed A", "Allowed B"], "reporting_currencies": ["CNY", "MXN", "USD"],
+		"can_manage_settings": False, "allocation_rebuilding": rebuilding}
 	reader.assert_called_once_with(("System Manager", "Accounts Manager"))
 	companies.assert_called_once_with("Company", filters={"is_group": 0}, pluck="name", limit_page_length=0)
 

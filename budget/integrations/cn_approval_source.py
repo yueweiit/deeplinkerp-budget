@@ -93,33 +93,60 @@ def cache_key(url, templates):
 	return f"cn-approval-workbench:v{SNAPSHOT_VERSION}:" + hashlib.sha256(identity).hexdigest()
 
 
-def load_snapshot(url, templates, *, http=None, clock=time.monotonic, progress=None):
+def load_snapshot(url, templates, *, http=None, clock=time.monotonic, progress=None, previous=None, now=None):
+	from deeplinkerp_branding.services import oa_sync_policy as policy
 	http = http or client()
+	previous = previous or {}
+	now = now or policy.utc_now()
+	prior_rows = {(row["corp_id"], row["process_instance_id"]): row for row in previous.get("rows", [])
+		if row.get("corp_id") and row.get("process_instance_id")}
+	prior_states = previous.get("sync_states") or {}
+	prior_fingerprints = previous.get("sync_fingerprints") or {}
 	deadline, pages, total = clock() + SCAN_TIMEOUT, 0, 0
 	output, seen = [], set()
+	states, fingerprints, full_templates, changed = {}, {}, [], []
 	for index, template in enumerate(templates):
+		identity = (template["corp_id"], template["process_code"])
+		state_key = policy.digest(identity)
+		scope = cache_key(url, [template])
+		state = prior_states.get(state_key)
+		round_plan = policy.plan(state, scope, now=now)
+		full = round_plan["mode"] == "full"
+		selected = {} if full else {key: row for key, row in prior_rows.items()
+			if (row["corp_id"], row["process_code"]) == identity}
+		if full:
+			full_templates.append(template)
+		else:
+			fingerprints.update({policy.digest(key): prior_fingerprints.get(policy.digest(key)) for key in selected})
 		cursor, snapshot, cursors = None, None, set()
 		while True:
 			if clock() >= deadline:
 				raise ApprovalScanTimeout(_("Approval scanning exceeded its time limit. Retry synchronization."))
 			if pages >= MAX_PAGES:
 				raise ApprovalScanLimitExceeded(_("Approval scanning exceeded its row or page limit. Review the configured templates."))
-			rows, page = http.read_template_page(url, template["corp_id"], template["process_code"], cursor=cursor)
+			options = {"updated_after": round_plan["updated_after"]} if not full else {}
+			rows, page = http.read_template_page(url, template["corp_id"], template["process_code"], cursor=cursor, **options)
 			pages += 1
 			if snapshot is not None and page["syncUntil"] != snapshot:
 				frappe.throw(_("OA approval snapshot changed. Retry synchronization."))
 			snapshot = page["syncUntil"]
 			for row in rows:
 				key = (row.get("corp_id"), row.get("process_instance_id"))
-				if key in seen:
+				if key in seen or (key in prior_rows and prior_rows[key]["process_code"] != row.get("process_code")):
 					frappe.throw(_("OA approval pagination returned duplicate records."))
 				seen.add(key)
 				total += 1
 				if total > MAX_ROWS:
 					raise ApprovalScanLimitExceeded(_("Approval scanning exceeded its row or page limit. Review the configured templates."))
+				stamp_key, stamp = policy.digest(key), policy.fingerprint(row)
+				if not full and key in selected and prior_fingerprints.get(stamp_key) == stamp:
+					continue
 				item = project(row, template)
 				if item is not None:
-					output.append(item)
+					selected[key] = item
+					fingerprints[stamp_key] = stamp
+					if not full:
+						changed.append(item)
 			if clock() >= deadline:
 				raise ApprovalScanTimeout(_("Approval scanning exceeded its time limit. Retry synchronization."))
 			if progress:
@@ -130,7 +157,13 @@ def load_snapshot(url, templates, *, http=None, clock=time.monotonic, progress=N
 			if not cursor or cursor in cursors:
 				frappe.throw(_("OA approval pagination did not advance."))
 			cursors.add(cursor)
+		states[state_key] = policy.completed(state, scope, round_plan, snapshot)
+		output.extend(selected.values())
+		if len(output) > MAX_ROWS:
+			raise ApprovalScanLimitExceeded(_("Approval scanning exceeded its row or page limit. Review the configured templates."))
 	return {"rows": output, "fetched_at": frappe.utils.now(), "template_count": len(templates),
+		"sync_states": states, "sync_fingerprints": fingerprints,
+		"_refresh": {"full_templates": full_templates, "changed_rows": changed},
 		"source_hash": hashlib.sha256(url.encode()).hexdigest(),
 		"templates": [{key: template[key] for key in ("corp_id", "process_code", "approval_type")} for template in templates]}
 

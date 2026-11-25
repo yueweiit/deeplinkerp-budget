@@ -32,10 +32,10 @@ services/approval_query_service.get_approval_instance()
 
 一次请求内只建一个 `OAApprovalSource`（`frappe.local`），底层连接按需新建、用完即关，不做连接池。
 
-## 2. 增量拉取（HTTP，已实现客户端，未接调度）
+## 2. 增量拉取（HTTP）
 
 ```text
-读取上一轮完成水位 watermark（DocType 落地后才有存储）
+读取上一轮完成水位 watermark（支出同步已保存于本地快照/模板检查点）
       │
       ▼
 updatedAfter = compute_next_watermark(watermark)   # 自动回退 10 分钟
@@ -52,6 +52,8 @@ OAReadAPIClient.iter_approval_pages(corp_id, process_code=..., updated_after=upd
 整轮成功后，才把最后一页的 sync_until 存为新水位
 （不要存「某页的最大 updated_at」，也绝不存 last_event_time）
 ```
+
+支出工作台已将同一协议接入每 5 分钟调度，并每 24 小时全量核对。CN 持久化和原子发布入口为 `budget/services/cn_approval_sync.py`；MX 分页入口为品牌 App 的 `services/mexico_expenses.py`。具体边界见 [Budget README](../../../README.md#权限与配置) 和品牌 App 的 `docs/mexico-expenses.md`；上面的 `OAReadAPIClient` 是其他审批调用方使用的客户端，支出同步复用 `operating_oa_http.read_template_page`。
 
 为什么必须重叠：时间水位不是事务提交序号，长事务可能在你翻页之后才提交。
 下一轮用 `sync_until - 10min` 重读一小段，按主键幂等覆盖，比漏数便宜得多。

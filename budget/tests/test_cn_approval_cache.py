@@ -83,6 +83,46 @@ def test_first_sync_is_distinct_from_a_successful_empty_snapshot(runtime):
 	assert sync.get_status()['auto_sync_due'] is False
 
 
+def test_empty_incremental_publication_only_advances_sync_metadata(runtime, monkeypatch):
+	from deeplinkerp_branding.services import regional_expenses
+	def scan(*args, previous, **kwargs):
+		assert previous['rows'] == runtime.old['rows']
+		return {'rows': previous['rows'], 'fetched_at': str(runtime.now),
+			'sync_states': {'template': {'watermark': 'completed'}},
+			'_refresh': {'full_templates': [], 'changed_rows': []}}
+	monkeypatch.setattr(source, 'load_snapshot', scan)
+	monkeypatch.setattr(regional_expenses, 'refresh_cn', lambda *a, **kw: pytest.fail('unchanged business writes'))
+	sync.request_sync(); runtime.commit()
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	record = runtime.records[runtime.key]
+	assert record['sync_status'] == 'success'
+	payload = json.loads(record['snapshot_json'])
+	assert payload['rows'] == runtime.old['rows']
+	assert payload['sync_states']['template']['watermark'] == 'completed'
+	assert '_refresh' not in payload
+
+
+def test_failed_incremental_allocation_retains_completed_watermark(runtime, monkeypatch):
+	from deeplinkerp_branding.services import regional_expenses
+	baseline = json.loads(runtime.records[runtime.key]['snapshot_json'])
+	baseline['sync_states'] = {'template': {'watermark': 'old'}}
+	runtime.records[runtime.key]['snapshot_json'] = json.dumps(baseline)
+	def scan(*args, **kwargs):
+		return {'rows': [{'amount': '20'}], 'fetched_at': str(runtime.now),
+			'sync_states': {'template': {'watermark': 'new'}},
+			'_refresh': {'full_templates': [], 'changed_rows': [{'amount': '20'}]}}
+	def fail(rows, templates, *, incremental):
+		assert incremental
+		raise ValueError('allocation failed')
+	monkeypatch.setattr(source, 'load_snapshot', scan)
+	monkeypatch.setattr(regional_expenses, 'refresh_cn', fail)
+	sync.request_sync(); runtime.commit()
+	sync.run_sync(runtime.key, runtime.jobs[0]['token'])
+	record = runtime.records[runtime.key]
+	assert record['error_code'] == 'allocation_failed'
+	assert json.loads(record['snapshot_json']) == baseline
+
+
 @pytest.mark.parametrize('seconds, due', [(299, False), (300, True), (301, True)])
 def test_auto_sync_becomes_due_after_five_minutes_without_shortening_worker_lease(runtime, seconds, due):
 	record = runtime.records[runtime.key]
@@ -183,7 +223,7 @@ def test_region_mapping_edits_do_not_abort_sync(configured_runtime, monkeypatch,
 	sync.request_sync(); runtime.commit()
 	if stage == 'queued':
 		runtime.templates[0]['field_mapping'] = mapping
-	def scan(*args, progress):
+	def scan(*args, progress, previous):
 		progress(completed_templates=0, page_count=1)
 		runtime.templates[0]['field_mapping'] = mapping
 		assert sync.get_status()['status'] == 'running'
@@ -228,7 +268,7 @@ def test_enqueue_is_after_commit_and_repeated_requests_share_claim(runtime):
 def test_worker_only_publishes_complete_snapshot(runtime, monkeypatch):
 	sync.request_sync(); runtime.commit()
 	token = runtime.jobs[0]['token']
-	def scan(*args, progress):
+	def scan(*args, progress, previous):
 		assert source.get_snapshot()['snapshot_id'] == 'old'
 		progress(completed_templates=1, page_count=3)
 		assert sync.get_status()['page_count'] == 3
@@ -245,7 +285,7 @@ def test_worker_only_publishes_complete_snapshot(runtime, monkeypatch):
 
 def test_partial_failure_preserves_last_complete_snapshot_and_backs_off(runtime, monkeypatch):
 	sync.request_sync(); runtime.commit()
-	def scan(*args, progress):
+	def scan(*args, progress, previous):
 		progress(completed_templates=1, page_count=2)
 		raise RuntimeError('secret upstream payload')
 	monkeypatch.setattr(source, 'load_snapshot', scan)
@@ -267,7 +307,7 @@ def test_partial_failure_preserves_last_complete_snapshot_and_backs_off(runtime,
 ])
 def test_typed_failures_retain_progress_and_old_snapshot_without_exposing_payload(runtime, monkeypatch, error, expected):
 	sync.request_sync(); runtime.commit()
-	def scan(*args, progress):
+	def scan(*args, progress, previous):
 		progress(completed_templates=8, page_count=17)
 		raise error
 	monkeypatch.setattr(source, "load_snapshot", scan)
@@ -286,7 +326,7 @@ def test_typed_failures_retain_progress_and_old_snapshot_without_exposing_payloa
 def test_projection_can_finish_after_old_lease_without_allowing_a_duplicate_scan(runtime, monkeypatch):
 	from deeplinkerp_branding.services import regional_expenses
 	sync.request_sync(); runtime.commit()
-	def scan(*args, progress):
+	def scan(*args, progress, previous):
 		runtime.now += timedelta(seconds=120)
 		progress(completed_templates=11, page_count=21)
 		return {"rows": [], "fetched_at": str(runtime.now)}
@@ -383,7 +423,7 @@ def test_running_deadline_is_not_extended_by_a_late_heartbeat(runtime, elapsed, 
 def test_absolute_deadline_allows_retry_and_fences_the_previous_scan(runtime, monkeypatch):
 	sync.request_sync(); runtime.commit()
 	old_token = runtime.jobs[0]['token']
-	def scan(*args, progress):
+	def scan(*args, progress, previous):
 		runtime.now += timedelta(seconds=599)
 		progress(completed_templates=11, page_count=21)
 		runtime.now += timedelta(seconds=361)

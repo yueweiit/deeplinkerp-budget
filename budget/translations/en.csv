@@ -195,3 +195,4 @@ Template preview could not be loaded. Retry.,Template preview could not be loade
 Templates are processed automatically by approval form. Verified expenses are included by application month after final approval.,Templates are processed automatically by approval form. Verified expenses are included by application month after final approval.
 Approval data preview,Approval data preview
 OA business timezone,OA business timezone
+The first synchronization reads all approvals. Changes synchronize every 5 minutes; a full reconciliation runs every 24 hours. Failed synchronization keeps existing data.,The first synchronization reads all approvals. Changes synchronize every 5 minutes; a full reconciliation runs every 24 hours. Failed synchronization keeps existing data.

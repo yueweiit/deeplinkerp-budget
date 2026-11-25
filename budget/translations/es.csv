@@ -810,3 +810,4 @@ Template preview could not be loaded. Retry.,No se pudo cargar la vista previa d
 Templates are processed automatically by approval form. Verified expenses are included by application month after final approval.,Las plantillas se procesan automáticamente según el tipo de solicitud. Los gastos verificados se incluyen en el mes de solicitud después de la aprobación final.
 Approval data preview,Vista previa de los datos de aprobación
 OA business timezone,Zona horaria de negocio de OA
+The first synchronization reads all approvals. Changes synchronize every 5 minutes; a full reconciliation runs every 24 hours. Failed synchronization keeps existing data.,"La primera sincronización lee todas las aprobaciones. Los cambios se sincronizan cada 5 minutos y se realiza una conciliación completa cada 24 horas. Si falla, se conservan los datos existentes."
