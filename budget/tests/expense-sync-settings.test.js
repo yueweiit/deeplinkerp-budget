@@ -52,7 +52,8 @@ test("one save submits all templates and mapping domains with both versions", as
   assert.deepEqual(command.args.values.management_rules.category_mappings[0].source_path,["A","B"]);
   assert.equal(command.args.values.templates[0].expense_fields,'{"amount":["MXField"]}');
   assert.equal(command.args.values.sync_mode,"mixed");
-  assert.deepEqual(command.args.values.template_defaults,state.saved.template_defaults);
+  assert.deepEqual(command.args.values.template_defaults,{corp_id:"corp"});
+  assert.equal(command.args.values.processing_mode,"approval");
   assert.equal(command.args.values.template_defaults_version,"d1");
   assert.equal(state.savedCount,1);assert.equal(dialog.visible,false);assert.equal(dialog.disabled,false);
 });
@@ -79,14 +80,14 @@ test("shared rules retain saved bindings and respect budget and expense parsers"
   assert.equal(settings.inheritDefaults(history,defaults),history);
 });
 
-test("missing common rules and duplicate rows are blocked before saving",async()=>{
+test("missing common corporation and duplicate rows are blocked before saving",async()=>{
   const state=runtime(), dialog=await settings.open();state.values=dialog.get_values();
   state.values.templates.push({approval_type:"operating",template_name:"New",process_code:"PROC-new"});
-  state.values.common_processing_rule="";
+  state.values.common_corp_id="";
   await dialog.config.primary_action();
-  assert.match(state.alerts.at(-1),/row 2: Processing rules is required/);
+  assert.match(state.alerts.at(-1),/row 2: Corporation ID is required/);
   assert.equal(state.calls.length,1);
-  state.values.common_processing_rule="both";
+  state.values.common_corp_id="corp";
   state.values.templates[1].process_code="PROC-test";
   await dialog.config.primary_action();
   assert.match(state.alerts.at(-1),/row 2:.*already listed/);
@@ -209,10 +210,10 @@ test("older preview success and failure cannot replace the latest selection",asy
 });
 
 test("preview rejects changed drafts, rules, selection, timezone, removed rows and closed dialogs",async()=>{
-  for(const change of ["draft","rules","selection","timezone","removed","closed"]) {
+  for(const change of ["draft","corporation","selection","timezone","removed","closed"]) {
     const state=runtime(),dialog=await settings.open(),p=previewRuntime(state,dialog),request=p.start();
     if(change==="draft")p.rows[0].expense_fields='{"amount":["changed"]}';
-    if(change==="rules")dialog.get_values().common_processing_rule="application";
+    if(change==="corporation")dialog.get_values().common_corp_id="changed";
     if(change==="selection"){p.rows[0].__checked=0;p.rows[1].__checked=1;}
     if(change==="timezone")dialog.get_values().business_timezone="Asia/Shanghai";
     if(change==="removed")p.rows.shift();
@@ -222,7 +223,7 @@ test("preview rejects changed drafts, rules, selection, timezone, removed rows a
   }
 });
 
-test("rendered preview is cleared on native editing and common rule changes",async()=>{
+test("rendered preview is cleared on native editing and common corporation changes",async()=>{
   const state=runtime(),dialog=await settings.open(),p=previewRuntime(state,dialog);
   const request=p.start();p.pending[0].resolve({message:[{rule:"expense",count:444,issues:[]}]});await request;
   assert.match(p.result(),/444/);
@@ -230,7 +231,7 @@ test("rendered preview is cleared on native editing and common rule changes",asy
   events["input.expense-sync-preview change.expense-sync-preview"]();
   assert.equal(p.result(),"");
   dialog.fields_dict.preview_result.$wrapper.html("stale");
-  dialog.fields_dict.common_processing_rule.df.onchange();
+  dialog.fields_dict.common_corp_id.df.onchange();
   assert.equal(p.result(),"");
 });
 
@@ -238,11 +239,32 @@ test("preview uses the original row number and canonical process code",async()=>
   const state=runtime(),dialog=await settings.open(),p=previewRuntime(state,dialog);
   p.rows[0].__checked=0;p.rows[1].__checked=1;delete p.rows[1].key;
   p.rows[1].idx=99;p.rows[1].process_code=" \tPROC-second \n";
-  p.rows[1].finance_node_names="";
+  p.rows[1].template_name="";
   await p.start();assert.match(state.alerts.at(-1),/row 2:/);assert.equal(p.pending.length,0);
-  p.rows[1].finance_node_names="Finance";
+  p.rows[1].template_name="Second";
+  p.rows[1].finance_node_names="";
   const request=p.start();
   assert.equal(p.pending[0].options.args.template.idx,2);
   assert.equal(p.pending[0].options.args.template.process_code,"PROC-second");
   p.pending[0].resolve({message:[{rule:"expense",count:1,issues:[]}]});await request;
+});
+
+
+test("unified editor removes processing and finance controls and hides field mappings in advanced settings",async()=>{
+  const state=runtime(),dialog=await settings.open();
+  assert.equal(dialog.fields_dict.common_processing_rule,undefined);
+  const fields=dialog.fields_dict.templates.df.fields;
+  assert.equal(fields.some(field=>["finance_node_names","finance_activity_ids"].includes(field.fieldname)),false);
+  assert.equal(fields.find(field=>field.fieldname==="template_advanced").collapsible,1);
+  assert.equal(dialog.fields_dict.business_timezone.df.label,"OA business timezone");
+  for(const kind of ["budget","operating","purchase","expense"]) {
+    const row=settings.inheritDefaults({approval_type:kind,process_code:"PROC-"+kind,template_name:kind},{corp_id:"corp",processing_rule:"obsolete"});
+    assert.equal(settings.validateTemplates([row],["corp"]),undefined);
+  }
+  const p=previewRuntime(state,dialog),request=p.start();
+  assert.equal(p.pending[0].options.args.processing_mode,"approval");
+  p.pending[0].resolve({message:[{rule:"approval",count:3,issues:["<bad field>"]}]});await request;
+  assert.match(p.result(),/Approval data preview/);
+  assert.match(p.result(),/&lt;bad field&gt;/);
+  assert.doesNotMatch(p.result(),/finance|undefined/);
 });

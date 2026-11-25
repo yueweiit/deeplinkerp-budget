@@ -192,3 +192,6 @@ Approval template row {0}: this source corporation and process code are already 
 Approval template row {0}: the processing rules do not support this approval form.,Approval template row {0}: the processing rules do not support this approval form.
 Approval template row {0}: specify finance node names or activity IDs in the template details.,Approval template row {0}: specify finance node names or activity IDs in the template details.
 Template preview could not be loaded. Retry.,Template preview could not be loaded. Retry.
+Templates are processed automatically by approval form. Verified expenses are included by application month after final approval.,Templates are processed automatically by approval form. Verified expenses are included by application month after final approval.
+Approval data preview,Approval data preview
+OA business timezone,OA business timezone

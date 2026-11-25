@@ -114,14 +114,11 @@ def legacy_projection(legacy_ids, context, rules):
 		if line.source not in dates or line.review_state == "excluded":
 			continue
 		source = sources[line.source]
-		issues = set(regional.decode(line.issues) or []) - {"period"}
+		issues = set(regional.decode(line.issues) or []) - {"period", "finance"}
 		if line.source_version != source.source_version:
 			issues.add("regional_allocation")
 		applied, date_state = dates[line.source]
-		date_basis = "application"
-		if not applied and date_state == "missing":
-			applied = str(source.request_date) if source.request_date else None
-			date_basis = "submission"
+		applied, date_basis = regional.management_date(applied, date_state, source.request_date, allow_submission=True)
 		if not applied:
 			issues.add("period")
 		path = regional.contract.management_path(line)

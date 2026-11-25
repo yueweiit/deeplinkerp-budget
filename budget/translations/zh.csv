@@ -807,3 +807,6 @@ Approval template row {0}: this source corporation and process code are already 
 Approval template row {0}: the processing rules do not support this approval form.,审批模板第 {0} 行：当前处理规则不支持此审批表，请检查公共处理规则。
 Approval template row {0}: specify finance node names or activity IDs in the template details.,审批模板第 {0} 行：请在模板详情中填写财务节点名称或活动 ID。
 Template preview could not be loaded. Retry.,模板预览加载失败，请重试。
+Templates are processed automatically by approval form. Verified expenses are included by application month after final approval.,系统按审批类型自动处理，审批最终通过且数据核实后，按申请月份计入支出。
+Approval data preview,审批数据预览
+OA business timezone,OA 业务时区

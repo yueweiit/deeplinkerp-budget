@@ -308,3 +308,69 @@ def test_unified_category_candidates_include_all_report_sources_and_deduplicate(
 @pytest.mark.parametrize("kind,start", [("unknown", 0), ([], 0), ("entities", -1), ("categories", 50001), ("organizations", "invalid")])
 def test_candidate_pagination_rejects_invalid_inputs(runtime, kind, start):
 	with pytest.raises(frappe.ValidationError): s.mapping_candidates(kind, start)
+
+
+@pytest.mark.parametrize("kind,processors", [("budget", {"cn"}), ("expense", {"mx"}),
+	("operating", {"cn", "mx"}), ("purchase", {"cn", "mx"})])
+def test_approval_mode_selects_adapters_without_rule_or_finance_fields(runtime, kind, processors):
+	cn, mx = runtime.cn, runtime.mx
+	rows = values(cn, mx)["templates"]
+	rows.append({"approval_type": kind, "template_name": "New", "process_code": " PROC-new ",
+		"processing_rule": "forged", "finance_activity_ids": "forged", "sync_mode": "disabled"})
+	result = s.split_templates(rows, cn, mx, corporations=["corp"],
+		template_defaults={"corp_id": "corp"}, processing_mode="approval")
+	assert {source for source, items in result.items() if len(items) == 2} == processors
+	for source in processors:
+		assert result[source][-1]["corp_id"] == "corp"
+		assert result[source][-1]["process_code"] == "PROC-new"
+		assert not result[source][-1].get("finance_activity_ids")
+
+
+@pytest.mark.parametrize("binding", ["application", "expense", "both"])
+def test_approval_mode_keeps_existing_adapters_names_mappings_and_finance_evidence(runtime, binding):
+	cn, mx = runtime.cn, runtime.mx
+	if binding == "application": mx.templates.clear()
+	if binding == "expense": cn["templates"].clear()
+	row = values(cn, mx)["templates"][0]
+	row.update(processing_rule="forged", finance_node_names="forged", finance_activity_ids="forged")
+	result = s.split_templates([row], cn, mx, processing_mode="approval", template_defaults={"corp_id": "other"})
+	assert {key for key, entries in result.items() if entries} == set(s.RULES[binding])
+	if mx.templates:
+		assert result["mx"][0]["finance_node_names"] == "Finance"
+		assert result["mx"][0]["finance_activity_ids"] == "node"
+		assert result["mx"][0]["field_mapping"] == mx.templates[0].field_mapping
+		assert result["mx"][0]["template_name"] == "Expense"
+	assert all(item["corp_id"] == "corp" for items in result.values() for item in items)
+
+
+@pytest.mark.parametrize("field,value", [("corp_id", "other"), ("process_code", "PROC-moved"),
+	("approval_type", "purchase"), ("key", "forged")])
+def test_approval_mode_cannot_retarget_history_in_save_or_preview(runtime, field, value):
+	rows = values(runtime.cn, runtime.mx)["templates"]
+	rows[0][field] = value
+	with pytest.raises(frappe.ValidationError):
+		s.split_templates(rows, runtime.cn, runtime.mx, corporations=["corp"], processing_mode="approval")
+	with pytest.raises(frappe.ValidationError):
+		s.preview_template(rows[0], "America/Mexico_City", processing_mode="approval")
+
+
+def test_approval_mode_is_atomic_and_does_not_keep_obsolete_common_rule(runtime, monkeypatch):
+	monkeypatch.setattr(s, "read_template_defaults", lambda **kw: {})
+	monkeypatch.setattr(s, "save_template_defaults", lambda value: runtime.staged.append(("defaults", value)))
+	data = values(runtime.cn, runtime.mx)
+	data.update(processing_mode="approval", template_defaults={"corp_id": "corp", "processing_rule": "obsolete"},
+		template_defaults_version=s.mx.digest({}))
+	s.save_settings(data)
+	assert runtime.staged[0][1]["management"] is True
+	assert runtime.staged[-1] == ("defaults", {"corp_id": "corp"})
+	monkeypatch.setattr(s.cn, "save_once", lambda **kw: (_ for _ in ()).throw(frappe.ValidationError()))
+	with pytest.raises(frappe.ValidationError): s.save_settings(data)
+	assert runtime.staged == []
+
+
+@pytest.mark.parametrize("field", ["corp_id", "process_code", "approval_type"])
+def test_approval_mode_rejects_non_scalar_identity_before_lookup(runtime, field):
+	rows = values(runtime.cn, runtime.mx)["templates"]
+	rows[0][field] = ["invalid"]
+	with pytest.raises(frappe.ValidationError):
+		s.split_templates(rows, runtime.cn, runtime.mx, processing_mode="approval")

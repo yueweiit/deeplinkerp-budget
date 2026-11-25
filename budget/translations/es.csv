@@ -807,3 +807,6 @@ Approval template row {0}: this source corporation and process code are already 
 Approval template row {0}: the processing rules do not support this approval form.,Fila {0} de plantillas de aprobación: las reglas de procesamiento no admiten este formulario. Revise las reglas comunes.
 Approval template row {0}: specify finance node names or activity IDs in the template details.,Fila {0} de plantillas de aprobación: indique los nombres de los nodos financieros o los ID de actividad en los detalles de la plantilla.
 Template preview could not be loaded. Retry.,No se pudo cargar la vista previa de la plantilla. Vuelva a intentarlo.
+Templates are processed automatically by approval form. Verified expenses are included by application month after final approval.,Las plantillas se procesan automáticamente según el tipo de solicitud. Los gastos verificados se incluyen en el mes de solicitud después de la aprobación final.
+Approval data preview,Vista previa de los datos de aprobación
+OA business timezone,Zona horaria de negocio de OA

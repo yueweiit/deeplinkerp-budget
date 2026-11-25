@@ -1,4 +1,4 @@
-/* One native configuration form; existing source services retain their rules. */
+/* One approval policy; legacy adapter bindings remain an internal detail. */
 (function (root, factory) {
   const api = factory(root);
   if (typeof module === "object" && module.exports) module.exports = api;
@@ -9,7 +9,7 @@
   const esc = value => root.frappe.utils.escape_html(String(value ?? ""));
   const call = async (method, args = {}, options = {}) => (await root.frappe.call({method: "budget.api.expenses." + method, args, ...options})).message;
   const MODES = {enabled: "Enabled", disabled: "Disabled", mixed: "Partially enabled (keep current settings)"};
-  const RULES = {application: "Application fields", expense: "Expense details and finance approval", both: "Application and expense rules"};
+  const AUTOMATIC_RULES = {budget: "application", operating: "both", purchase: "both", expense: "expense"};
   const KINDS = {budget: "Budget declaration", operating: "Operating expenditure", expense: "Expense expenditure", purchase: "Purchase expenditure"};
   const MATCHES = {organization: "Source organization", entity: "Expense-bearing entity", department: "Expense-bearing department"};
   const choices = labels => Object.entries(labels).map(([value, label]) => ({value, label: esc(t(label))}));
@@ -20,9 +20,8 @@
 
   function inheritDefaults(row, defaults) {
     if (row.key) return row;
-    const rule = defaults.processing_rule;
     return {...row, corp_id: defaults.corp_id,
-      processing_rule: rule === "both" ? ({budget: "application", expense: "expense"}[row.approval_type] || rule) : rule};
+      processing_rule: AUTOMATIC_RULES[row.approval_type] || ""};
   }
 
   function normalizeTemplate(row) {
@@ -33,7 +32,7 @@
     const seen = new Set();
     for (const [index, raw] of rows.entries()) {
       const row = normalizeTemplate(raw), rowNumber = index + firstRow;
-      for (const [field, label] of [["corp_id", "Corporation ID"], ["processing_rule", "Processing rules"],
+      for (const [field, label] of [["corp_id", "Corporation ID"],
         ["process_code", "Process Code"], ["template_name", "Template Name"], ["approval_type", "Approval Form"]]) {
         if (typeof row[field] !== "string" || !row[field].trim())
           return t("Approval template row {0}: {1} is required.", [rowNumber, t(label)]);
@@ -44,12 +43,7 @@
       if (seen.has(key))
         return t("Approval template row {0}: this source corporation and process code are already listed.", [rowNumber]);
       seen.add(key);
-      if (!RULES[row.processing_rule] || (row.approval_type === "budget" && row.processing_rule !== "application") ||
-        (row.approval_type === "expense" && row.processing_rule !== "expense"))
-        return t("Approval template row {0}: the processing rules do not support this approval form.", [rowNumber]);
-      if (["expense", "both"].includes(row.processing_rule) &&
-        ![row.finance_node_names, row.finance_activity_ids].some(value => typeof value === "string" && value.trim()))
-        return t("Approval template row {0}: specify finance node names or activity IDs in the template details.", [rowNumber]);
+      if (!Object.hasOwn(KINDS, row.approval_type)) return t("Invalid approval template");
     }
   }
 
@@ -100,9 +94,9 @@
   }
 
   function payload(values, saved) {
-    const defaults = {corp_id: values.common_corp_id || "", processing_rule: values.common_processing_rule || ""};
+    const defaults = {corp_id: values.common_corp_id || ""};
     return {
-      sync_mode: values.sync_mode, business_timezone: values.business_timezone,
+      sync_mode: values.sync_mode, business_timezone: values.business_timezone, processing_mode: "approval",
       versions: saved.versions, templates: values.templates.map(row => normalizeTemplate(inheritDefaults(row, defaults))),
       template_defaults: defaults, template_defaults_version: saved.template_defaults_version,
       company_mappings: values.company_mappings,
@@ -120,8 +114,7 @@
     const persistedRows = new WeakSet(saved.templates), candidateSequences = {};
     const defaults = saved.template_defaults || {};
     let dialog, saving = false, previewSequence = 0;
-    const commonValues = () => ({corp_id: dialog.get_value("common_corp_id") || "",
-      processing_rule: dialog.get_value("common_processing_rule") || ""});
+    const commonValues = () => ({corp_id: dialog.get_value("common_corp_id") || ""});
     function invalidatePreview() {
       previewSequence++;
       dialog?.fields_dict.preview_result?.$wrapper.empty();
@@ -132,7 +125,7 @@
       const row = selected[0], index = grid.get_data().indexOf(row);
       if (index < 0) return null;
       return {row, args: {template: {...normalizeTemplate(inheritDefaults(row, commonValues())), idx: index + 1},
-        business_timezone: dialog.get_value("business_timezone"), template_defaults: commonValues()}};
+        business_timezone: dialog.get_value("business_timezone"), template_defaults: commonValues(), processing_mode: "approval"}};
     }
     function updateDraftDefaults() {
       invalidatePreview();
@@ -176,9 +169,7 @@
         options: helpers.textOptions(saved.corporations), default: defaults.corp_id || (saved.corporations.length === 1 ? saved.corporations[0] : ""),
         read_only: saved.corporations.length === 1 && (!defaults.corp_id || defaults.corp_id === saved.corporations[0]),
         onchange: updateDraftDefaults},
-      select("common_processing_rule", "Processing rules", {"": "Select processing rules", ...RULES},
-        {default: defaults.processing_rule || "", onchange: updateDraftDefaults}),
-      {fieldname: "common_help", fieldtype: "HTML", options: `<p class="text-muted">${esc(t("New templates inherit these settings. Saved templates retain their existing bindings."))}<br>${esc(t("Combined rules read budget declarations as applications and expense forms as expense details."))}</p>`},
+      {fieldname: "common_help", fieldtype: "HTML", options: `<p class="text-muted">${esc(t("Templates are processed automatically by approval form. Verified expenses are included by application month after final approval."))}</p>`},
       {fieldname: "templates_section", fieldtype: "Section Break", label: t("Approval Templates")},
       {fieldname: "templates", label: t("Approval Templates"), fieldtype: "Table", cannot_delete_rows: true,
         on_add_row: () => {
@@ -196,12 +187,11 @@
           {fieldname: "process_code", label: t("Process Code"), fieldtype: "Data", reqd: 1, in_list_view: 1, columns: 3, read_only_depends_on: "eval:!!doc.key"},
           {fieldname: "corp_id", fieldtype: "Data", hidden: 1, read_only: 1},
           {fieldname: "processing_rule", fieldtype: "Data", hidden: 1, read_only: 1},
+          {fieldname: "template_advanced", label: t("Advanced settings"), fieldtype: "Section Break", collapsible: 1},
           code("application_fields", "Application field mapping", {depends_on: hasApplication}),
           code("application_classification", "Application classification fields", {depends_on: hasApplication}),
           code("expense_fields", "Expense detail field mapping", {depends_on: hasExpense}),
           code("expense_classification", "Expense classification fields", {depends_on: hasExpense}),
-          {fieldname: "finance_node_names", label: t("Finance Node Names"), fieldtype: "Small Text", depends_on: hasExpense},
-          {fieldname: "finance_activity_ids", label: t("Finance Activity IDs"), fieldtype: "Small Text", depends_on: hasExpense},
         ])},
       {fieldname: "template_help", fieldtype: "HTML", options: `<p class="text-muted">${esc(t("Shared approval templates appear once. Disable historical templates instead of deleting them."))}</p>`},
       {fieldname: "remove_drafts", label: t("Remove selected draft templates"), fieldtype: "Button",
@@ -223,7 +213,7 @@
         try {
           const result = await call("preview_sync_template", context.args, {silent: true});
           if (!current()) return;
-          dialog.fields_dict.preview_result.$wrapper.html(result.map(row => `<p><strong>${esc(t(RULES[row.rule]))}</strong> · ${esc(t("{0} sample approvals", [row.count]))}<br>${row.issues.map(esc).join(" / ")}</p>`).join(""));
+          dialog.fields_dict.preview_result.$wrapper.html(result.map(row => `<p><strong>${esc(t("Approval data preview"))}</strong> · ${esc(t("{0} sample approvals", [row.count]))}<br>${row.issues.map(esc).join(" / ")}</p>`).join(""));
         } catch (_) {
           if (current()) root.frappe.msgprint(t("Template preview could not be loaded. Retry."));
         }
@@ -258,13 +248,13 @@
       {fieldname: "discover_categories", label: t("Unmapped management categories"), fieldtype: "Button", click: () => loadCandidates("categories")},
       {fieldname: "categories_candidates", fieldtype: "HTML"},
       {fieldname: "advanced", label: t("Advanced settings"), fieldtype: "Section Break", collapsible: 1},
-      {fieldname: "business_timezone", label: t("Finance approval timezone"), fieldtype: "Data", default: saved.business_timezone, reqd: 1, onchange: invalidatePreview},
+      {fieldname: "business_timezone", label: t("OA business timezone"), fieldtype: "Data", default: saved.business_timezone, reqd: 1, onchange: invalidatePreview},
     ];
     dialog = new root.frappe.ui.Dialog({title: t("Configure OA Synchronization"), size: "extra-large", fields,
       onhide: invalidatePreview,
       // Native collapsible sections inspect layout.doc for required fields.
       doc: {warning_percent: saved.management_rules.warning_percent, business_timezone: saved.business_timezone,
-        common_corp_id: defaults.corp_id || (saved.corporations.length === 1 ? saved.corporations[0] : ""), common_processing_rule: defaults.processing_rule || ""},
+        common_corp_id: defaults.corp_id || (saved.corporations.length === 1 ? saved.corporations[0] : "")},
       primary_action_label: t("Save Settings"), primary_action: async () => {
         if (saving) return;
         for (const name of ["templates", "company_mappings", "category_mappings"]) helpers.flushGridEditors(dialog.fields_dict[name].grid);
@@ -285,7 +275,8 @@
         } finally { saving = false; dialog.enable_primary_action(); }
       },
     });
-    for (const name of ["templates", "company_mappings", "category_mappings"]) helpers.guardGrid(dialog.fields_dict[name].grid);
+    for (const name of ["templates", "company_mappings", "category_mappings"])
+      helpers.guardGrid(dialog.fields_dict[name].grid, name === "templates" ? {collapsedSections: ["template_advanced"]} : {});
     // Selection and editor input invalidate already-rendered results too. The
     // response guard also compares the captured draft for programmatic changes.
     dialog.fields_dict.templates.grid.wrapper.on("input.expense-sync-preview change.expense-sync-preview", invalidatePreview);

@@ -1,0 +1,103 @@
+"""Unified previews read once and preserve date, identity and schema validation."""
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import frappe
+import pytest
+
+from budget.services import expense_sync_preview as s
+
+
+@pytest.fixture
+def preview(monkeypatch):
+	row = dict(corp_id="corp", process_code="PROC-00000000-0000-0000-0000-000000000001",
+		approval_type="operating", template_name="Test", application_fields="{}", expense_fields="{}")
+	state = SimpleNamespace(row=row, raw=[{"process_instance_id": "a"}, {"process_instance_id": "b"}])
+	state.read = Mock(return_value=(state.raw, {}))
+	state.cn = Mock(return_value={"issues": []})
+	state.mx = Mock(return_value=({"request_date": "2026-11-01"}, [{"base_issues": []}]))
+	monkeypatch.setattr(s, "_", lambda text: text)
+	monkeypatch.setattr(frappe, "throw", lambda text, *args: (_ for _ in ()).throw(frappe.ValidationError(text)))
+	monkeypatch.setattr(s.mx.http, "configuration", lambda: ("https://oa.invalid", ["corp"]))
+	monkeypatch.setattr(s.mx.http, "read_template_page", state.read)
+	monkeypatch.setattr(s.contract, "project", state.cn)
+	monkeypatch.setattr(s.mx.projection, "project", state.mx)
+	return state
+
+
+def test_both_adapters_use_one_bounded_sample_without_duplicate_counting_or_finance(preview):
+	result = s.preview(preview.row, "America/Mexico_City", ["corp"], ("cn", "mx"))
+	assert result == [{"rule": "approval", "count": 2, "issues": []}]
+	preview.read.assert_called_once_with("https://oa.invalid", "corp", preview.row["process_code"], limit=3)
+	assert preview.cn.call_count == preview.mx.call_count == 2
+	assert all(call.kwargs == {"include_finance": False} for call in preview.mx.call_args_list)
+	assert [call.args[0] for call in preview.cn.call_args_list] == [call.args[0] for call in preview.mx.call_args_list]
+
+
+@pytest.mark.parametrize("value,issue", [(None, False), ("", True), ("invalid", True), ("2026-11-02", False)])
+def test_only_absent_application_date_can_use_submission_date(preview, value, issue):
+	for row in preview.raw:
+		row["form_component_values"] = [] if value is None else [
+			{"id": "DDDateField_B0K470VSL0O0", "componentType": "DDDateField", "name": "申请日期", "value": value}]
+	result = s.preview(preview.row, "America/Mexico_City", ["corp"], ("mx",))
+	assert bool(result[0]["issues"]) == issue
+
+
+@pytest.mark.parametrize("change", ["timezone", "corp", "mapping"])
+def test_invalid_configuration_is_rejected_before_any_oa_read(preview, change):
+	timezone = "America/Mexico_City"
+	if change == "timezone": timezone = "invalid/timezone"
+	elif change == "corp": preview.row["corp_id"] = "unauthorized"
+	else: preview.row["expense_fields"] = '{"unknown": ["field"]}'
+	with pytest.raises(frappe.ValidationError): s.preview(preview.row, timezone, ["corp"], ("mx",))
+	preview.read.assert_not_called()
+
+
+def test_amount_issues_are_visible_and_no_raw_source_is_returned(preview):
+	preview.mx.return_value[1][0]["base_issues"] = ["amount", "total"]
+	preview.raw[0]["private_data"] = "never-return-this"
+	result = s.preview(preview.row, "America/Mexico_City", ["corp"], ("mx",))
+	assert len(result[0]["issues"]) == 2
+	assert "never-return-this" not in str(result)
+
+
+def test_empty_sample_explains_disabled_first_workflow(preview):
+	preview.read.return_value = ([], {})
+	result = s.preview(preview.row, "America/Mexico_City", ["corp"], ("mx",))
+	assert result[0]["count"] == 0
+	assert result[0]["issues"] == ["No sample approvals found; save this template disabled first"]
+	preview.mx.assert_not_called()
+
+
+@pytest.mark.parametrize("processors", [("cn", "mx"), ("cn",)])
+@pytest.mark.parametrize("fields,submitted,valid", [
+	([], "2026-11-01", True),
+	([], None, False),
+	([{"name": "申请日期", "value": ""}], "2026-11-01", False),
+	([{"name": "申请日期", "value": "invalid"}], "2026-11-01", False),
+	([{"name": "申请日期", "value": "2026-11-01"},
+	  {"name": "申请日期", "value": "2026-10-01"}], "2026-11-01", False),
+])
+def test_shared_preview_uses_effective_date_policy_without_hiding_other_issues(preview, processors, fields, submitted, valid):
+	preview.cn.return_value = {"issues": ["period", "currency"]}
+	preview.mx.return_value[0]["request_date"] = submitted
+	for raw in preview.raw:
+		raw["form_component_values"] = fields
+	result = s.preview(preview.row, "America/Mexico_City", ["corp"], processors)[0]
+	assert (s.contract.ISSUES["period"] in result["issues"]) is not (valid and "mx" in processors)
+	assert s.contract.ISSUES["currency"] in result["issues"]
+
+
+@pytest.mark.parametrize("kind", ["operating", "purchase"])
+def test_real_shared_parsers_accept_absent_application_date_with_oa_submission(monkeypatch, kind):
+	from test_mexico_expense_templates import sample
+	template, raw = sample(kind)
+	row = {key: template[key] for key in ("corp_id", "process_code", "approval_type", "template_name")}
+	monkeypatch.setattr(s.mx.http, "configuration", lambda: ("https://oa.invalid", [row["corp_id"]]))
+	read = Mock(return_value=([raw], {}))
+	monkeypatch.setattr(s.mx.http, "read_template_page", read)
+	assert "period" in s.contract.project(raw, template)["issues"]  # Original CN semantics stay strict.
+	result = s.preview(row, "America/Mexico_City", [row["corp_id"]], ("cn", "mx"))
+	assert result[0]["count"] == 1
+	assert s.contract.ISSUES["period"] not in result[0]["issues"]
+	read.assert_called_once()

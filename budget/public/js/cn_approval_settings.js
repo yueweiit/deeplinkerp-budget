@@ -39,7 +39,7 @@
 	function flushGridEditors(grid) {
 		for (const row of grid.grid_rows || []) flushRowEditors(row);
 	}
-	function guardGrid(grid) {
+	function guardGrid(grid, {collapsedSections = []} = {}) {
 		const guarded=new WeakSet();
 		function guardRows() {
 			for (const row of grid.grid_rows || []) {
@@ -50,6 +50,18 @@
 					flushRowEditors(this);
 					return hide.apply(this,args);
 				};
+				if (collapsedSections.length) {
+					const show = row.show_form;
+					row.show_form = function(...args) {
+						const result = show.apply(this, args);
+						// Dialog grid forms have no frm, so native Layout.refresh
+						// does not apply the section's initial collapsed state.
+						for (const section of this.grid_form?.layout?.sections || []) {
+							if (collapsedSections.includes(section.df.fieldname)) section.collapse(true);
+						}
+						return result;
+					};
+				}
 			}
 		}
 		const render=grid.render_result_rows;

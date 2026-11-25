@@ -38,9 +38,9 @@ def save_sync_settings(values):
 
 
 @frappe.whitelist(methods=["POST"])
-def preview_sync_template(template, business_timezone, template_defaults=None):
+def preview_sync_template(template, business_timezone, template_defaults=None, processing_mode=None):
 	from ..services import expense_sync_settings
-	return expense_sync_settings.preview_template(template, business_timezone, template_defaults)
+	return expense_sync_settings.preview_template(template, business_timezone, template_defaults, processing_mode)
 
 
 @frappe.whitelist()

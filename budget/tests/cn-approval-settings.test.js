@@ -147,3 +147,14 @@ test("temporarily hidden rule editors do not erase captured drafts",()=>{
 	settings.flushGridEditors(grid);
 	assert.equal(row.doc.expense_fields,'{"amount":["draft"]}');
 });
+
+test("dialog grid collapses only explicitly requested sections after native form rendering",()=>{
+ const calls=[];
+ const section=name=>({df:{fieldname:name},collapse:value=>calls.push([name,value])});
+ const row={hide_form(){},show_form(){calls.push('native');return 'shown';},
+  grid_form:{layout:{sections:[section('basic'),section('advanced')]}},wrapper:{hasClass:()=>false}};
+ const grid={grid_rows:[row],render_result_rows(){}};
+ settings.guardGrid(grid,{collapsedSections:['advanced']});
+ assert.equal(row.show_form(),'shown');
+ assert.deepEqual(calls,['native',['advanced',true]]);
+});

@@ -6,6 +6,7 @@ from deeplinkerp_branding.services import mexico_expenses as mx
 from . import cn_approval_settings as cn
 
 RULES = {"application": ("cn",), "expense": ("mx",), "both": ("cn", "mx")}
+AUTOMATIC_RULES = {"budget": "application", "operating": "both", "purchase": "both", "expense": "expense"}
 DEFAULTS_PARENT = "__budget_expense_sync"
 DEFAULTS_KEY = "template_defaults"
 
@@ -30,16 +31,16 @@ def suggested_defaults(rows, corporations, stored):
 		"processing_rule": stored.get("processing_rule") or common("processing_rule")}
 
 
-def clean_defaults(values, corporations):
+def clean_defaults(values, corporations, *, processing_mode=None):
 	values = cn.parse(values)
 	if not isinstance(values, dict):
 		frappe.throw(_("Invalid OA synchronization configuration."))
-	result = {key: values.get(key) or "" for key in ("corp_id", "processing_rule")}
+	result = {key: values.get(key) or "" for key in (("corp_id",) if processing_mode == "approval" else ("corp_id", "processing_rule"))}
 	if not all(isinstance(value, str) for value in result.values()):
 		frappe.throw(_("Invalid OA synchronization configuration."))
 	if result["corp_id"] and result["corp_id"] not in corporations:
 		frappe.throw(_("The common source corporation is not authorized."))
-	if result["processing_rule"] and result["processing_rule"] not in RULES:
+	if result.get("processing_rule") and result["processing_rule"] not in RULES:
 		frappe.throw(_("Invalid common processing rules."))
 	return result
 
@@ -58,7 +59,7 @@ def inherit_defaults(row, defaults):
 	return row
 
 
-def validate_template(row, index, corporations=None):
+def validate_template(row, index, corporations=None, *, require_finance=True):
 	for field, label in (("corp_id", _("Corporation ID")), ("processing_rule", _("Processing rules")),
 		("process_code", _("Process Code")), ("template_name", _("Template Name")), ("approval_type", _("Approval Form"))):
 		if not isinstance(row.get(field), str) or not row[field].strip():
@@ -66,15 +67,40 @@ def validate_template(row, index, corporations=None):
 	if corporations is not None and row["corp_id"] not in corporations:
 		frappe.throw(_("Approval template row {0}: the source corporation is not authorized.").format(index))
 	rule, kind = row["processing_rule"], row["approval_type"]
-	if rule not in RULES or (kind == "budget" and rule != "application") or (kind == "expense" and rule != "expense"):
+	if kind not in AUTOMATIC_RULES or rule not in RULES or (kind == "budget" and rule != "application") or (kind == "expense" and rule != "expense"):
 		frappe.throw(_("Approval template row {0}: the processing rules do not support this approval form.").format(index))
-	if rule in {"expense", "both"} and not any(isinstance(row.get(field), str) and row[field].strip()
+	if require_finance and rule in {"expense", "both"} and not any(isinstance(row.get(field), str) and row[field].strip()
 		for field in ("finance_node_names", "finance_activity_ids")):
 		frappe.throw(_("Approval template row {0}: specify finance node names or activity IDs in the template details.").format(index))
 
 
 def identity(row):
 	return (row.get("corp_id"), row.get("process_code"))
+
+
+def prepare_template(raw, defaults, merged, processing_mode):
+	"""Choose adapters on the server; retain historical source identities and mappings."""
+	if processing_mode not in (None, "approval"):
+		frappe.throw(_("Invalid OA synchronization configuration."))
+	row = inherit_defaults(raw, defaults)
+	if processing_mode != "approval":
+		return row
+	if any(row.get(key) is not None and not isinstance(row[key], str)
+		for key in ("corp_id", "process_code", "approval_type")):
+		frappe.throw(_("Invalid approval template"))
+	previous = merged.get(identity(row))
+	if previous:
+		if row.get("key") != previous["key"] or row.get("approval_type") != previous["approval_type"]:
+			frappe.throw(_("An existing template cannot change approval form"))
+		row["processing_rule"] = previous["processing_rule"]
+	elif row.get("key"):
+		frappe.throw(_("Invalid approval template"))
+	else:
+		row["processing_rule"] = AUTOMATIC_RULES.get(row.get("approval_type"), "")
+	# The unified editor cannot erase or rewrite evidence used by legacy views.
+	for field in ("finance_node_names", "finance_activity_ids"):
+		row[field] = (previous or {}).get(field) or ""
+	return row
 
 
 def mode(flags):
@@ -136,7 +162,7 @@ def get_settings():
 		"excluded": int(row.get("expense_scope") == "non_mx"), "reason": row.get("scope_reason") or ""}
 		for row in mx_doc.company_mappings or []]
 	from .cn_approval_workbench import allowed_companies
-	return {"sync_mode": mode((cn_saved["enabled"], mx_doc.enabled)),
+	return {"sync_mode": mode((cn_saved["enabled"], mx_doc.enabled)), "processing_mode": "approval",
 		"versions": {"cn": cn_saved["config_version"], "mx": mx_doc.config_version or ""},
 		"business_timezone": mx_doc.business_timezone or "America/Mexico_City", "corporations": corps,
 		"templates": rows, "company_mappings": mappings,
@@ -178,7 +204,7 @@ def mapping_candidates(kind, start=0):
 	return {"rows": result["rows"], "start": start, "has_more": start + 50 < result["total"]}
 
 
-def split_templates(rows, cn_saved, mx_doc, *, corporations=None, template_defaults=None):
+def split_templates(rows, cn_saved, mx_doc, *, corporations=None, template_defaults=None, processing_mode=None):
 	if not isinstance(rows, list) or len(rows) > 200 or any(not isinstance(row, dict) for row in rows):
 		frappe.throw(_("Invalid approval template"))
 	old = {"cn": {identity(row): row for row in cn_saved["templates"]},
@@ -186,8 +212,8 @@ def split_templates(rows, cn_saved, mx_doc, *, corporations=None, template_defau
 	merged = {identity(row): row for row in merge_templates(cn_saved["templates"], mx._templates(mx_doc))}
 	result, seen = {"cn": [], "mx": []}, set()
 	for index, raw in enumerate(rows, 1):
-		row = inherit_defaults(raw, template_defaults)
-		validate_template(row, index, corporations)
+		row = prepare_template(raw, template_defaults, merged, processing_mode)
+		validate_template(row, index, corporations, require_finance=processing_mode != "approval")
 		key = identity(row)
 		if key in seen:
 			frappe.throw(_("Approval template row {0}: this source corporation and process code are already listed.").format(index))
@@ -245,6 +271,9 @@ def save_settings(values):
 	values = cn.parse(values)
 	if not isinstance(values, dict) or not isinstance(values.get("versions"), dict):
 		frappe.throw(_("Invalid OA synchronization configuration."))
+	processing_mode = values.get("processing_mode")
+	if processing_mode not in (None, "approval"):
+		frappe.throw(_("Invalid OA synchronization configuration."))
 	for attempt in range(3):
 		try:
 			cn_saved, mx_doc, corps = read(lock=True)
@@ -254,15 +283,16 @@ def save_settings(values):
 			if "template_defaults" in values:
 				if values.get("template_defaults_version") != mx.digest(read_template_defaults(lock=True)):
 					frappe.throw(_("Settings changed; reload and try again"))
-				defaults = clean_defaults(values["template_defaults"], corps)
+				defaults = clean_defaults(values["template_defaults"], corps, processing_mode=processing_mode)
 			templates = split_templates(values.get("templates"), cn_saved, mx_doc,
-				corporations=corps, template_defaults=defaults)
+				corporations=corps, template_defaults=defaults, processing_mode=processing_mode)
 			mappings = split_mappings(values.get("company_mappings"))
 			# Reuse each source's validation and existing storage. CN save_once is
 			# intentional: its outer retry must not discard an already-saved MX half.
 			mx.save_settings(company_mappings=mappings["mx"], business_timezone=values.get("business_timezone"),
 				enabled=enabled(values.get("sync_mode"), mx_doc.enabled),
-				expected_config_version=values["versions"]["mx"], approval_templates=templates["mx"] or None)
+				expected_config_version=values["versions"]["mx"], approval_templates=templates["mx"] or None,
+				**({"management": True} if processing_mode == "approval" else {}))
 			cn.save_once(enabled=enabled(values.get("sync_mode"), cn_saved["enabled"]),
 				templates=templates["cn"], company_mappings=mappings["cn"],
 				expected_config_version=values["versions"]["cn"], management_rules=values.get("management_rules"))
@@ -276,15 +306,21 @@ def save_settings(values):
 			raise
 
 
-def preview_template(template, business_timezone, template_defaults=None):
+def preview_template(template, business_timezone, template_defaults=None, processing_mode=None):
 	# Preview is an explicit, bounded OA read, never part of opening the editor.
-	_cn_saved, _mx_doc, corps = read()
+	cn_saved, mx_doc, corps = read()
 	row = cn.parse(template)
 	if not isinstance(row, dict):
 		frappe.throw(_("Invalid approval template"))
-	row = inherit_defaults(row, clean_defaults(template_defaults, corps) if template_defaults is not None else None)
+	merged = {identity(item): item for item in merge_templates(cn_saved["templates"], mx._templates(mx_doc))}
+	defaults = clean_defaults(template_defaults, corps, processing_mode=processing_mode) if template_defaults is not None else None
+	row = prepare_template(row, defaults, merged, processing_mode)
 	index = row.get("idx")
-	validate_template(row, index if type(index) is int and 1 <= index <= 200 else 1, corps)
+	validate_template(row, index if type(index) is int and 1 <= index <= 200 else 1, corps,
+		require_finance=processing_mode != "approval")
+	if processing_mode == "approval":
+		from .expense_sync_preview import preview
+		return preview(row, business_timezone, corps, RULES[row["processing_rule"]])
 	result = []
 	for source in RULES.get(row.get("processing_rule"), ()):
 		prefix = "application" if source == "cn" else "expense"

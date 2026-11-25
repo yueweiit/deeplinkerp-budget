@@ -346,6 +346,25 @@ def test_changed_legacy_sibling_stays_reviewable_without_inflating_totals(monkey
 	assert review[0]["amounts"] == {"CNY": None, "MXN": None}
 
 
+@pytest.mark.parametrize("status,total", [("approved", "100.00"), ("pending", "0.00"),
+	("rejected", "0.00"), ("terminated", "0.00"), ("withdrawn", "0.00"), ("unknown", "0.00")])
+def test_legacy_finance_issues_do_not_leak_into_final_approval_statistics(monkeypatch, status, total):
+	stored = legacy_dataset(monkeypatch)
+	for row in stored:
+		row.update(approval_status=status, review_state="pending", issues='["finance", "period"]',
+			classification_path='[{"label":"专业服务"}]')
+	# Use the configured category, so only workflow/finance behavior is under test.
+	monkeypatch.setattr(s.management.rules_service, "classify", lambda *a: "service")
+	result = s.query()
+	assert result["summary"]["amounts"]["CNY"] == total
+	assert result["summary"]["review"] == 0
+	assert all(row.issues == '["finance", "period"]' for row in stored)
+	stored[0].issues = '["finance", "amount"]'
+	if status == "approved":
+		assert s.query()["summary"]["amounts"]["CNY"] == "70.00"
+		assert s.query()["summary"]["review"] == 1
+
+
 def test_mx_classification_reaches_filters_comparison_details_and_export(monkeypatch):
 	projection = s.regional.management_projection
 	legacy_dataset(monkeypatch, companies=("A",))
