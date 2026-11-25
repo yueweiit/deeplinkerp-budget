@@ -1,5 +1,4 @@
-// Discard only this app's obsolete remembered ownership. Native route resolution
-// then chooses the authorized CN sidebar; other user sidebar preferences survive.
+// Discard obsolete ownership only; native resolution chooses the current sidebar.
 (function () {
     const moved = new Set(["budget ledger entry", "budget-ledger-entry", "budget-dashboard", "budget-config"]);
     try {
@@ -7,10 +6,14 @@
         const raw = localStorage.getItem(key);
         if (!raw) return;
         const remembered = JSON.parse(raw);
+        const unified = globalThis.frappe?.boot?.unified_expense_management;
+        const retired = new Set(["china operating expenses", "mexico expenses",
+            ...(globalThis.frappe?.boot?.expense_retired_sidebars || [])]);
         let changed = false;
         for (const [entity, choices] of Object.entries(remembered)) {
-            if (!moved.has(entity.toLowerCase()) || !Array.isArray(choices)) continue;
-            const keep = choices.filter((name) => name !== "Budget");
+            if (!Array.isArray(choices)) continue;
+            const keep = choices.filter(name => !(moved.has(entity.toLowerCase()) && name === "Budget")
+                && !(unified && retired.has(String(name).toLowerCase())));
             if (keep.length === choices.length) continue;
             if (keep.length) remembered[entity] = keep;
             else delete remembered[entity];
@@ -20,25 +23,53 @@
     } catch { /* Storage may be unavailable; native navigation remains usable. */ }
 })();
 
-// Retired CN URLs are aliases only: resolve them before Page rendering, so a
+// Retired regional URLs are aliases only: resolve them before Page rendering, so a
 // bookmark or cached Desk tab cannot mount new content under an old sidebar.
 (function () {
-    if (!globalThis.frappe?.boot?.cn_budget_workbench || !frappe.router) return;
+    if (!(globalThis.frappe?.boot?.cn_budget_workbench || globalThis.frappe?.boot?.unified_expense_management) || !frappe.router) return;
     const router = frappe.router;
     if (router.cn_legacy_routes_installed) return;
-    const destinations = new Map([
+    const cnDestinations = new Map([
         ["budget-dashboard", "china-budget-execution"],
         ["budget-config", "china-budget-execution"],
         ["china-personnel-report", "china-management-reports"],
     ]);
+    const unified = () => Boolean(frappe.boot.unified_expense_management);
+    const destinations = () => unified()
+        ? new Map(Object.entries(frappe.boot.expense_legacy_routes || {}))
+        : frappe.boot.cn_budget_workbench ? cnDestinations : new Map();
+    function objectFilter(value) {
+        try {
+            for (let i = 0; i < 2 && typeof value === "string"; i++) value = JSON.parse(value);
+            return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+        } catch { return {}; }
+    }
+    function expenseFilters(legacy) {
+        // Read the current URL, never filters left by a previously opened tab.
+        const params = new URLSearchParams(window.location.search);
+        if (params.has("expense_filters")) {
+            const values = objectFilter(params.get("expense_filters"));
+            return Object.fromEntries(["month", "company", "category", "source_category", "measure"]
+                .filter(key => typeof values[key] === "string").map(key => [key, values[key]]));
+        }
+        const values = objectFilter(params.get(legacy.startsWith("mexico-") ? "mx_filters" : "cn_approval_filters"));
+        const month = values.month || values.to_month || (typeof values.to_date === "string" ? values.to_date.slice(0, 7) : "");
+        // Old finance dates, statuses, currencies and categories have different
+        // semantics. Carry only the subsidiary and last selected calendar month.
+        return {
+            ...(typeof month === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? {month} : {}),
+            company: typeof values.company === "string" ? values.company : "",
+        };
+    }
     function migrateTabs(controller) {
-        if (!frappe.boot.cn_budget_workbench || !controller?.state?.tabs) return;
+        if (!controller?.state?.tabs) return;
+        const targets = destinations();
         const pageKey = tab => Array.isArray(tab.route) && tab.route.length === 1 ? tab.route[0] : null;
-        const affected = new Set(controller.state.tabs.map(tab => destinations.get(pageKey(tab))).filter(Boolean));
+        const affected = new Set(controller.state.tabs.map(tab => targets.get(pageKey(tab))).filter(Boolean));
         if (!affected.size) return;
         const tabs = [], positions = new Map();
         for (const source of controller.state.tabs) {
-            const key = pageKey(source), destination = destinations.get(key);
+            const key = pageKey(source), destination = targets.get(key);
             const canonical = destination || key;
             if (!affected.has(canonical)) { tabs.push(source); continue; }
             let tab = {...source};
@@ -57,8 +88,8 @@
             }
         }
         controller.state.tabs = tabs;
-        controller.state.active_route_key = destinations.get(controller.state.active_route_key) || controller.state.active_route_key;
-        controller.last_route_key = destinations.get(controller.last_route_key) || controller.last_route_key;
+        controller.state.active_route_key = targets.get(controller.state.active_route_key) || controller.state.active_route_key;
+        controller.last_route_key = targets.get(controller.last_route_key) || controller.last_route_key;
         if (controller.container) controller.render();
         controller.persist();
     }
@@ -69,13 +100,22 @@
     const nativeReroute = router.re_route;
     router.re_route = function (subpath) {
         const legacy = subpath.replace(/\/$/, "");
-        const destination = destinations.get(legacy);
-        if (!destination || !frappe.boot.cn_budget_workbench) {
+        const destination = destinations().get(legacy);
+        if (!destination) {
             return nativeReroute.apply(this, arguments);
         }
         // Native parse() has not run yet on initial loads / browser back.
         this.set_route_options_from_url();
         const options = {...frappe.route_options};
+        if (unified()) {
+            for (const key of Object.keys(options)) {
+                if (key.startsWith("cn_") || key.startsWith("mx_") || key === "expense_filters") delete options[key];
+            }
+            options.expense_filters = expenseFilters(legacy);
+            // Native desktop links carry a sidebar override. It must not point
+            // at a retired CN/MX or now-empty custom sidebar after redirecting.
+            options.sidebar = "Expense Management";
+        }
         // Native anchor clicks serialize query values once more than direct
         // bookmark loads. The workbench contract requires an object in both cases.
         if (typeof options.cn_approval_filters === "string") {
@@ -87,7 +127,7 @@
             } catch { delete options.cn_approval_filters; }
         }
         delete options.cn_filters; // Retired workbench contract.
-        if (legacy === "china-personnel-report") options.cn_report = "hr";
+        if (!unified() && legacy === "china-personnel-report") options.cn_report = "hr";
         frappe.route_options = options;
         frappe.route_hash = window.location.hash;
         frappe.route_flags = {...frappe.route_flags, replace_route: true};

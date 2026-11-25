@@ -17,11 +17,20 @@ test('unavailable or corrupted browser storage does not block native navigation'
     assert.doesNotThrow(()=>vm.runInNewContext(script,{localStorage:{getItem:()=>'{invalid'}}));
 });
 
-function navigation({enabled=true, search='', hash='', storage, tabs}={}) {
+const unifiedRoutes = {
+    'china-expenses':'expense-management', 'mexico-expenses':'expense-management',
+    'china-budget-execution':'expense-budget', 'budget-config':'expense-budget',
+    'china-expense-details':'expense-details', 'mexico-expense-details':'expense-details',
+    'china-expense-review':'expense-review', 'mexico-expense-review':'expense-review',
+    'china-personnel-report':'expense-analysis', 'mexico-personnel-report':'expense-analysis',
+    'mexico-expense-reports':'expense-analysis',
+};
+function navigation({enabled=true, unified=false, search='', hash='', storage, tabs, retiredSidebars=[]}={}) {
     const calls=[], nativeCalls=[];
     const listeners=new Map();
     const frappe={
-        boot:{cn_budget_workbench:enabled},
+        boot:{cn_budget_workbench:enabled,unified_expense_management:unified,
+            expense_legacy_routes:unified?unifiedRoutes:{},expense_retired_sidebars:retiredSidebars},
         route_options:null, route_flags:{custom:true},
         set_route(route) {
             calls.push(JSON.parse(JSON.stringify({
@@ -221,4 +230,129 @@ test('standalone Budget never migrates its native tabs',()=>{
     env.restoreTabs(controller);
     assert.equal(JSON.stringify(controller.state),before);
     assert.equal(controller.persistCount,0);
+});
+
+test('unified expenses retire CN and MX URLs before rendering and avoid redirect chains',()=>{
+    const {frappe,calls,nativeCalls}=navigation({unified:true});
+    for (const [old,target] of Object.entries(unifiedRoutes)) {
+        assert.equal(frappe.router.re_route(old+'/'),true);
+        assert.equal(calls.at(-1).route,target);
+        assert.equal(calls.at(-1).options.cn_report,undefined);
+        assert.equal(calls.at(-1).flags.replace_route,true);
+    }
+    assert.equal(nativeCalls.length,0);
+    for (const route of ['expense-management','expense-analysis','operating-expenses',
+        'china-cash-journal','budget-ledger-entry','china-expenses/other']) {
+        assert.equal(frappe.router.re_route(route),'native');
+    }
+});
+
+test('regional bookmarks retain company and last month but not old accounting filters',()=>{
+    for (const [route,key,filters] of [
+        ['china-expenses','cn_approval_filters',{from_month:'2026-09',to_month:'2026-11',company:'A & B'}],
+        ['mexico-expense-reports','mx_filters',{from_date:'2026-09-01',to_date:'2026-11-30',company:'A & B'}],
+    ]) {
+        for (const serialized of [JSON.stringify(filters),JSON.stringify(JSON.stringify(filters))]) {
+            const params=new URLSearchParams({[key]:serialized,cn_report:'hr',mx_group:'trend',
+                custom:'keep',expense_filters_unused:'unused'});
+            const {frappe,calls}=navigation({unified:true,search:'?'+params,hash:'#company'});
+            frappe.route_options={expense_filters:{company:'Stale',month:'2025-01'},mx_dashboard:1};
+            frappe.router.re_route(route);
+            assert.deepEqual(calls[0].options.expense_filters,{month:'2026-11',company:'A & B'});
+            assert.equal(calls[0].options.cn_report,undefined);
+            assert.equal(calls[0].options.mx_group,undefined);
+            assert.equal(calls[0].options.mx_dashboard,undefined);
+            assert.equal(calls[0].options.custom,'keep');
+            assert.equal(calls[0].hash,'#company');
+        }
+    }
+});
+
+test('malformed old filters and bare links cannot reuse previous tab company or month',()=>{
+    for (const value of ['{broken','[]','null','false','{"month":"2026-99","company":5}']) {
+        const {frappe,calls}=navigation({unified:true,search:'?'+new URLSearchParams({mx_filters:value})});
+        frappe.route_options={mx_filters:{company:'Old'},expense_filters:{company:'Stale'}};
+        frappe.router.re_route('mexico-expenses');
+        assert.deepEqual(calls[0].options.expense_filters,{company:''});
+    }
+    const {frappe,calls}=navigation({unified:true});
+    frappe.route_options={mx_filters:{company:'Old'},expense_filters:{company:'Stale'}};
+    frappe.router.re_route('mexico-expenses');
+    assert.deepEqual(calls[0].options.expense_filters,{company:''});
+});
+
+test('explicit unified filters survive old bookmarks with only supported keys',()=>{
+    const values={month:'2026-10',company:'A',category:'service',source_category:'missing',measure:'approved',country:'Mexico'};
+    const {frappe,calls}=navigation({unified:true,search:'?'+new URLSearchParams({expense_filters:JSON.stringify(values)})});
+    frappe.router.re_route('china-expense-details');
+    delete values.country;
+    assert.deepEqual(calls[0].options.expense_filters,values);
+});
+
+test('retired CN and MX tabs merge into unified tabs without losing pins or unrelated forms',()=>{
+    const native=tab('Customer/CUST-1',{route:['Form','Customer','CUST-1']});
+    const canonical=tab('expense-management',{title:'Current title',last_accessed:10});
+    const controller=tabController([native,tab('mexico-expenses',{pinned:true,last_accessed:30}),
+        tab('china-expenses'),canonical,tab('budget-config')],'mexico-expenses');
+    const env=navigation({unified:true});
+    env.restoreTabs(controller);
+    assert.deepEqual(plain(controller.state.tabs),[native,{...canonical,pinned:true,last_accessed:30},
+        {...tab('expense-budget'),title:'translated:expense-budget',doctype:null,docname:null}]);
+    assert.equal(controller.state.active_route_key,'expense-management');
+    assert.equal(controller.last_route_key,'expense-management');
+    env.restoreTabs(controller);
+    assert.equal(controller.persistCount,1);
+});
+
+test('unified navigation clears only retired remembered sidebars and remains idempotent',()=>{
+    let stored=JSON.stringify({'expense-management':['Mexico Expenses','Personal'],
+        'mexico-expenses':['Mexico Expenses'],Customer:['China Operating Expenses','Selling'],Budget:['Budget']});
+    const {frappe,context,calls}=navigation({unified:true,storage:{getItem:()=>stored,setItem:(_,v)=>stored=v}});
+    assert.deepEqual(JSON.parse(stored),{'expense-management':['Personal'],Customer:['Selling'],Budget:['Budget']});
+    const handler=frappe.router.re_route;
+    vm.runInContext(script,context);
+    assert.equal(frappe.router.re_route,handler);
+    frappe.router.re_route('mexico-expenses');
+    assert.equal(calls.length,1);
+});
+
+test('legacy desktop links use the unified sidebar after native sidebar dispatch',()=>{
+    for (const [route,sidebar] of [['mexico-expenses','Mexico Expenses'],
+        ['china-expenses','China Operating Expenses'],['mexico-expense-details','My Expense Shortcuts']]) {
+        for (const value of [sidebar,JSON.stringify(sidebar)]) {
+            const {frappe,calls}=navigation({unified:true,search:'?'+new URLSearchParams({sidebar:value,custom:'keep'})});
+            frappe.router.re_route(route);
+            const options=calls[0].options;
+            // Sidebar.setup_events gives route_options.sidebar precedence over
+            // route-based resolution; only the unified sidebar is available.
+            const sidebars={'expense management':{items:[{link_to:calls[0].route}]}};
+            assert.deepEqual(sidebars[options.sidebar.toLowerCase()].items,[{link_to:calls[0].route}]);
+            assert.equal(options.sidebar,'Expense Management');
+            assert.equal(options.custom,'keep');
+        }
+    }
+});
+
+test('sidebar overrides stay unchanged outside unified legacy redirects',()=>{
+    const old=navigation({search:'?'+new URLSearchParams({sidebar:'China Operating Expenses'})});
+    old.frappe.router.re_route('budget-config');
+    assert.equal(old.calls[0].options.sidebar,'China Operating Expenses');
+    const current=navigation({unified:true});
+    current.frappe.route_options={sidebar:'Personal'};
+    assert.equal(current.frappe.router.re_route('expense-management'),'native');
+    assert.equal(current.frappe.route_options.sidebar,'Personal');
+});
+
+test('sidebar choices emptied by retirement are removed without clearing personal preferences',()=>{
+    const initial=JSON.stringify({'expense-management':['MY Expense Shortcuts','Personal'],
+        Customer:['My Expense Shortcuts','Selling'],'china-expenses':['China Operating Expenses'],
+        'operating-expenses':['Mixed Expenses'],'my workspaces':['My Workspaces']});
+    for (const unified of [false,true]) {
+        let stored=initial;
+        navigation({unified,retiredSidebars:['my expense shortcuts'],
+            storage:{getItem:()=>stored,setItem:(_,v)=>stored=v}});
+        if (!unified) assert.equal(stored,initial);
+        else assert.deepEqual(JSON.parse(stored),{'expense-management':['Personal'],Customer:['Selling'],
+            'operating-expenses':['Mixed Expenses'],'my workspaces':['My Workspaces']});
+    }
 });

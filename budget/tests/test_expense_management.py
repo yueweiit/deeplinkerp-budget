@@ -509,3 +509,44 @@ def test_navigation_merges_only_when_all_pages_are_authorized(monkeypatch):
 	assert [row["name"] for row in complete["desktop_icons"]] == ["Expense Management","Other"]
 	restricted=boot(navigation.PAGES[:-1]);navigation.boot(restricted)
 	assert [row["name"] for row in restricted["desktop_icons"]] == ["Mexico Expenses","China Operating Expenses","Other"]
+	assert restricted["expense_legacy_routes"] == {}
+
+
+def test_retired_pages_leave_search_and_sidebars_without_mutating_cached_metadata(monkeypatch):
+	monkeypatch.setattr(frappe, "get_installed_apps", lambda: ["budget", "deeplinkerp_branding"])
+	page_info = {route: {"title": route} for route in (*navigation.PAGES, *navigation.LEGACY_ROUTES, "operating-expenses")}
+	old = {"type": "Link", "link_type": "Page", "link_to": "mexico-expenses", "child": 1}
+	keep = {"type": "Link", "link_type": "DocType", "link_to": "Account", "child": 1}
+	group = {"type": "Section Break", "label": "Expenses"}
+	sidebars = {"expense management": {"items": []}, "mexico expenses": {"items": [old]},
+		"china operating expenses": {"items": []}, "accounting": {"items": [group, old, keep]},
+		"personal": {"items": [group, old, {"type": "Link", "link_type": "Page", "link_to": "operating-expenses"}]}}
+	boot = {"page_info": page_info, "workspace_sidebar_item": sidebars,
+		"desktop_icons": [{"name": "Custom expense shortcut", "link_type": "Workspace Sidebar", "link_to": "Mexico Expenses"},
+			{"name": "Expense Management"}, {"name": "Accounting"}]}
+	original = deepcopy(boot)
+	navigation.boot(boot)
+	assert boot["unified_expense_management"]
+	assert boot["expense_legacy_routes"] == navigation.LEGACY_ROUTES
+	assert set(boot["page_info"]) == {*navigation.PAGES, "operating-expenses"}
+	assert set(boot["workspace_sidebar_item"]) == {"expense management", "accounting", "personal"}
+	assert boot["workspace_sidebar_item"]["accounting"]["items"] == [group, keep]
+	assert boot["workspace_sidebar_item"]["personal"]["items"] == [sidebars["personal"]["items"][-1]]
+	assert [icon["name"] for icon in boot["desktop_icons"]] == ["Expense Management", "Accounting"]
+	assert page_info == original["page_info"] and sidebars == original["workspace_sidebar_item"]
+	first = deepcopy(boot)
+	navigation.boot(boot)
+	assert boot == first
+
+
+@pytest.mark.parametrize("apps,missing", [(["budget"], None), (["budget", "deeplinkerp_branding"], "expense-review")])
+def test_unavailable_or_unauthorized_unified_pages_preserve_all_legacy_access(monkeypatch, apps, missing):
+	monkeypatch.setattr(frappe, "get_installed_apps", lambda: apps)
+	pages = {route: {} for route in (*navigation.PAGES, *navigation.LEGACY_ROUTES) if route != missing}
+	sidebars = {"expense management": {}, "mexico expenses": {}, "china operating expenses": {}}
+	boot = {"page_info": pages, "workspace_sidebar_item": sidebars,
+		"desktop_icons": [{"name": name} for name in ("Mexico Expenses", "China Operating Expenses", "Expense Management")]}
+	navigation.boot(boot)
+	assert not boot["unified_expense_management"] and boot["expense_legacy_routes"] == {}
+	assert boot["page_info"] is pages and boot["workspace_sidebar_item"] is sidebars
+	assert [item["name"] for item in boot["desktop_icons"]] == ["Mexico Expenses", "China Operating Expenses"]
