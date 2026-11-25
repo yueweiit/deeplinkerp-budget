@@ -10,9 +10,18 @@
     cn: "Budget and approval source",
     mx: "Expense approval source",
   };
+  function activity(sources, submitting = false) {
+    const syncing = submitting || sources.some((s) => s.active);
+    const rebuilding = sources.some((s) => s.allocation_rebuilding);
+    if (syncing && rebuilding) return "Synchronizing OA approvals and recalculating local mappings…";
+    if (syncing) return "Synchronizing OA approvals…";
+    if (rebuilding) return "Recalculating local mappings…";
+    return "";
+  }
   function label(source) {
     if (!source.configured) return "Synchronization configuration required";
-    if (source.active) return "Synchronizing approvals…";
+    const progress = activity([source]);
+    if (progress) return progress;
     if (source.status === "failed")
       return "Synchronization failed. Retry synchronization.";
     if (!source.enabled) return "Automatic synchronization is disabled";
@@ -153,10 +162,10 @@
         sources.some((s) => s.status === "failed" || !s.configured);
       const text = this.error
         ? t(this.error)
+        : busy
+        ? t(activity(sources, this.submitting))
         : problem
         ? t(this.state?.overall?.status === "partial_failure" ? "Synchronization partially failed" : "Synchronization needs attention")
-        : busy
-        ? t("Synchronizing approvals…")
         : this.state?.scheduler_enabled === false
         ? t("Site scheduler is disabled")
         : sources.length && sources.every((s) => !s.enabled)
@@ -227,7 +236,7 @@
         return;
       }
       html += `<section class="em-sync-source"><div><strong>${esc(t("OA Approval Synchronization"))}</strong>
-        <p class="${failed ? "text-warning" : ""}">${esc(t(labels[status] || "Not Synchronized"))}</p>
+        <p class="${failed ? "text-warning" : ""}">${esc(t(activity(sources, this.submitting) || labels[status] || "Not Synchronized"))}</p>
         <small>${esc(t("{0} of {1} templates updated successfully", [overall.completed || 0, overall.total || 0]))}</small>
         <small>${esc(t("Last complete update"))}: ${esc(overall.last_update_at ? root.frappe.datetime.str_to_user(overall.last_update_at) : "—")}</small>
         ${Object.keys(this.errors).length ? `<p class="text-danger">${esc(t("Some synchronization tasks could not be queued. Retry failed items."))}</p>` : ""}
@@ -262,8 +271,10 @@
         if (!current()) return;
         const saved = async () => {
           if (current()) {
+            // A mapping save starts local reprojection. Let polling wait for
+            // completion and retain the current report filters when reloading.
+            this.refreshAfterSync = true;
             await this.poll();
-            await this.work.load();
           }
         };
         const dialog = await root.ExpenseSyncSettings.open(saved, { isCurrent: current });

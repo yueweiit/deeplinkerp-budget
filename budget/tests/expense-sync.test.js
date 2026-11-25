@@ -267,6 +267,67 @@ test("leaving while settings assets load prevents a late dialog", async () => {
   await request;
   assert.equal(opened, 0);
 });
+test("saving mappings waits for local rebuild and then reloads once without queuing OA", async () => {
+  const { sync, work, loads, calls } = setup();
+  sync.state = state();
+  let saved;
+  const rebuilding = state();
+  rebuilding.sources.mx.allocation_rebuilding = true;
+  global.frappe.require = (_paths, done) => done();
+  global.ExpenseSyncSettings = {
+    open: async (callback) => { saved = callback; return { hide() {} }; },
+  };
+  await sync.configure();
+  work.call = async (method) => { calls.push([method]); return rebuilding; };
+  await saved();
+  assert.deepEqual(loads, []);
+  assert.equal(sync.refreshAfterSync, true);
+  rebuilding.sources.mx.allocation_rebuilding = false;
+  await sync.poll();
+  await sync.poll();
+  assert.deepEqual(loads, [true]);
+  assert(calls.every(([method]) => method === "get_sync_status"));
+  assert.equal(sync.refreshAfterSync, false);
+  sync.stop();
+});
+test("a settings save whose rebuild already finished refreshes unchanged facts once", async () => {
+  const { sync, loads } = setup();
+  sync.state = state();
+  let saved;
+  global.frappe.require = (_paths, done) => done();
+  global.ExpenseSyncSettings = { open: async (callback) => { saved = callback; return { hide() {} }; } };
+  await sync.configure();
+  await saved();
+  await sync.poll();
+  assert.deepEqual(loads, [true]);
+  sync.stop();
+});
+test("toolbar and dialog distinguish OA reads, local rebuilds and overlapping jobs", () => {
+  for (const [active, rebuilding, text] of [
+    [false, true, "Recalculating local mappings…"],
+    [true, false, "Synchronizing OA approvals…"],
+    [true, true, "Synchronizing OA approvals and recalculating local mappings…"],
+  ]) {
+    const { sync, work } = setup();
+    sync.state = state();
+    sync.state.sources.cn.active = active;
+    sync.state.sources.mx.allocation_rebuilding = rebuilding;
+    sync.state.overall = { status: "running", completed: 14, total: 14 };
+    let html, disabled;
+    const node = { querySelector: () => ({}) };
+    work.host.querySelector = () => node;
+    work.syncButton = { prop: (_key, value) => { disabled = value; } };
+    sync.dialog = { is_visible: true, fields_dict: { content: { $wrapper: { html: value => { html = value; } } } }, hide() {} };
+    sync.render();
+    assert(node.innerHTML.includes(text));
+    assert(html.includes(text));
+    assert(html.includes("14 of 14 templates updated successfully"));
+    assert.equal(disabled, true);
+    if (!active) assert(!html.includes("Synchronizing OA approvals…"));
+    sync.stop();
+  }
+  assert.equal(label({configured: true, allocation_rebuilding: true}), "Recalculating local mappings…");
+});
 test("disabled, unconfigured and failed states never claim synchronization success", () => {
   assert.equal(
     label({ configured: false }),
