@@ -306,6 +306,16 @@ def test_legacy_manual_approval_keeps_mapped_siblings_once_in_totals_details_and
 		assert s.query({"company": "B"})["summary"]["amounts"]["CNY"] == "70.00"
 
 
+def test_legacy_category_identity_is_available_to_mapping_discovery_but_not_public_rows(monkeypatch):
+	stored = legacy_dataset(monkeypatch)
+	for row in stored:
+		row.classification_path = '[{"label":"New source category"}]'
+	rows, _, _, _ = s.load()
+	assert all(row["source_path"] == ["New source category"] for row in rows)
+	assert all(not row["management_category"] for row in rows)
+	assert all("source_path" not in row for row in s.query({"view": "details"})["rows"])
+
+
 def test_legacy_siblings_keep_company_and_regional_permissions(monkeypatch):
 	stored = legacy_dataset(monkeypatch, companies=("A",))
 	stored[0].company = "B"  # The exception is hidden, but its mapped sibling is visible.

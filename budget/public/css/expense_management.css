@@ -433,3 +433,28 @@
     padding: 0 16px 12px;
   }
 }
+
+.em-sync-details {
+  margin-top: 16px;
+}
+.em-sync-details summary {
+  cursor: pointer;
+  font-weight: 500;
+  padding: 8px 0;
+}
+.em-sync-details > p {
+  margin: 8px 0 12px;
+}
+.em-sync-table {
+  max-height: 320px;
+  overflow: auto;
+}
+.em-sync-table th {
+  position: sticky;
+  top: 0;
+  background: var(--fg-color, #fff);
+}
+.em-sync-retry {
+  margin-top: 12px;
+  text-align: right;
+}

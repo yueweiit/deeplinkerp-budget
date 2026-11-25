@@ -14,6 +14,7 @@
 		: t("CN approval settings could not be loaded or saved. Retry.");
 	// Native Select also inserts option labels as HTML. Keep values unchanged.
 	const textOptions=values=>[{value:"",label:""},...values.map(value=>({value,label:esc(value)}))];
+	const pathLabel=(kind,path)=>path.map((part,index)=>kind==="budget"&&index===0?t(({hr:"Personnel budget",office:"Office premises budget",operation:"Operating budget",unitemized:"Unitemized budget"})[part]||part):part).join(" / ");
 	function textFields(fields) {
 		// Frappe's default Data/Select/Small Text grid formatters return HTML.
 		// Escape at display time; keep exact source names in the mapping payload.
@@ -22,12 +23,17 @@
 	}
 	function flushRowEditors(row) {
 		if (!row?.wrapper.hasClass("grid-row-open")) return;
-		for (const name of ["field_mapping","classification_fields"]) {
-			const field=row.grid_form?.fields_dict?.[name];
+		for (const [name,field] of Object.entries(row.grid_form?.fields_dict || {})) {
 			// Ace debounces the draft update. Read the visible editor now, before
 			// a request or native row refresh can use/reset the previous value.
 			// The API still validates JSON and allowed component IDs on submission.
-			if (field?.editor) row.doc[name]=field.get_value();
+			if (field?.editor) {
+				if (field.get_status && field.get_status()!=="Write") continue;
+				const value=field.get_value();
+				// Hidden native controls can return undefined or a stale model value.
+				// A shared rule change must not erase a previously captured draft.
+				if (value!==undefined) row.doc[name]=value;
+			}
 		}
 	}
 	function flushGridEditors(grid) {
@@ -69,7 +75,6 @@
 		let dialog, pending=false, page=0, sourcesSeq=0, categorySeq=0;
 		const rules=saved.management_rules||{warning_percent:90,category_mappings:[]};
 		const categoryOptions=[{value:"",label:""},...Object.entries(saved.management_categories||{}).map(([value,label])=>({value,label:esc(t(label))}))];
-		const pathLabel=(kind,path)=>path.map((part,index)=>kind==="budget"&&index===0?t(({hr:"Personnel budget",office:"Office premises budget",operation:"Operating budget",unitemized:"Unitemized budget"})[part]||part):part).join(" / ");
 		const categoryRows=rules.category_mappings.map(row=>({...row,source_path:JSON.stringify(row.source_path),source_label:pathLabel(row.kind,row.source_path)}));
 		const corporations=textOptions(saved.corporations);
 		const corpField=()=>({fieldname:"corp_id",fieldtype:"Select",label:t("Corporation ID"),
@@ -195,5 +200,5 @@
 		dialog.show();loadSources();loadCategories();
 		return dialog;
 	}
-	return {open,textFields,textOptions,flushGridEditors,guardGrid};
+	return {open,textFields,textOptions,flushGridEditors,guardGrid,pathLabel};
 });

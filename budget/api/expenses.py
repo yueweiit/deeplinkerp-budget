@@ -14,9 +14,33 @@ def get_sync_status():
 
 
 @frappe.whitelist(methods=["POST"])
-def enqueue_sync(source):
+def enqueue_sync(source, retry_failed=False):
 	from ..services import expense_sync
-	return expense_sync.enqueue(source)
+	return expense_sync.enqueue(source, retry_failed=retry_failed)
+
+
+@frappe.whitelist()
+def get_sync_settings():
+	from ..services import expense_sync_settings
+	return expense_sync_settings.get_settings()
+
+
+@frappe.whitelist()
+def get_sync_mapping_candidates(kind, start=0):
+	from ..services import expense_sync_settings
+	return expense_sync_settings.mapping_candidates(kind, start)
+
+
+@frappe.whitelist(methods=["POST"])
+def save_sync_settings(values):
+	from ..services import expense_sync_settings
+	return expense_sync_settings.save_settings(values)
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_sync_template(template, business_timezone, template_defaults=None):
+	from ..services import expense_sync_settings
+	return expense_sync_settings.preview_template(template, business_timezone, template_defaults)
 
 
 @frappe.whitelist()

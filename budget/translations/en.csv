@@ -125,3 +125,70 @@ Synchronization failed. Retry synchronization.,Synchronization failed. Retry syn
 Synchronization status could not be loaded. Retrying shortly.,Synchronization status could not be loaded. Retrying shortly.
 Synchronization could not be queued. Retry.,Synchronization could not be queued. Retry.
 CN approval settings could not be loaded or saved. Retry.,CN approval settings could not be loaded or saved. Retry.
+OA Synchronization Settings,OA Synchronization Settings
+OA Approval Synchronization,OA Approval Synchronization
+Configure synchronization,Configure synchronization
+Configure OA Synchronization,Configure OA Synchronization
+Enabled approval templates synchronize every 5 minutes. Failed synchronization keeps existing data.,Enabled approval templates synchronize every 5 minutes. Failed synchronization keeps existing data.
+Waiting to synchronize,Waiting to synchronize
+Read completed; awaiting publication,Read completed; awaiting publication
+Last synchronization failed,Last synchronization failed
+Synchronization partially failed,Synchronization partially failed
+No approval templates are enabled,No approval templates are enabled
+{0} of {1} templates updated successfully,{0} of {1} templates updated successfully
+Last complete update,Last complete update
+Some synchronization tasks could not be queued. Retry failed items.,Some synchronization tasks could not be queued. Retry failed items.
+Template progress and errors,Template progress and errors
+Shared approval templates appear once. Some templates publish together and are retried as a batch.,Shared approval templates appear once. Some templates publish together and are retried as a batch.
+Retry failed items,Retry failed items
+Expense expenditure,Expense expenditure
+Automatic synchronization,Automatic synchronization
+Partially enabled (keep current settings),Partially enabled (keep current settings)
+Application fields,Application fields
+Expense details and finance approval,Expense details and finance approval
+Application and expense rules,Application and expense rules
+Source organization,Source organization
+Expense-bearing entity,Expense-bearing entity
+Expense-bearing department,Expense-bearing department
+Processing rules,Processing rules
+Existing processing rules are retained. Choose the rules matching the form when adding a template.,Existing processing rules are retained. Choose the rules matching the form when adding a template.
+Application field mapping,Application field mapping
+Application classification fields,Application classification fields
+Expense detail field mapping,Expense detail field mapping
+Expense classification fields,Expense classification fields
+Shared approval templates appear once. Disable historical templates instead of deleting them.,Shared approval templates appear once. Disable historical templates instead of deleting them.
+{0} sample approvals,{0} sample approvals
+Subsidiary mappings,Subsidiary mappings
+Match by,Match by
+Source name,Source name
+Keep outside legacy expense scope,Keep outside legacy expense scope
+Management category mappings,Management category mappings
+Budget warning percentage,Budget warning percentage
+Source category path (JSON),Source category path (JSON)
+Finance approval timezone,Finance approval timezone
+Category paths must be valid JSON arrays.,Category paths must be valid JSON arrays.
+Invalid OA synchronization configuration.,Invalid OA synchronization configuration.
+Duplicate approval templates have conflicting types. Review the existing configuration.,Duplicate approval templates have conflicting types. Review the existing configuration.
+Existing template processing rules cannot be changed.,Existing template processing rules cannot be changed.
+Organization mappings require a subsidiary.,Organization mappings require a subsidiary.
+Approval template {0},Approval template {0}
+Advanced settings,Advanced settings
+Remove selected draft templates,Remove selected draft templates
+Select unsaved template rows to remove.,Select unsaved template rows to remove.
+Unmapped expense entities and departments,Unmapped expense entities and departments
+Suggested subsidiaries,Suggested subsidiaries
+No unmapped items in the current local data.,No unmapped items in the current local data.
+Mapping candidates could not be loaded. Retry.,Mapping candidates could not be loaded. Retry.
+{0} expense lines,{0} expense lines
+Common template settings,Common template settings
+Select processing rules,Select processing rules
+New templates inherit these settings. Saved templates retain their existing bindings.,New templates inherit these settings. Saved templates retain their existing bindings.
+Combined rules read budget declarations as applications and expense forms as expense details.,Combined rules read budget declarations as applications and expense forms as expense details.
+The common source corporation is not authorized.,The common source corporation is not authorized.
+Invalid common processing rules.,Invalid common processing rules.
+Approval template row {0}: {1} is required.,Approval template row {0}: {1} is required.
+Approval template row {0}: the source corporation is not authorized.,Approval template row {0}: the source corporation is not authorized.
+Approval template row {0}: this source corporation and process code are already listed.,Approval template row {0}: this source corporation and process code are already listed.
+Approval template row {0}: the processing rules do not support this approval form.,Approval template row {0}: the processing rules do not support this approval form.
+Approval template row {0}: specify finance node names or activity IDs in the template details.,Approval template row {0}: specify finance node names or activity IDs in the template details.
+Template preview could not be loaded. Retry.,Template preview could not be loaded. Retry.

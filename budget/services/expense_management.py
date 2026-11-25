@@ -134,7 +134,7 @@ def legacy_projection(legacy_ids, context, rules):
 			"date_basis": date_basis,
 			"kind": kind, "status": line.approval_status, "amount": str(line.amount) if line.amount is not None else None,
 			"currency": line.currency, "description": line.description, "line_label": line.description,
-			"management_category": category, "issues": sorted(issues), "budget_state": "",
+			"management_category": category, "source_path": path, "issues": sorted(issues), "budget_state": "",
 			"allocation_amounts": [], "budget_categories_complete": False})
 	return output
 

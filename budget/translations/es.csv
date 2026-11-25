@@ -743,3 +743,67 @@ Loading synchronization status…,Cargando el estado de sincronización…
 Synchronization settings could not be opened. Retry.,No se pudo abrir la configuración de sincronización. Reintente.
 Synchronization Settings,Configuración de sincronización
 Not Synchronized,Sin sincronizar
+OA Synchronization Settings,Configuración de sincronización de OA
+OA Approval Synchronization,Sincronización de aprobaciones de OA
+Configure synchronization,Configurar sincronización
+Configure OA Synchronization,Configurar la sincronización de OA
+Enabled approval templates synchronize every 5 minutes. Failed synchronization keeps existing data.,Las plantillas de aprobación habilitadas se sincronizan cada 5 minutos. Los fallos conservan los datos existentes.
+Waiting to synchronize,En espera de sincronización
+Read completed; awaiting publication,Lectura completada; pendiente de publicación
+Last synchronization failed,Falló la última sincronización
+Synchronization partially failed,La sincronización falló parcialmente
+No approval templates are enabled,No hay plantillas de aprobación habilitadas
+{0} of {1} templates updated successfully,Se actualizaron correctamente {0} de {1} plantillas
+Last complete update,Última actualización completa
+Some synchronization tasks could not be queued. Retry failed items.,No se pudieron encolar algunas tareas. Reintente los elementos fallidos.
+Template progress and errors,Progreso y errores por plantilla
+Shared approval templates appear once. Some templates publish together and are retried as a batch.,Las plantillas compartidas se muestran una sola vez. Algunas se publican y reintentan en conjunto.
+Retry failed items,Reintentar elementos fallidos
+Expense expenditure,Gastos
+Automatic synchronization,Sincronización automática
+Partially enabled (keep current settings),Habilitación parcial (conservar configuración)
+Application fields,Reglas de la solicitud
+Expense details and finance approval,Reglas de detalles de gastos y aprobación financiera
+Application and expense rules,Reglas de solicitud y detalles de gastos
+Expense-bearing entity,Entidad que asume el gasto
+Expense-bearing department,Departamento que asume el gasto
+Processing rules,Reglas de procesamiento
+Existing processing rules are retained. Choose the rules matching the form when adding a template.,"Se conservan las reglas de las plantillas existentes. Para una nueva plantilla, elija las reglas que correspondan a su formulario."
+Application field mapping,Mapeo de campos de la solicitud
+Application classification fields,Campos de clasificación de la solicitud
+Expense detail field mapping,Mapeo de campos de detalles de gastos
+Expense classification fields,Campos de clasificación de gastos
+Shared approval templates appear once. Disable historical templates instead of deleting them.,Las plantillas compartidas se muestran una sola vez. Desactive las plantillas históricas en lugar de eliminarlas.
+{0} sample approvals,{0} aprobaciones de muestra
+Subsidiary mappings,Mapeo de filiales
+Match by,Criterio de coincidencia
+Source name,Nombre de origen
+Keep outside legacy expense scope,Mantener la exclusión del ámbito de gastos anterior
+Source category path (JSON),Ruta de la categoría de origen (JSON)
+Finance approval timezone,Zona horaria de aprobación financiera
+Category paths must be valid JSON arrays.,Las rutas de categorías deben ser matrices JSON válidas.
+Invalid OA synchronization configuration.,La configuración de sincronización de OA no es válida.
+Duplicate approval templates have conflicting types. Review the existing configuration.,Las plantillas duplicadas tienen tipos incompatibles. Revise la configuración existente.
+Existing template processing rules cannot be changed.,No se pueden cambiar las reglas de procesamiento de una plantilla existente.
+Organization mappings require a subsidiary.,El mapeo de organizaciones requiere una filial.
+Approval template {0},Plantilla de aprobación {0}
+Advanced settings,Configuración avanzada
+Remove selected draft templates,Eliminar borradores de plantilla seleccionados
+Select unsaved template rows to remove.,Seleccione los borradores de plantilla sin guardar que desea eliminar.
+Unmapped expense entities and departments,Entidades y departamentos de gastos sin asignar
+Suggested subsidiaries,Filiales sugeridas
+No unmapped items in the current local data.,No hay elementos sin asignar en los datos locales actuales.
+Mapping candidates could not be loaded. Retry.,No se pudieron cargar los elementos pendientes de asignación. Inténtelo de nuevo.
+{0} expense lines,{0} líneas de gastos
+Common template settings,Configuración común de plantillas
+Select processing rules,Seleccione las reglas de procesamiento
+New templates inherit these settings. Saved templates retain their existing bindings.,Las plantillas nuevas heredan esta configuración. Las guardadas conservan sus vínculos existentes.
+Combined rules read budget declarations as applications and expense forms as expense details.,Las reglas combinadas leen las declaraciones presupuestarias como solicitudes y los formularios de gastos como detalles de gastos.
+The common source corporation is not authorized.,La empresa de origen común no está autorizada. Seleccione otra.
+Invalid common processing rules.,Las reglas de procesamiento comunes no son válidas.
+Approval template row {0}: {1} is required.,Fila {0} de plantillas de aprobación: el campo {1} es obligatorio.
+Approval template row {0}: the source corporation is not authorized.,Fila {0} de plantillas de aprobación: la empresa de origen no está autorizada.
+Approval template row {0}: this source corporation and process code are already listed.,Fila {0} de plantillas de aprobación: ya existe una plantilla con esta empresa de origen y este código de proceso.
+Approval template row {0}: the processing rules do not support this approval form.,Fila {0} de plantillas de aprobación: las reglas de procesamiento no admiten este formulario. Revise las reglas comunes.
+Approval template row {0}: specify finance node names or activity IDs in the template details.,Fila {0} de plantillas de aprobación: indique los nombres de los nodos financieros o los ID de actividad en los detalles de la plantilla.
+Template preview could not be loaded. Retry.,No se pudo cargar la vista previa de la plantilla. Vuelva a intentarlo.

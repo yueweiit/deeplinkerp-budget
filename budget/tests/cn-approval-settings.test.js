@@ -123,3 +123,27 @@ test("closed or uninitialized editors cannot erase a newer draft value",()=>{
 	settings.flushGridEditors(grid);
 	assert.equal(row.doc.field_mapping,'{"region":["current"]}');
 });
+
+test("unified template fields flush independently before delayed editor changes",()=>{
+	const {grid}=makeGrid();
+	const row=grid.grid_rows[0];row.toggle_view(true);
+	for (const name of ["application_fields", "expense_fields", "expense_classification"]) {
+		row.grid_form.fields_dict[name]={editor:{},get_value:()=>`["${name}"]`};
+	}
+	settings.flushGridEditors(grid);
+	assert.equal(row.doc.application_fields,'["application_fields"]');
+	assert.equal(row.doc.expense_fields,'["expense_fields"]');
+	assert.equal(row.doc.expense_classification,'["expense_classification"]');
+});
+
+test("temporarily hidden rule editors do not erase captured drafts",()=>{
+	const {grid}=makeGrid();
+	const row=grid.grid_rows[0];row.toggle_view(true);
+	row.doc.expense_fields='{"amount":["draft"]}';
+	row.grid_form.fields_dict.expense_fields={editor:{},get_value:()=>undefined};
+	settings.flushGridEditors(grid);
+	assert.equal(row.doc.expense_fields,'{"amount":["draft"]}');
+	row.grid_form.fields_dict.expense_fields={editor:{},get_status:()=>"None",get_value:()=>"stale"};
+	settings.flushGridEditors(grid);
+	assert.equal(row.doc.expense_fields,'{"amount":["draft"]}');
+});

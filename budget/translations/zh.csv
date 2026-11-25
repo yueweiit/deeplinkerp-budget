@@ -743,3 +743,67 @@ Loading synchronization status…,正在读取同步状态…
 Synchronization settings could not be opened. Retry.,同步设置无法打开，请重试。
 Synchronization Settings,同步设置
 Not Synchronized,尚未同步
+OA Synchronization Settings,OA 同步设置
+OA Approval Synchronization,OA 审批同步
+Configure synchronization,配置同步
+Configure OA Synchronization,配置 OA 同步
+Enabled approval templates synchronize every 5 minutes. Failed synchronization keeps existing data.,已启用的审批模板每 5 分钟同步一次，同步失败保留已有数据。
+Waiting to synchronize,等待同步
+Read completed; awaiting publication,已读取，等待完整更新
+Last synchronization failed,上轮同步失败
+Synchronization partially failed,部分同步失败
+No approval templates are enabled,尚未启用审批模板
+{0} of {1} templates updated successfully,已成功更新 {0} / {1} 个模板
+Last complete update,最近完整更新时间
+Some synchronization tasks could not be queued. Retry failed items.,部分同步任务未能入队，请重试失败项。
+Template progress and errors,模板进度与异常
+Shared approval templates appear once. Some templates publish together and are retried as a batch.,重复审批模板合并显示。部分模板需要整批更新，失败时会一起重试。
+Retry failed items,重试失败项
+Expense expenditure,费用支出
+Automatic synchronization,自动同步
+Partially enabled (keep current settings),部分启用（保留现状）
+Application fields,申请单规则
+Expense details and finance approval,费用明细与财务节点规则
+Application and expense rules,申请单与费用明细规则
+Expense-bearing entity,费用承担主体
+Expense-bearing department,费用承担部门
+Processing rules,处理规则
+Existing processing rules are retained. Choose the rules matching the form when adding a template.,已有模板保留原处理规则；新增模板时请选择与表单结构相符的规则。
+Application field mapping,申请单字段映射
+Application classification fields,申请单分类字段
+Expense detail field mapping,费用明细字段映射
+Expense classification fields,费用分类字段
+Shared approval templates appear once. Disable historical templates instead of deleting them.,重复审批模板合并显示，历史模板请停用，不要删除。
+{0} sample approvals,{0} 笔样例审批
+Subsidiary mappings,子公司映射
+Match by,匹配依据
+Source name,来源名称
+Keep outside legacy expense scope,保留原费用范围排除规则
+Source category path (JSON),来源类别路径（JSON）
+Finance approval timezone,财务节点时区
+Category paths must be valid JSON arrays.,类别路径必须是有效的 JSON 数组。
+Invalid OA synchronization configuration.,OA 同步配置无效。
+Duplicate approval templates have conflicting types. Review the existing configuration.,重复审批模板的类型不一致，请核对原有配置。
+Existing template processing rules cannot be changed.,已有模板不能更换处理规则。
+Organization mappings require a subsidiary.,来源组织映射必须指定子公司。
+Approval template {0},审批模板 {0}
+Advanced settings,高级设置
+Remove selected draft templates,删除所选模板草稿
+Select unsaved template rows to remove.,请选择要删除的未保存模板草稿。
+Unmapped expense entities and departments,待映射费用主体与部门
+Suggested subsidiaries,建议子公司
+No unmapped items in the current local data.,当前本地数据没有待映射项。
+Mapping candidates could not be loaded. Retry.,待映射项加载失败，请重试。
+{0} expense lines,{0} 条费用明细
+Common template settings,模板公共设置
+Select processing rules,请选择处理规则
+New templates inherit these settings. Saved templates retain their existing bindings.,新增模板自动使用这些公共设置；已保存模板保留原有绑定。
+Combined rules read budget declarations as applications and expense forms as expense details.,选择申请单与费用明细规则时，预算申报读取申请单，费用支出读取费用明细。
+The common source corporation is not authorized.,公共来源企业未获授权，请重新选择。
+Invalid common processing rules.,公共处理规则无效。
+Approval template row {0}: {1} is required.,审批模板第 {0} 行：请填写{1}。
+Approval template row {0}: the source corporation is not authorized.,审批模板第 {0} 行：来源企业未获授权。
+Approval template row {0}: this source corporation and process code are already listed.,审批模板第 {0} 行：相同来源企业和流程编码的模板已存在，请勿重复添加。
+Approval template row {0}: the processing rules do not support this approval form.,审批模板第 {0} 行：当前处理规则不支持此审批表，请检查公共处理规则。
+Approval template row {0}: specify finance node names or activity IDs in the template details.,审批模板第 {0} 行：请在模板详情中填写财务节点名称或活动 ID。
+Template preview could not be loaded. Retry.,模板预览加载失败，请重试。

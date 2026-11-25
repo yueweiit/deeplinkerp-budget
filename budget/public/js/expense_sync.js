@@ -108,13 +108,14 @@
         }
       }
     }
-    async synchronize(source) {
+    async synchronize(source, retryFailed = false) {
       if (!this.current() || this.submitting) return;
       if (!this.state) await this.poll();
       if (!this.current() || !this.state) return;
       const selected = Object.entries(this.state.sources).filter(
         ([key, state]) =>
-          (!source || key === source) && state.can_sync && !state.active
+          (!source || key === source) && state.can_sync && !state.active &&
+          (!retryFailed || state.status === "failed" || this.errors[key])
       );
       if (!selected.length) {
         this.open();
@@ -126,7 +127,7 @@
       this.errors = {};
       this.render();
       const results = await Promise.allSettled(
-        selected.map(([key]) => this.work.call("enqueue_sync", { source: key }))
+        selected.map(([key]) => this.work.call("enqueue_sync", { source: key, retry_failed: retryFailed ? 1 : 0 }))
       );
       if (!this.current() || seq !== this.seq) return;
       this.submitting = false;
@@ -147,12 +148,13 @@
         sources.some((s) => s.active || s.allocation_rebuilding);
       const problem =
         this.error ||
+        this.settingsError ||
         Object.keys(this.errors).length ||
         sources.some((s) => s.status === "failed" || !s.configured);
       const text = this.error
         ? t(this.error)
         : problem
-        ? t("Synchronization needs attention")
+        ? t(this.state?.overall?.status === "partial_failure" ? "Synchronization partially failed" : "Synchronization needs attention")
         : busy
         ? t("Synchronizing approvals…")
         : this.state?.scheduler_enabled === false
@@ -169,7 +171,7 @@
       }
       this.work.syncButton?.prop(
         "disabled",
-        this.submitting || !sources.some((s) => s.can_sync && !s.active)
+        busy || !sources.some((s) => s.can_sync && !s.active)
       );
       if (this.dialog?.is_visible) this.renderDialog();
     }
@@ -177,17 +179,20 @@
       if (!this.current()) return;
       if (!this.dialog) {
         this.dialog = new root.frappe.ui.Dialog({
-          title: t("Synchronization Settings"),
+          title: t("OA Synchronization Settings"),
           size: "large",
+          // A failed configuration load may reopen this immediately after hide.
+          animate: false,
           fields: [{ fieldname: "content", fieldtype: "HTML" }],
         });
         this.dialog.fields_dict.content.$wrapper.on(
           "click",
           "[data-sync-action]",
           (event) => {
-            const { syncAction, source } = event.currentTarget.dataset;
-            if (syncAction === "configure") this.configure(source);
-            else if (syncAction === "sync") this.synchronize(source);
+            const { syncAction } = event.currentTarget.dataset;
+            if (syncAction === "configure") this.configure();
+            else if (syncAction === "sync") this.synchronize();
+            else if (syncAction === "retry-failed") this.synchronize(undefined, true);
             else this.poll();
           }
         );
@@ -197,78 +202,61 @@
       this.poll();
     }
     renderDialog() {
-      const state = this.state;
-      let html = `<p class="text-muted">${esc(
-        t(
-          "Enabled sources are checked every 5 minutes. Running jobs are reused; failed synchronization keeps existing data."
-        )
-      )}</p>`;
+      const state = this.state, sources = Object.values(state?.sources || {});
+      const overall = state?.overall || {};
+      const busy = this.submitting || sources.some(s => s.active || s.allocation_rebuilding);
+      const failed = Object.keys(this.errors).length || sources.some(s => s.status === "failed");
+      const status = busy ? "running" : failed && overall.status !== "partial_failure" ? "failed" : overall.status;
+      const labels = {
+        running: "Synchronizing approvals…", queued: "Waiting to synchronize",
+        staged: "Read completed; awaiting publication", pending: "Not Synchronized",
+        success: "Synchronization completed", failed: "Last synchronization failed",
+        partial_failure: "Synchronization partially failed", disabled: "Disabled",
+        unconfigured: "No approval templates are enabled",
+      };
+      const wrapper = this.dialog.fields_dict.content.$wrapper;
+      const expanded = wrapper.find?.(".em-sync-details")?.prop("open");
+      if (expanded !== undefined) this.detailsOpen = expanded;
+      let html = `<p class="text-muted">${esc(t("Enabled approval templates synchronize every 5 minutes. Failed synchronization keeps existing data."))}</p>`;
       if (state?.scheduler_enabled === false)
-        html += `<div class="alert alert-warning">${esc(
-          t(
-            "Site scheduler is disabled. Automatic synchronization will not run until an administrator enables it."
-          )
-        )}</div>`;
-      if (this.error)
-        html += `<div class="alert alert-warning">${esc(
-          t(this.error)
-        )} <button class="btn btn-xs btn-default" data-sync-action="refresh">${esc(
-          t("Retry")
-        )}</button></div>`;
-      for (const [key, source] of Object.entries(state?.sources || {})) {
-        const updated = source.last_update_at
-          ? root.frappe.datetime.str_to_user(source.last_update_at)
-          : "—";
-        html += `<section class="em-sync-source"><div><strong>${esc(
-          t(SOURCES[key])
-        )}</strong><p>${esc(t(label(source)))}</p>
-          <small>${esc(t("Data updated at"))}: ${esc(updated)}</small>
-          ${
-            source.template_count != null
-              ? `<small>${esc(
-                  t("{0} of {1} templates completed", [
-                    source.completed_templates || 0,
-                    source.template_count,
-                  ])
-                )}</small>`
-              : ""
-          }
-          ${
-            this.errors[key]
-              ? `<p class="text-danger">${esc(t(this.errors[key]))}</p>`
-              : ""
-          }</div><div class="em-sync-actions">
-          ${
-            source.can_manage
-              ? `<button class="btn btn-default btn-sm" data-sync-action="configure" data-source="${key}">${esc(
-                  t("Configure source")
-                )}</button>`
-              : `<small>${esc(
-                  t("Settings are restricted to authorized administrators.")
-                )}</small>`
-          }
-          <button class="btn btn-primary btn-sm" data-sync-action="sync" data-source="${key}" ${
-          !source.can_sync || source.active || this.submitting ? "disabled" : ""
-        }>${esc(t("Synchronize Now"))}</button></div></section>`;
+        html += `<div class="alert alert-warning">${esc(t("Site scheduler is disabled. Automatic synchronization will not run until an administrator enables it."))}</div>`;
+      if (this.error || this.settingsError)
+        html += `<div class="alert alert-warning">${esc(t(this.settingsError || this.error))} <button class="btn btn-xs btn-default" data-sync-action="${this.settingsError ? "configure" : "refresh"}">${esc(t("Retry"))}</button></div>`;
+      if (!state) {
+        wrapper.html(html + `<p>${esc(t("Loading synchronization status…"))}</p>`);
+        return;
       }
-      if (!state) html += `<p>${esc(t("Loading synchronization status…"))}</p>`;
-      this.dialog.fields_dict.content.$wrapper.html(html);
+      html += `<section class="em-sync-source"><div><strong>${esc(t("OA Approval Synchronization"))}</strong>
+        <p class="${failed ? "text-warning" : ""}">${esc(t(labels[status] || "Not Synchronized"))}</p>
+        <small>${esc(t("{0} of {1} templates updated successfully", [overall.completed || 0, overall.total || 0]))}</small>
+        <small>${esc(t("Last complete update"))}: ${esc(overall.last_update_at ? root.frappe.datetime.str_to_user(overall.last_update_at) : "—")}</small>
+        ${Object.keys(this.errors).length ? `<p class="text-danger">${esc(t("Some synchronization tasks could not be queued. Retry failed items."))}</p>` : ""}
+        </div><div class="em-sync-actions">
+        ${state.can_manage ? `<button class="btn btn-default btn-sm" data-sync-action="configure">${esc(t("Configure synchronization"))}</button>` : `<small>${esc(t("Settings are restricted to authorized administrators."))}</small>`}
+        <button class="btn btn-primary btn-sm" data-sync-action="sync" ${busy || !sources.some(s => s.can_sync) ? "disabled" : ""}>${esc(t("Synchronize Now"))}</button>
+        </div></section>`;
+      html += `<details class="em-sync-details" ${this.detailsOpen ? "open" : ""}><summary>${esc(t("Template progress and errors"))}</summary>
+        <p class="text-muted">${esc(t("Shared approval templates appear once. Some templates publish together and are retried as a batch."))}</p>
+        <div class="em-sync-table"><table class="table"><thead><tr><th>${esc(t("Template Name"))}</th><th>${esc(t("Approval Form"))}</th><th>${esc(t("Status"))}</th></tr></thead><tbody>`;
+      const kinds = {budget: "Budget declaration", operating: "Operating expenditure", expense: "Expense expenditure", purchase: "Purchase expenditure"};
+      for (const row of state.templates || [])
+        html += `<tr><td>${esc(row.name)}</td><td>${esc(t(kinds[row.approval_type] || row.approval_type || ""))}</td><td>${esc(t(labels[row.status] || "Not Synchronized"))}</td></tr>`;
+      html += `</tbody></table></div></details>`;
+      if (failed)
+        html += `<div class="em-sync-retry"><button class="btn btn-default btn-sm" data-sync-action="retry-failed" ${busy || !Object.entries(state.sources).some(([key,s]) => s.can_sync && (s.status === "failed" || this.errors[key])) ? "disabled" : ""}>${esc(t("Retry failed items"))}</button></div>`;
+      wrapper.html(html);
     }
-    async configure(source) {
-      if (!this.current() || !this.state?.sources[source]?.can_manage) return;
+    async configure() {
+      if (!this.current() || !this.state?.can_manage) return;
+      this.settingsError = "";
       const seq = (this.configureSeq = (this.configureSeq || 0) + 1);
       const current = () => this.current() && seq === this.configureSeq;
       this.dialog?.hide();
-      const paths =
-        source === "cn"
-          ? [
-              "/assets/budget/css/cn_approval_workbench.css",
-              "/assets/budget/js/cn_approval_settings.js",
-            ]
-          : [
-              "/assets/deeplinkerp_branding/js/mexico_expense_mappings.js",
-              "/assets/deeplinkerp_branding/js/mexico_expense_settings.js",
-            ];
+      const paths = [
+        "/assets/budget/css/cn_approval_workbench.css",
+        "/assets/budget/js/cn_approval_settings.js",
+        "/assets/budget/js/expense_sync_settings.js",
+      ];
       try {
         await new Promise((resolve) => root.frappe.require(paths, resolve));
         if (!current()) return;
@@ -278,10 +266,7 @@
             await this.work.load();
           }
         };
-        const dialog = await (source === "cn"
-          ? root.CNApprovalSettings
-          : root.DeepLinkERPMexicoExpenseSettings
-        ).open(saved, { isCurrent: current });
+        const dialog = await root.ExpenseSyncSettings.open(saved, { isCurrent: current });
         if (!current()) {
           dialog?.hide();
           return;
@@ -289,7 +274,7 @@
         this.settingsDialog = dialog;
       } catch (_) {
         if (current()) {
-          this.errors[source] = "Synchronization settings could not be opened. Retry.";
+          this.settingsError = "Synchronization settings could not be opened. Retry.";
           this.open();
         }
       }

@@ -23,6 +23,7 @@ def runtime(monkeypatch):
 	monkeypatch.setattr(mx, "get_sync_status", lambda: dict(state.mx))
 	monkeypatch.setattr(scheduler, "is_scheduler_inactive", lambda **kw: True)
 	monkeypatch.setattr(s, "_", lambda text: text)
+	monkeypatch.setattr(s, "template_progress", lambda sources: [])
 	return state
 
 

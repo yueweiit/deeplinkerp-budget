@@ -11,6 +11,7 @@ const { Workbench } = require("../public/js/expense_management.js");
 function state(revision = "one") {
   return {
     scheduler_enabled: true,
+    can_manage: true,
     sources: Object.fromEntries(
       ["cn", "mx"].map((key) => [
         key,
@@ -235,7 +236,7 @@ test("settings opens a shared dialog in place without navigating to old pages", 
     throw new Error("old page navigation");
   };
   global.frappe.require = (_paths, done) => done();
-  global.CNApprovalSettings = {
+  global.ExpenseSyncSettings = {
     open: async (_saved, options) => {
       assert(options.isCurrent());
       configured++;
@@ -255,7 +256,7 @@ test("leaving while settings assets load prevents a late dialog", async () => {
   global.frappe.require = (_paths, done) => {
     loaded = done;
   };
-  global.CNApprovalSettings = {
+  global.ExpenseSyncSettings = {
     open: async () => {
       opened++;
     },
@@ -279,4 +280,56 @@ test("disabled, unconfigured and failed states never claim synchronization succe
     label({ configured: true, enabled: true, status: "failed" }),
     "Synchronization failed. Retry synchronization."
   );
+});
+
+test("the dialog has one configuration and sync action with merged template progress", () => {
+  const {sync} = setup();
+  sync.state = state();
+  sync.state.overall = {status: "partial_failure", completed: 1, total: 2};
+  sync.state.sources.cn.status = "failed";
+  sync.state.templates = [{name: "Shared approval", approval_type: "operating", status: "failed"}];
+  let html;
+  sync.dialog = {fields_dict: {content: {$wrapper: {html: value => {html = value;}}}}, hide() {}};
+  sync.renderDialog();
+  assert.equal((html.match(/data-sync-action="configure"/g) || []).length, 1);
+  assert.equal((html.match(/data-sync-action="sync"/g) || []).length, 1);
+  assert.doesNotMatch(html, /Budget and approval source|Expense approval source|data-source=/);
+  assert.match(html, /Synchronization partially failed/);
+  assert.match(html, /1 of 2 templates updated successfully/);
+  assert.match(html, /data-sync-action="retry-failed"/);
+  sync.stop();
+});
+
+test("retry failed items leaves a successful source alone", async () => {
+  const {sync,work} = setup(), calls = [];
+  sync.state = state();
+  sync.state.sources.cn.status = "failed";
+  work.call = async (method,args) => {
+    if (method === "enqueue_sync") calls.push(args);
+    return state();
+  };
+  await sync.synchronize(undefined,true);
+  assert.deepEqual(calls,[{source:"cn",retry_failed:1}]);
+  sync.stop();
+});
+
+test("configuration load errors retry configuration and survive status refresh", async () => {
+  const {sync} = setup();
+  sync.state = state();
+  let html;
+  sync.dialog = {is_visible:true,fields_dict:{content:{$wrapper:{html:value=>{html=value;}}}},hide(){}};
+  sync.settingsError = "Synchronization settings could not be opened. Retry.";
+  await sync.poll();
+  assert.equal(sync.settingsError,"Synchronization settings could not be opened. Retry.");
+  assert.match(html,/data-sync-action="configure">Retry/);
+  sync.stop();
+});
+
+test("a reader cannot open unified configuration through a source-specific permission", async () => {
+  const {sync} = setup();
+  sync.state = state();
+  sync.state.can_manage = false;
+  global.frappe.require = () => {throw new Error("unauthorized editor load");};
+  await sync.configure();
+  sync.stop();
 });
