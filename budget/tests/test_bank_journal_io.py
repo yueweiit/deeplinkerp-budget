@@ -236,3 +236,63 @@ def test_excel_numeric_long_bank_reference_is_not_a_safe_identity():
 	wb.save(stream)
 	res = journal.parse_statement(stream.getvalue(), "流水.xlsx")
 	assert not res["rows"] and res["errors"][0]["field"] == "bank_ref"
+
+
+def test_structured_rows_share_bank_and_weak_identity_with_statement():
+	fields = ["交易日期", "交易流水号", "收入", "摘要"]
+	file_rows = journal.parse_statement(
+		csv_bytes([fields, ["2026-11-01", "0019", "12.30", "进款"], ["2026-11-02", "", "1.50", "结息"]]),
+		"示例.csv",
+	)
+	data = journal.parse_rows(
+		[
+			{"date": "2026-11-01", "bank_ref": "0019", "income": "12.30", "summary": "进款"},
+			{"date": "2026-11-02", "income": "1.5", "summary": "结息"},
+		]
+	)
+	assert data["errors"] == []
+	for expected, actual in zip(file_rows["rows"], data["rows"], strict=True):
+		assert {k: v for k, v in expected.items() if k != "source_row"} == {
+			k: v for k, v in actual.items() if k != "source_row"
+		}
+	assert [r["source_row"] for r in data["rows"]] == [1, 2]
+
+
+@pytest.mark.parametrize(
+	("patch", "field"),
+	[
+		({"income": 1}, "income"),
+		({"income": True}, "income"),
+		({"income": "1.001"}, "income"),
+		({"expense": "1"}, "amount"),
+		({"income": "0.00"}, "income"),
+		({"income": "1e2"}, "income"),
+		({"balance": -2}, "balance"),
+		({"date": "20261116"}, "date"),
+		({"date": "2026-02-30"}, "date"),
+		({"refs": "00123"}, "refs"),
+		({"refs": [123]}, "refs"),
+		({"refs": ["1E19"]}, "refs"),
+		({"bank_ref": 123}, "bank_ref"),
+		({"bank_ref": "100E5"}, "bank_ref"),
+		({"links": {}}, "links"),
+		({"summary": None}, "summary"),
+	],
+)
+def test_structured_errors_identify_original_row_and_field(patch, field):
+	valid = {"date": "2026-11-16", "income": "1.00"}
+	data = journal.parse_rows([valid, {**valid, **patch}])
+	assert len(data["errors"]) == 1
+	assert (data["errors"][0]["row"], data["errors"][0]["field"]) == (2, field)
+
+
+def test_structured_duplicates_and_balances():
+	rows = [
+		{"date": "2026-11-02", "expense": "1", "balance": "-1.50", "bank_ref": "b"},
+		{"date": "2026-11-01", "expense": "2", "balance": "-0.50", "bank_ref": "a"},
+	]
+	valid = journal.parse_rows(rows)
+	assert valid["errors"] == [] and valid["opening"] == "1.50" and valid["opening_date"] == "2026-11-01"
+	assert [r["source_row"] for r in valid["rows"]] == [2, 1]
+	assert journal.parse_rows([rows[0], rows[0]])["errors"][0]["field"] == "bank_ref"
+	assert journal.parse_rows([dict(rows[0], balance="2.22"), rows[1]])["errors"][0]["row"] == 1

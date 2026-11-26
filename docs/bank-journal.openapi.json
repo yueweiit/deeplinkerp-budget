@@ -1,0 +1,602 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DeepLinkERP 银行日记账导入",
+    "version": "1.0.0",
+    "description": "人民币银行日记账。先查询公司及账户，再预览和提交。读操作要求 CN Cash Journal Entry 读取权限和公司权限；提交还要求创建权限，匹配已有流水时需要修改权限。示例使用虚构数据。"
+  },
+  "servers": [{"url": "https://deeplinkerp.com", "description": "DeepLinkERP"}],
+  "security": [{"FrappeToken": []}],
+  "paths": {
+    "/api/method/budget.api.bank_journal.get_options": {
+      "get": {
+        "operationId": "getJournalOptions",
+        "summary": "列出可访问的公司和银行账簿",
+        "description": "按公司和账户名称定位同一条 books 记录，再使用其 name。查不到目标账簿时请财务确认。",
+        "x-openai-isConsequential": false,
+        "responses": {
+          "200": {
+            "description": "成功。数据位于 message。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"message": {"$ref": "#/components/schemas/Options"}},
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "default": {"$ref": "#/components/responses/Failure"}
+        }
+      }
+    },
+    "/api/method/budget.api.bank_journal.get_month": {
+      "get": {
+        "operationId": "getJournalMonth",
+        "summary": "读取账簿指定月份的流水和余额",
+        "description": "月份省略时使用 ERP 站点当月。返回该月的全部可见流水，可用于提交后的复核。",
+        "x-openai-isConsequential": false,
+        "responses": {
+          "200": {
+            "description": "成功。数据位于 message。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"message": {"$ref": "#/components/schemas/MonthResult"}},
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "default": {"$ref": "#/components/responses/Failure"}
+        },
+        "parameters": [
+          {
+            "name": "book",
+            "in": "query",
+            "required": true,
+            "schema": {"$ref": "#/components/schemas/BookId"},
+            "description": "已选账簿 ID"
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": false,
+            "schema": {"$ref": "#/components/schemas/Month"},
+            "description": "例如 2026-11"
+          }
+        ]
+      }
+    },
+    "/api/method/budget.api.bank_journal_files.preview_import": {
+      "post": {
+        "operationId": "previewJournalFile",
+        "summary": "预览原始银行文件",
+        "description": "适用于原始 CSV 或单个可见工作表的 XLSX。比较原表 account_label（如有）与所选账户；检查 needs_mapping、error_count 及金额合计。预览仅读取资料。",
+        "x-openai-isConsequential": false,
+        "responses": {
+          "200": {
+            "description": "成功。数据位于 message。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"message": {"$ref": "#/components/schemas/FilePreview"}},
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "default": {"$ref": "#/components/responses/Failure"}
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/FilePreviewRequest"},
+              "example": {
+                "book": "example-book-id",
+                "filename": "example.csv",
+                "content_base64": "5Lqk5piT5pel5pyfLOaRmOimgSzmlK/lh7os6ZO26KGM5rWB5rC05Y+3CjIwMjYtMTEtMTYs56S65L6L5omL57ut6LS5LDIuNTAsREVNTy0wMDAxCg=="
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/method/budget.api.bank_journal_files.apply_import": {
+      "post": {
+        "operationId": "applyJournalFile",
+        "summary": "确认并导入原始银行文件",
+        "description": "向用户展示公司、账户、笔数、合计与问题，取得该批写入授权后提交。随请求传回同一文件、列映射及文件预览的签名与版本。确认成功会改变正式银行日记账。",
+        "x-openai-isConsequential": true,
+        "responses": {
+          "200": {
+            "description": "成功。数据位于 message。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"message": {"$ref": "#/components/schemas/Receipt"}},
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "default": {"$ref": "#/components/responses/Failure"}
+        },
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/FileApplyRequest"}}}
+        }
+      }
+    },
+    "/api/method/budget.api.bank_journal_files.preview_rows": {
+      "post": {
+        "operationId": "previewJournalRows",
+        "summary": "预览 AI 已识别的银行流水",
+        "description": "发送由原始单据识别的交易明细，逐行检查 errors、来源事实和金额合计；错误行号以 JSON 数组第 1 行起算。返回的 rows 与 errors 最多各 100 条，计数和合计覆盖整批。",
+        "x-openai-isConsequential": false,
+        "responses": {
+          "200": {
+            "description": "成功。数据位于 message。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"message": {"$ref": "#/components/schemas/RowsPreview"}},
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "default": {"$ref": "#/components/responses/Failure"}
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/RowsPreviewRequest"},
+              "example": {
+                "book": "example-book-id",
+                "company": "示例科技有限公司",
+                "account": "示例银行人民币账户",
+                "currency": "CNY",
+                "rows": [{"date": "2026-11-16", "bank_ref": "DEMO-0001", "summary": "示例手续费", "expense": "2.50"}]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/method/budget.api.bank_journal_files.apply_rows": {
+      "post": {
+        "operationId": "applyJournalRows",
+        "summary": "确认并导入 AI 已识别的流水",
+        "description": "取得该批写入授权后，原样发送公司、账户、账簿及整批明细，附上 JSON 预览签名、版本和本次唯一请求 ID。超时重发同一请求，版本冲突后重新预览。",
+        "x-openai-isConsequential": true,
+        "responses": {
+          "200": {
+            "description": "成功。数据位于 message。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"message": {"$ref": "#/components/schemas/Receipt"}},
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "default": {"$ref": "#/components/responses/Failure"}
+        },
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RowsApplyRequest"}}}
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "FrappeToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "凭据由调用方的密钥库注入。完整请求头值为 token <api_key>:<api_secret>。"
+      }
+    },
+    "responses": {
+      "Failure": {
+        "description": "认证、权限、请求校验、账簿版本、原流水冲突或服务错误。保留 HTTP 状态及 exc_type。",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorBody"}}}
+      }
+    },
+    "schemas": {
+      "BookId": {"type": "string", "minLength": 1, "description": "从 getJournalOptions 的 books[].name 原样复制的账簿 ID。"},
+      "Month": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$", "examples": ["2026-11"]},
+      "DecimalText": {
+        "type": "string",
+        "pattern": "^-?(0|[1-9][0-9]{0,12})(\\.[0-9]{1,2})?$",
+        "description": "人民币十进制金额文本，单位为元，最多两位小数。"
+      },
+      "PositiveAmount": {
+        "type": "string",
+        "pattern": "^([1-9][0-9]{0,12}(\\.[0-9]{1,2})?|0\\.(0[1-9]|[1-9][0-9]?))$",
+        "description": "正的人民币金额文本，例如 0.05、2.50。"
+      },
+      "DingTalkRef": {
+        "type": "string",
+        "maxLength": 100,
+        "pattern": "^(?!.*[0-9]+[eE][+-]?[0-9]+)[A-Za-z0-9_-]{1,100}$",
+        "description": "完整钉钉单号，作为文本传输，保留前导零。"
+      },
+      "ExtractedRow": {
+        "type": "object",
+        "properties": {
+          "date": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "bank_ref": {
+            "type": "string",
+            "maxLength": 140,
+            "pattern": "^(?![0-9]+(?:\\.[0-9]+)?[eE][+-]?[0-9]+$)[^\\u0000]*$",
+            "description": "银行的原始交易流水号。保留前导零，避免科学计数法。"
+          },
+          "income": {"anyOf": [{"$ref": "#/components/schemas/PositiveAmount"}, {"type": "null"}]},
+          "expense": {"anyOf": [{"$ref": "#/components/schemas/PositiveAmount"}, {"type": "null"}]},
+          "balance": {"anyOf": [{"$ref": "#/components/schemas/DecimalText"}, {"type": "null"}]},
+          "refs": {"type": "array", "items": {"$ref": "#/components/schemas/DingTalkRef"}, "maxItems": 40},
+          "category": {"type": "string", "maxLength": 12000, "pattern": "^[^\\u0000]*$", "description": "类别"},
+          "level2": {"type": "string", "maxLength": 12000, "pattern": "^[^\\u0000]*$", "description": "二级明细"},
+          "level3": {"type": "string", "maxLength": 12000, "pattern": "^[^\\u0000]*$", "description": "三级明细"},
+          "project": {"type": "string", "maxLength": 12000, "pattern": "^[^\\u0000]*$", "description": "所属项目"},
+          "summary": {"type": "string", "maxLength": 12000, "pattern": "^[^\\u0000]*$", "description": "摘要"},
+          "invoice": {"type": "string", "maxLength": 12000, "pattern": "^[^\\u0000]*$", "description": "发票寄送信息"},
+          "dept": {"type": "string", "maxLength": 12000, "pattern": "^[^\\u0000]*$", "description": "归属部门"}
+        },
+        "required": ["date"],
+        "additionalProperties": false,
+        "description": "保留单据提供的交易事实。income 和 expense 中恰有一个正金额，另一项可省略或为 null。余额仅填原流水列明的数值。",
+        "oneOf": [
+          {
+            "required": ["income"],
+            "properties": {"income": {"$ref": "#/components/schemas/PositiveAmount"}, "expense": {"type": "null"}}
+          },
+          {
+            "required": ["expense"],
+            "properties": {"income": {"type": "null"}, "expense": {"$ref": "#/components/schemas/PositiveAmount"}}
+          }
+        ]
+      },
+      "RowsPreviewRequest": {
+        "type": "object",
+        "properties": {
+          "book": {"$ref": "#/components/schemas/BookId"},
+          "company": {"type": "string", "minLength": 1, "description": "所选账簿 books[].company 的完整公司名称。"},
+          "account": {"type": "string", "minLength": 1, "description": "所选账簿 books[].account 的完整账户名称。"},
+          "currency": {"type": "string", "enum": ["CNY"]},
+          "rows": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ExtractedRow"},
+            "minItems": 1,
+            "maxItems": 10000,
+            "description": "一次 1 至 10,000 行，rows 的紧凑 UTF-8 JSON 最大 6 MiB。"
+          }
+        },
+        "required": ["book", "company", "account", "currency", "rows"],
+        "additionalProperties": false
+      },
+      "RowsApplyRequest": {
+        "type": "object",
+        "properties": {
+          "book": {"$ref": "#/components/schemas/BookId"},
+          "company": {"type": "string", "minLength": 1, "description": "所选账簿 books[].company 的完整公司名称。"},
+          "account": {"type": "string", "minLength": 1, "description": "所选账簿 books[].account 的完整账户名称。"},
+          "currency": {"type": "string", "enum": ["CNY"]},
+          "rows": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/ExtractedRow"},
+            "minItems": 1,
+            "maxItems": 10000,
+            "description": "一次 1 至 10,000 行，rows 的紧凑 UTF-8 JSON 最大 6 MiB。"
+          },
+          "preview_id": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "使用相同接口类型、用户和输入刚获得的预览签名。"},
+          "version": {"type": "integer", "minimum": 0, "description": "预览返回的账簿版本。"},
+          "request_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,100}$",
+            "description": "本次确认的唯一持久化标识。网络超时后使用相同身份原样重发本次请求。"
+          }
+        },
+        "required": ["book", "company", "account", "currency", "rows", "preview_id", "version", "request_id"],
+        "additionalProperties": false
+      },
+      "ColumnMapping": {
+        "type": "object",
+        "propertyNames": {
+          "enum": [
+            "date",
+            "summary",
+            "income",
+            "expense",
+            "amount",
+            "direction",
+            "balance",
+            "refs",
+            "currency",
+            "bank_ref",
+            "category",
+            "level2",
+            "level3",
+            "project",
+            "invoice",
+            "dept"
+          ]
+        },
+        "additionalProperties": {"type": "integer", "minimum": 0, "maximum": 159},
+        "description": "键为 ERP 字段，列号从 0 开始。日期及金额所需列必须可识别。"
+      },
+      "FilePreviewRequest": {
+        "type": "object",
+        "properties": {
+          "book": {"$ref": "#/components/schemas/BookId"},
+          "filename": {
+            "type": "string",
+            "maxLength": 255,
+            "pattern": "\\.(?:[cC][sS][vV]|[xX][lL][sS][xX])$",
+            "description": "保留真实 .csv 或 .xlsx 后缀。"
+          },
+          "content_base64": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 8388608,
+            "contentEncoding": "base64",
+            "description": "对原文件二进制做标准 Base64 编码。文件最大 6 MiB。"
+          },
+          "mapping": {"anyOf": [{"$ref": "#/components/schemas/ColumnMapping"}, {"type": "null"}]}
+        },
+        "required": ["book", "filename", "content_base64"],
+        "additionalProperties": false
+      },
+      "FileApplyRequest": {
+        "type": "object",
+        "properties": {
+          "book": {"$ref": "#/components/schemas/BookId"},
+          "filename": {
+            "type": "string",
+            "maxLength": 255,
+            "pattern": "\\.(?:[cC][sS][vV]|[xX][lL][sS][xX])$",
+            "description": "保留真实 .csv 或 .xlsx 后缀。"
+          },
+          "content_base64": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 8388608,
+            "contentEncoding": "base64",
+            "description": "对原文件二进制做标准 Base64 编码。文件最大 6 MiB。"
+          },
+          "mapping": {"anyOf": [{"$ref": "#/components/schemas/ColumnMapping"}, {"type": "null"}]},
+          "preview_id": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "使用相同接口类型、用户和输入刚获得的预览签名。"},
+          "version": {"type": "integer", "minimum": 0, "description": "预览返回的账簿版本。"},
+          "request_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,100}$",
+            "description": "本次确认的唯一持久化标识。网络超时后使用相同身份原样重发本次请求。"
+          }
+        },
+        "required": ["book", "filename", "content_base64", "preview_id", "version", "request_id"],
+        "additionalProperties": false
+      },
+      "Options": {
+        "type": "object",
+        "properties": {
+          "companies": {"type": "array", "items": {"type": "string"}},
+          "books": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"$ref": "#/components/schemas/BookId"},
+                "company": {"type": "string", "minLength": 1, "description": "所选账簿 books[].company 的完整公司名称。"},
+                "account": {"type": "string", "minLength": 1, "description": "所选账簿 books[].account 的完整账户名称。"}
+              },
+              "required": ["name", "company", "account"]
+            }
+          },
+          "month": {"$ref": "#/components/schemas/Month"},
+          "legacy_count": {"type": "integer", "minimum": 0},
+          "can_create": {"type": "boolean"},
+          "can_write": {"type": "boolean"},
+          "can_delete": {"type": "boolean"},
+          "can_export": {"type": "boolean"},
+          "can_sync": {"type": "boolean"}
+        },
+        "required": [
+          "companies",
+          "books",
+          "month",
+          "legacy_count",
+          "can_create",
+          "can_write",
+          "can_delete",
+          "can_export",
+          "can_sync"
+        ]
+      },
+      "PreviewLine": {
+        "type": "object",
+        "properties": {
+          "date": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "category": {"type": "string"},
+          "level2": {"type": "string"},
+          "level3": {"type": "string"},
+          "project": {"type": "string"},
+          "summary": {"type": "string"},
+          "invoice": {"type": "string"},
+          "dept": {"type": "string"},
+          "balance": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "income": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "expense": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "refs": {"type": "array", "items": {"type": "string"}},
+          "bank_ref": {"type": "string"},
+          "source_row": {"type": "integer", "minimum": 1, "description": "JSON 数组从 1 开始；文件使用原工作表物理行号。"}
+        },
+        "required": ["source_row", "date", "income", "expense"]
+      },
+      "RowError": {
+        "type": "object",
+        "properties": {"row": {"type": "integer", "minimum": 1}, "field": {"type": "string"}, "message": {"type": "string"}},
+        "required": ["row", "field", "message"]
+      },
+      "FilePreview": {
+        "type": "object",
+        "properties": {
+          "version": {"type": "integer", "minimum": 0},
+          "row_count": {"type": "integer", "minimum": 0, "description": "通过格式解析的行数。"},
+          "error_count": {"type": "integer", "minimum": 0},
+          "errors": {"type": "array", "items": {"$ref": "#/components/schemas/RowError"}, "maxItems": 100},
+          "rows": {"type": "array", "items": {"$ref": "#/components/schemas/PreviewLine"}, "maxItems": 100},
+          "income_total": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "expense_total": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "opening": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "opening_date": {
+            "anyOf": [{"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}, {"type": "null"}]
+          },
+          "preview_id": {"type": "string", "pattern": "^(|[a-f0-9]{64})$", "description": "能提交时为签名，有错误或待映射时为空串。"},
+          "account_label": {"type": "string"},
+          "headers": {"type": "array", "items": {"type": "string"}},
+          "suggested_mapping": {"$ref": "#/components/schemas/ColumnMapping"},
+          "needs_mapping": {"type": "boolean"}
+        },
+        "required": [
+          "version",
+          "row_count",
+          "error_count",
+          "errors",
+          "rows",
+          "income_total",
+          "expense_total",
+          "opening",
+          "opening_date",
+          "preview_id",
+          "account_label",
+          "headers",
+          "suggested_mapping",
+          "needs_mapping"
+        ]
+      },
+      "RowsPreview": {
+        "type": "object",
+        "properties": {
+          "version": {"type": "integer", "minimum": 0},
+          "row_count": {"type": "integer", "minimum": 0, "description": "通过格式解析的行数。"},
+          "error_count": {"type": "integer", "minimum": 0},
+          "errors": {"type": "array", "items": {"$ref": "#/components/schemas/RowError"}, "maxItems": 100},
+          "rows": {"type": "array", "items": {"$ref": "#/components/schemas/PreviewLine"}, "maxItems": 100},
+          "income_total": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "expense_total": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "opening": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "opening_date": {
+            "anyOf": [{"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}, {"type": "null"}]
+          },
+          "preview_id": {"type": "string", "pattern": "^(|[a-f0-9]{64})$", "description": "能提交时为签名，有错误或待映射时为空串。"},
+          "book": {"$ref": "#/components/schemas/BookId"},
+          "company": {"type": "string", "minLength": 1, "description": "所选账簿 books[].company 的完整公司名称。"},
+          "account": {"type": "string", "minLength": 1, "description": "所选账簿 books[].account 的完整账户名称。"},
+          "currency": {"type": "string", "enum": ["CNY"]}
+        },
+        "required": [
+          "version",
+          "row_count",
+          "error_count",
+          "errors",
+          "rows",
+          "income_total",
+          "expense_total",
+          "opening",
+          "opening_date",
+          "preview_id",
+          "book",
+          "company",
+          "account",
+          "currency"
+        ]
+      },
+      "SavedRow": {
+        "type": "object",
+        "properties": {
+          "date": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "category": {"type": "string"},
+          "level2": {"type": "string"},
+          "level3": {"type": "string"},
+          "project": {"type": "string"},
+          "summary": {"type": "string"},
+          "invoice": {"type": "string"},
+          "dept": {"type": "string"},
+          "balance": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "income": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "expense": {"anyOf": [{"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"}, {"type": "null"}]},
+          "refs": {"type": "array", "items": {"type": "string"}},
+          "bank_ref": {"type": "string"},
+          "name": {"type": "string"},
+          "links": {"type": "object", "additionalProperties": {"type": "string", "format": "uri"}},
+          "source": {"type": "string"}
+        },
+        "required": ["name", "date", "income", "expense", "balance", "refs", "links"]
+      },
+      "MonthResult": {
+        "type": "object",
+        "properties": {
+          "book": {"$ref": "#/components/schemas/BookId"},
+          "company": {"type": "string", "minLength": 1, "description": "所选账簿 books[].company 的完整公司名称。"},
+          "account": {"type": "string", "minLength": 1, "description": "所选账簿 books[].account 的完整账户名称。"},
+          "month": {"$ref": "#/components/schemas/Month"},
+          "version": {"type": "integer", "minimum": 0},
+          "opening": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "income": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "expense": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "closing": {"type": "string", "pattern": "^-?[0-9]+\\.[0-9]{2}$"},
+          "opening_date": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "rows": {"type": "array", "items": {"$ref": "#/components/schemas/SavedRow"}},
+          "undo_operation": {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        },
+        "required": [
+          "book",
+          "company",
+          "account",
+          "month",
+          "version",
+          "opening",
+          "income",
+          "expense",
+          "closing",
+          "opening_date",
+          "rows",
+          "undo_operation"
+        ]
+      },
+      "Receipt": {
+        "type": "object",
+        "properties": {
+          "operation": {"type": "string"},
+          "version": {"type": "integer", "minimum": 0},
+          "created": {"type": "integer", "minimum": 0},
+          "matched": {"type": "integer", "minimum": 0},
+          "skipped": {"type": "integer", "minimum": 0}
+        },
+        "required": ["operation", "version", "created", "matched", "skipped"],
+        "description": "created 为新增行数，matched 为匹配到已有流水的行数，skipped 为已处理的来源行数。"
+      },
+      "ErrorBody": {
+        "type": "object",
+        "properties": {
+          "exc_type": {"type": "string"},
+          "exception": {"type": "string"},
+          "_server_messages": {"type": "string"},
+          "message": {}
+        }
+      }
+    }
+  }
+}
