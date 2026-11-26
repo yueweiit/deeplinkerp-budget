@@ -293,6 +293,27 @@ def test_candidate_pages_keep_exact_source_identity_and_existing_scope(runtime, 
 	assert result["rows"] == [{"match_kind": "department", "source_name": name, "count": 3, "suggestions": ["MX"]}]
 
 
+def test_all_mapping_choices_use_authorized_company_master_data(runtime, monkeypatch):
+	from budget.services import cn_approval_workbench
+	monkeypatch.setattr(cn_approval_workbench, "allowed_companies", lambda: {"China A", "Mexico B"})
+	monkeypatch.setattr(s, "read_template_defaults", lambda: {})
+	monkeypatch.setattr(s.mx, "_companies", lambda: pytest.fail("unified choices must not use Mexico report scope"))
+	result = s.get_settings()
+	assert result["companies"] == result["expense_companies"] == ["China A", "Mexico B"]
+
+
+def test_all_mapping_kinds_save_chinese_companies_without_changing_identity(runtime):
+	data = values(runtime.cn, runtime.mx)
+	data["processing_mode"] = "approval"
+	data["company_mappings"] = [{"match_kind": kind, "corp_id": "corp", "source_name": kind, "company": "China A"}
+		for kind in ("organization", "entity", "department")]
+	s.save_settings(data)
+	mx_rows, cn_rows = [values["company_mappings"] for _, values in runtime.staged]
+	assert cn_rows == [{"corp_id": "corp", "source_name": "organization", "company": "China A"}]
+	assert [row["entity_kind"] for row in mx_rows] == ["entity", "department"]
+	assert all(row["company"] == "China A" and row["expense_scope"] == "mx" for row in mx_rows)
+
+
 def test_unified_category_candidates_include_all_report_sources_and_deduplicate(runtime, monkeypatch):
 	from budget.services import expense_management
 	rows = [{"kind": "operating", "source_path": ["A", "B"], "source_key": key, "management_category": ""} for key in ("CN", "MX", "CN")]

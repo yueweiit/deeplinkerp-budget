@@ -32,11 +32,12 @@ test("mapping identities preserve corporation and source domain, while only expe
 test("batch assignments validate the entire selection before mutating existing mappings", () => {
   const rows = [row("Expense"), row("Organization", {match_kind: "organization", corp_id: "corp-a", company: "CN"})];
   const before = structuredClone(rows), model = new Model(rows, saved);
-  assert.throws(() => model.assign(rows.map(key), "CN"), /every selected/);
+  assert.throws(() => model.assign(rows.map(key), "Forbidden"), /every selected/);
   assert.deepEqual(rows, before);
   assert.throws(() => model.assign([key(rows[0]), "missing"], "MX"), /every selected/);
+  model.assign(rows.map(key), "CN");
+  assert(rows.every(item => item.company === "CN"));
   model.assign(rows.map(key), "MX 2");
-  assert(rows.every(item => item.company === "MX 2"));
   assert(model.items().every(item => item.dirty));
 });
 
@@ -50,6 +51,20 @@ test("candidate recommendations do not assign companies and duplicate pages cann
   assert.equal(rows.length, 1);
   assert.equal(rows[0].source_name, "Alias");
   assert.equal(rows[0].company, "MX 2");
+});
+
+test("all mapping kinds allow authorized Chinese companies in inline and batch controls", () => {
+  const rows = [row("Entity"), row("Department", {match_kind: "department"}),
+    row("Organization", {match_kind: "organization", corp_id: "corp-a"})];
+  const view = controller(rows);
+  view.tab = "mapped"; view.render();
+  view.selected = new Set(rows.map(key)); view.render();
+  const html = view.element.querySelector('[data-mapping-part="results"]').innerHTML;
+  assert.equal((html.match(/value="CN"/g) || []).length, 4);
+  for (const item of rows) view.model.assign([key(item)], "CN");
+  assert(rows.every(item => item.company === "CN"));
+  view.model.put(row("Manual", {match_kind: "department", company: "CN"}));
+  assert.equal(rows.at(-1).company, "CN");
 });
 
 test("undo restores original mapping and exclusion metadata without touching unrelated drafts", () => {
@@ -69,7 +84,7 @@ test("undo restores original mapping and exclusion metadata without touching unr
 test("manual mapping validation rejects duplicate identities and invalid exclusions", () => {
   const rows = [row("Name")], model = new Model(rows, saved);
   assert.throws(() => model.put(row(" Name ")), /already in/);
-  assert.throws(() => model.put(row("New", {company: "CN"})), /every selected/);
+  assert.throws(() => model.put(row("New", {company: "Forbidden"})), /every selected/);
   assert.throws(() => model.put(row("New", {company: "", excluded: 1, reason: ""})), /reason/);
   assert.throws(() => model.put(row("New", {match_kind: "organization", corp_id: "unknown"})), /source information/);
   assert.equal(rows.length, 1);
@@ -136,13 +151,14 @@ test("closing the editor ignores both late successes and failures", async () => 
 
 test("untrusted names and object recommendations render safely without exposing object strings", () => {
   const view = controller([]);
-  const source = candidate('<img src=x onerror="bad()">', {suggestions: [{company: "MX", match: "similar"}, {company: "CN", match: "similar"}]});
+  const source = candidate('<img src=x onerror="bad()">', {suggestions: [{company: "MX", match: "similar"}, {company: "CN", match: "similar"}, {company: "Forbidden", match: "similar"}]});
   view.model.candidates.set(key(source), source); view.render();
   const html = view.element.querySelector('[data-mapping-part="results"]').innerHTML;
   assert.match(html, /&lt;img/);
   assert.doesNotMatch(html, /<img|\[object Object\]/);
   assert.match(html, /data-mapping-action="suggest"/);
-  assert.equal((html.match(/data-mapping-action="suggest"/g) || []).length, 1);
+  assert.equal((html.match(/data-mapping-action="suggest"/g) || []).length, 2);
+  assert.doesNotMatch(html, /Forbidden/);
 });
 
 test("IME search commits once and retains the input while candidate requests complete", async () => {
@@ -229,7 +245,7 @@ test("native Link default validation can resolve company scope before the detail
   try {
     const view = controller([row("Saved")]);
     view.edit(view.model.items()[0]);
-    assert.deepEqual(initial.filters.name, ["in", saved.expense_companies]);
+    assert.deepEqual(initial.filters.name, ["in", saved.companies]);
     assert.deepEqual(query().filters.name, ["in", saved.companies]);
   } finally { global.frappe.ui = previous; }
 });

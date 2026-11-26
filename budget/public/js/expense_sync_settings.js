@@ -254,7 +254,7 @@
           {fieldname: "source_name", label: t("Source name"), fieldtype: "Small Text", reqd: 1, in_list_view: 1, columns: 4, max_height: 64},
           {fieldname: "company", label: t("Subsidiary"), fieldtype: "Link", options: "Company", in_list_view: 1, columns: 4,
             formatter: esc,
-            get_query: doc => ({filters: {name: ["in", doc.match_kind === "organization" ? saved.companies : saved.expense_companies]}})},
+            get_query: () => ({filters: {name: ["in", saved.companies]}})},
           {fieldname: "excluded", label: t("Keep outside legacy expense scope"), fieldtype: "Check", depends_on: doc => doc.match_kind !== "organization"},
           {fieldname: "reason", label: t("Reason"), fieldtype: "Small Text", depends_on: "eval:doc.excluded"},
         ])},

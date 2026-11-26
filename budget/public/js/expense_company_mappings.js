@@ -21,8 +21,8 @@
       this.original = new Map(rows.map(row => [key(row), copy(row)]));
       this.candidates = new Map();
     }
-    companies(row) {
-      return row.match_kind === "organization" ? this.saved.companies : this.saved.expense_companies;
+    companies() {
+      return this.saved.companies;
     }
     items() {
       const current = new Map(this.rows.map(row => [key(row), row]));

@@ -69,6 +69,18 @@ test("one save submits all templates and mapping domains with both versions", as
   assert.equal(state.savedCount,1);assert.equal(dialog.visible,false);assert.equal(dialog.disabled,false);
 });
 
+test("native mapping Link and unified save use the same company scope for every source type", async()=>{
+  const state=runtime(), dialog=await settings.open();
+  const field=dialog.fields_dict.company_mappings.df.fields.find(item=>item.fieldname==="company");
+  for(const kind of ["organization","entity","department"]){
+    assert.deepEqual(field.get_query({match_kind:kind}).filters.name,["in",state.saved.companies]);
+    state.mappingEditor.model.put({match_kind:kind,corp_id:"corp",source_name:kind,company:"CN"});
+  }
+  await dialog.config.primary_action();
+  assert.equal(state.calls.at(-1).args.values.company_mappings.length,3);
+  assert(state.calls.at(-1).args.values.company_mappings.every(row=>row.company==="CN"));
+});
+
 test("field mapping edits only the selected draft and uses the existing versioned save",async()=>{
   const state=runtime(),dialog=await settings.open();let editorOptions;
   global.ExpenseTemplateMapping={open:async options=>{editorOptions=options;}};
@@ -149,7 +161,7 @@ test("company options retain source permissions and escape names", async()=>{
   const dialog=await settings.open();
   const field=dialog.fields_dict.company_mappings.df.fields.find(f=>f.fieldname==="company");
   assert.deepEqual(field.get_query({match_kind:"organization"}).filters.name,["in",["CN","MX"]]);
-  assert.deepEqual(field.get_query({match_kind:"entity"}).filters.name,["in",["MX"]]);
+  assert.deepEqual(field.get_query({match_kind:"entity"}).filters.name,["in",["CN","MX"]]);
   assert.equal(field.formatter("<img src=x>"),"&lt;img src=x&gt;");
 });
 

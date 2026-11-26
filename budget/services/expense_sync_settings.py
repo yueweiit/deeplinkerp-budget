@@ -162,13 +162,15 @@ def get_settings():
 		"excluded": int(row.get("expense_scope") == "non_mx"), "reason": row.get("scope_reason") or ""}
 		for row in mx_doc.company_mappings or []]
 	from .cn_approval_workbench import allowed_companies
+	companies = sorted(allowed_companies())
 	return {"sync_mode": mode((cn_saved["enabled"], mx_doc.enabled)), "processing_mode": "approval",
 		"versions": {"cn": cn_saved["config_version"], "mx": mx_doc.config_version or ""},
 		"business_timezone": mx_doc.business_timezone or "America/Mexico_City", "corporations": corps,
 		"templates": rows, "company_mappings": mappings,
 		"template_defaults": suggested_defaults(rows, corps, stored_defaults),
 		"template_defaults_version": mx.digest(stored_defaults),
-		"companies": sorted(allowed_companies()), "expense_companies": mx._companies(),
+		# Keep the old payload key for cached clients; all mapping kinds share Company scope.
+		"companies": companies, "expense_companies": companies,
 		"management_rules": cn_saved.get("management_rules") or cn.management.defaults(),
 		"management_categories": cn.management.CATEGORIES}
 
