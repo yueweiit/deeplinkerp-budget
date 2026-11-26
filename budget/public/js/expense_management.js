@@ -567,7 +567,7 @@
       body.textContent = t("Loading expense data…");
       dialog.show();
       try {
-        const { row } = await this.call("get_detail", { key, filters });
+        const { row, approval_url } = await this.call("get_detail", { key, filters });
         if (!this.current() || token !== this.detailSeq) return;
         const path = sourceLabels(row);
         body.innerHTML = `<div class="em-detail">${money(row.amounts, row.display_currency)}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
@@ -603,7 +603,9 @@
                 )
                 .join("")}</ul>`
             : ""
-        }</div>`;
+        }<div class="em-detail-actions">${typeof approval_url === "string" && /^dingtalk:\/\/dingtalkclient\/page\/link\?url=/.test(approval_url)
+          ? `<a class="btn btn-primary btn-sm" href="${esc(approval_url)}" rel="noopener noreferrer">${esc(t("Open Original in DingTalk"))}</a>`
+          : `<span class="text-muted">${esc(t("Original approval link is unavailable"))}</span>`}</div></div>`;
       } catch (error) {
         if (this.current() && token === this.detailSeq)
           body.textContent = errorMessage(error);

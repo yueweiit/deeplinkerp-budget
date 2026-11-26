@@ -438,6 +438,9 @@
   margin: 0;
   overflow-wrap: anywhere;
 }
+.em-detail-actions {
+  margin-top: 20px;
+}
 .em-detail li,
 .em-policy li {
   margin-bottom: 12px;

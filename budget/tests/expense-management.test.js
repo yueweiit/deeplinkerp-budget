@@ -178,6 +178,42 @@ function pending() {
   });
   return { promise, resolve, reject };
 }
+
+test("expense detail restores DingTalk entry and rejects unsafe or unavailable links", async () => {
+  const previous = global.frappe.ui;
+  let body, response;
+  global.frappe.ui = {Dialog: class {
+    constructor() {body = {}; this.fields_dict = {body: {$wrapper: [body]}};}
+    show() {}
+    hide() {}
+  }};
+  try {
+    const work = Object.create(Workbench.prototype);
+    Object.assign(work, {detailSeq: 0, filters: {}, view: "details", options: {},
+      current: () => true, call: async () => response});
+    const row = {number: "approval", company: "A", amounts: {CNY: "10"}, rates: {}, issues: []};
+    const url = "dingtalk://dingtalkclient/page/link?url=https%3A%2F%2Faflow.dingtalk.com%2F&pc_slide=true";
+    response = {row, approval_url: url};
+    await work.detail("a");
+    assert.match(body.innerHTML, /Open Original in DingTalk<\/a>/);
+    assert.match(body.innerHTML, /&amp;pc_slide=true/);
+    assert.match(body.innerHTML, /rel="noopener noreferrer"/);
+    for (const invalid of ["", null, "javascript:alert(1)", 'https://evil.invalid/" onclick="bad()', {}]) {
+      response = {row, approval_url: invalid};
+      await work.detail("a");
+      assert.doesNotMatch(body.innerHTML, /href=|onclick=/);
+      assert.match(body.innerHTML, /Original approval link is unavailable/);
+      assert.match(body.innerHTML, /Approval number/);
+    }
+    const deferred = pending();
+    work.call = () => deferred.promise;
+    const old = work.detail("old");
+    work.detailSeq++;
+    deferred.resolve({row, approval_url: url});
+    await old;
+    assert.equal(body.innerHTML, undefined);
+  } finally {global.frappe.ui = previous;}
+});
 function workbench() {
   const work = Object.create(Workbench.prototype),
     calls = [],
