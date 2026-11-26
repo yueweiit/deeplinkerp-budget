@@ -25,11 +25,11 @@ const unifiedRoutes = {
     'china-personnel-report':'expense-analysis', 'mexico-personnel-report':'expense-analysis',
     'mexico-expense-reports':'expense-analysis',
 };
-function navigation({enabled=true, unified=false, search='', hash='', storage, tabs, retiredSidebars=[]}={}) {
+function navigation({enabled=true, unified=false, journal=false, search='', hash='', storage, tabs, retiredSidebars=[]}={}) {
     const calls=[], nativeCalls=[];
     const listeners=new Map();
     const frappe={
-        boot:{cn_budget_workbench:enabled,unified_expense_management:unified,
+        boot:{cn_budget_workbench:enabled,unified_expense_management:unified,expense_cash_journal:journal,
             expense_legacy_routes:unified?unifiedRoutes:{},expense_retired_sidebars:retiredSidebars},
         route_options:null, route_flags:{custom:true},
         set_route(route) {
@@ -354,5 +354,33 @@ test('sidebar choices emptied by retirement are removed without clearing persona
         if (!unified) assert.equal(stored,initial);
         else assert.deepEqual(JSON.parse(stored),{'expense-management':['Personal'],Customer:['Selling'],
             'operating-expenses':['Mixed Expenses'],'my workspaces':['My Workspaces']});
+    }
+});
+
+test('authorized journal bookmarks repair retired sidebar without changing the journal route or filters',()=>{
+    for (const sidebar of ['', 'China Operating Expenses', JSON.stringify('China Operating Expenses'), 'Expense Shortcuts']) {
+        const params=new URLSearchParams({company:'A & B',currency:'MXN'});
+        if (sidebar) params.set('sidebar',sidebar);
+        const {frappe,calls,context,nativeCalls}=navigation({unified:true,journal:true,
+            search:'?'+params,hash:'#row',retiredSidebars:['expense shortcuts']});
+        assert.equal(frappe.router.re_route('china-cash-journal/'),true);
+        assert.equal(calls[0].route,'china-cash-journal');
+        assert.deepEqual(calls[0].options,{company:'A & B',currency:'MXN',sidebar:'Expense Management'});
+        assert.equal(calls[0].hash,'#row');
+        assert.equal(calls[0].flags.replace_route,true);
+        context.window.location.search='?'+new URLSearchParams({sidebar:JSON.stringify('Expense Management')});
+        assert.equal(frappe.router.re_route('china-cash-journal'),'native');
+        assert.equal(calls.length,1);
+        assert.equal(nativeCalls.length,1);
+    }
+});
+
+test('unavailable journal and intentional custom sidebars retain native routing',()=>{
+    for (const options of [{unified:false,journal:true},{unified:true,journal:false},
+        {unified:true,journal:true,search:'?sidebar=Personal'}]) {
+        const {frappe,calls}=navigation(options);
+        assert.equal(frappe.router.re_route('china-cash-journal'),'native');
+        assert.equal(frappe.router.re_route('china-cash-journal/other'),'native');
+        assert.equal(calls.length,0);
     }
 });
