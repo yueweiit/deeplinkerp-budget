@@ -965,3 +965,17 @@ Shares and comparisons are calculated within each region. Companies without a su
 Included in regional scope,纳入地区统计范围
 Regional scope requires a supported company country. Missing exchange rates leave the regional total unavailable.,只有公司国家属于支持的地区才纳入地区统计范围；缺少汇率时，该地区合计仍不可用。
 Open Original in DingTalk,打开钉钉审批
+View expense details,查看费用明细
+Back to expense analysis,返回支出分析
+Original expense line,原始费用行
+Original expense amount,原始费用金额
+Current detail amount,本条明细金额
+Original expense description,原始费用说明
+From approval header,来自审批表头
+From approval detail,来自审批明细
+Allocated into {0} detail lines,已分摊为 {0} 条明细
+Source entity,承担主体或部门
+Source table,来源明细表
+Source row,来源行号
+Original expense details are unavailable or outside your permitted scope.,原始费用信息暂不可用，或超出当前权限范围。
+Detail amount in original currency,本条明细原币金额

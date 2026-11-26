@@ -62,6 +62,21 @@
     if (row.kind === "budget" && groups[path[0]]) path[0] = t(groups[path[0]]);
     return path;
   }
+  function originalExpense(original, row) {
+    if (!original) return `<p class="em-muted em-source-unavailable">${esc(t("Original expense details are unavailable or outside your permitted scope."))}</p>`;
+    const amount = (currency, value) => `${esc(currency || "—")} ${textMoney(value)}`;
+    const field = (label, value) => `<dt>${esc(t(label))}</dt><dd>${value}</dd>`;
+    const split = original.split_count > 1;
+    return `<section class="em-original-expense"><h4>${esc(t("Original expense line"))}</h4>
+      <p class="em-muted">${esc(split ? t("Allocated into {0} detail lines", [original.split_count])
+        : t(original.origin === "header" ? "From approval header" : "From approval detail"))}</p><dl>
+      ${field("Original expense amount", amount(original.currency, original.amount))}
+      ${split ? field("Current detail amount", amount(row.currency, row.amount)) : ""}
+      ${field("Original expense description", esc(original.description || "—"))}
+      ${original.source_entity ? field("Source entity", esc(original.source_entity)) : ""}
+      ${original.table_label ? field("Source table", esc(original.table_label)) : ""}
+      ${original.row_number ? field("Source row", esc(original.row_number)) : ""}</dl></section>`;
+  }
   function readFilters(search) {
     let incoming;
     try {
@@ -323,6 +338,8 @@
       ).innerHTML = `<div class="em-heading"><h2>${esc(
         f.company || t("Subsidiary expense overview")
       )}</h2><div class="em-heading-actions">${
+        this.view === "details" && f.source_category ? button("analysis", "Back to expense analysis", "", "em-back-link") : ""
+      }${
         f.company || f.region || f.category || f.source_category ? button("all", "All Subsidiaries") : ""
       }${button(
         "policy",
@@ -491,13 +508,17 @@
     }
     analysis() {
       return (this.data.regions || []).map((region) => {
-        const rows = (region.source_category_rows || []).map((row) => [
-          `<button class="em-link" data-action="source-category" data-category="${esc(row.category)}" data-region="${esc(region.region)}">${esc(sourceLabels(row).join(" / ") || t("Category not provided"))}</button>`,
-          money(row.amounts, region.currency), row.count,
-        ]);
+        const rows = (region.source_category_rows || []).map((row) => {
+          const attrs = `type="button" class="em-link em-category-link" data-action="source-category" data-category="${esc(row.category)}" data-region="${esc(region.region)}" title="${esc(t("View expense details"))}"`;
+          return [
+            `<button ${attrs}>${esc(sourceLabels(row).join(" / ") || t("Category not provided"))}</button>`,
+            money(row.amounts, region.currency),
+            `<span class="em-category-count">${esc(row.count)}<svg class="em-category-arrow" aria-hidden="true" width="14" height="14" viewBox="0 0 16 16"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`,
+          ];
+        });
         const trend = region.trend || [];
         const max = Math.max(...trend.map((row) => Number(row.amounts[region.currency]) || 0), 1);
-        return `<section class="em-regional-analysis"><h3 class="em-region-label">${esc(t(region.label))} · ${esc(region.currency)}</h3><div class="em-analysis"><section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Expense composition"))}</h3></div>
+        return `<section class="em-regional-analysis"><h3 class="em-region-label">${esc(t(region.label))} · ${esc(region.currency)}</h3><div class="em-analysis"><section class="em-panel em-composition"><div class="em-panel-title"><h3>${esc(t("Expense composition"))}</h3></div>
           ${table(["OA expense category", "Verified approved expenditure", "Detail lines"], rows)}</section>
           <section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Last six months"))}</h3></div><div class="em-trend">${trend.map((row) => `<button class="em-trend-row" data-action="trend" data-month="${esc(row.month)}" data-region="${esc(region.region)}"><span>${esc(row.month)}</span><i style="--share:${(Math.max(0, Number(row.amounts[region.currency]) || 0) / max) * 100}%"></i>${money(row.amounts, region.currency)}</button>`).join("")}</div></section></div></section>`;
       }).join("");
@@ -567,7 +588,7 @@
       body.textContent = t("Loading expense data…");
       dialog.show();
       try {
-        const { row, approval_url } = await this.call("get_detail", { key, filters });
+        const { row, approval_url, original_expense } = await this.call("get_detail", { key, filters });
         if (!this.current() || token !== this.detailSeq) return;
         const path = sourceLabels(row);
         body.innerHTML = `<div class="em-detail">${money(row.amounts, row.display_currency)}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
@@ -584,7 +605,7 @@
               ? "Budget month"
               : "Application date"
           )
-        )}</dd><dt>${esc(t("Original amount"))}</dt><dd>${esc(
+        )}</dd><dt>${esc(t("Detail amount in original currency"))}</dt><dd>${esc(
           row.currency
         )} ${textMoney(row.amount)}</dd><dt>${esc(
           t("Exchange rate date")
@@ -603,7 +624,7 @@
                 )
                 .join("")}</ul>`
             : ""
-        }<div class="em-detail-actions">${typeof approval_url === "string" && /^dingtalk:\/\/dingtalkclient\/page\/link\?url=/.test(approval_url)
+        }${originalExpense(original_expense, row)}<div class="em-detail-actions">${typeof approval_url === "string" && /^dingtalk:\/\/dingtalkclient\/page\/link\?url=/.test(approval_url)
           ? `<a class="btn btn-primary btn-sm" href="${esc(approval_url)}" rel="noopener noreferrer">${esc(t("Open Original in DingTalk"))}</a>`
           : `<span class="text-muted">${esc(t("Original approval link is unavailable"))}</span>`}</div></div>`;
       } catch (error) {
@@ -685,6 +706,7 @@
         return this.go("overview", { company: "", category: "", source_category: "" });
       if (action === "company")
         return this.go("analysis", { company: item.dataset.company });
+      if (action === "analysis") return this.go("analysis");
       if (action === "company-review")
         return this.go("review", { company: item.dataset.company });
       if (action === "budget-company")

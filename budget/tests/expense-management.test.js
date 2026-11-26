@@ -128,6 +128,29 @@ test("source category bookmarks and drilldowns retain exact scope alongside opti
   assert.deepEqual(target, {view: "details", values: {source_category: "b".repeat(64), measure: "approved", region: ""}});
 });
 
+test("composition has one keyboard entry per row and keeps exact filters when returning to analysis", () => {
+  const work = Object.create(Workbench.prototype), selected = "b".repeat(64);
+  work.filters = {month: "2026-10", company: "Company A", category: "service", source_category: "", region: "", measure: ""};
+  work.data = {regions: [{region: "cn", label: "China", currency: "CNY", trend: [],
+    source_category_rows: [{category: selected, source_path: ["Services", "Rent"], amounts: {CNY: "100"}, count: 2}]}]};
+  const analysis = work.analysis();
+  const buttons = [...analysis.matchAll(/<button ([^>]*data-action="source-category"[^>]*)>/g)];
+  assert.equal(buttons.length, 1);
+  assert.match(analysis, /class="em-category-count">2<svg/);
+  assert.doesNotMatch(analysis, /aria-hidden="true">›/);
+  const routes = [];
+  global.frappe.set_route = (route, options) => routes.push({route, options});
+  for (const [, attrs] of buttons) {
+    const dataset = Object.fromEntries([...attrs.matchAll(/data-([a-z]+)="([^"]*)"/g)].map(([, key, value]) => [key, value]));
+    work.click({target: {closest: () => ({dataset})}});
+  }
+  const filters = {...work.filters, source_category: selected, region: "cn", measure: "approved"};
+  assert.deepEqual(routes, [{route: "expense-details", options: {expense_filters: filters}}]);
+  work.filters = readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters)));
+  work.click({target: {closest: () => ({dataset: {action: "analysis"}})}});
+  assert.deepEqual(routes.at(-1), {route: "expense-analysis", options: {expense_filters: {...filters, measure: ""}}});
+});
+
 test("expense composition and detail tables use escaped OA paths without requiring management categories", () => {
   const work = Object.create(Workbench.prototype), path = ["Services <source>", "Payroll"];
   work.view = "details";
@@ -167,6 +190,30 @@ test("native expense detail displays source category and subcategory separately"
     assert.match(body.innerHTML, /OA expense subcategory<\/dt><dd>Payroll/);
     assert.match(body.innerHTML, /Original approval text/);
     assert.doesNotMatch(body.innerHTML, /Management category|Needs review/);
+  } finally {global.frappe.ui = previous;}
+});
+
+test("allocated detail distinguishes original expense from selected amount and escapes source text", async () => {
+  const previous = global.frappe.ui;
+  let body;
+  global.frappe.ui = {Dialog: class {
+    constructor() {body = {}; this.fields_dict = {body: {$wrapper: [body]}};}
+    show() {}
+  }};
+  try {
+    const work = Object.create(Workbench.prototype);
+    Object.assign(work, {detailSeq: 0, filters: {}, view: "details", options: {}, current: () => true,
+      call: async () => ({row: {number: "approval", company: "A", amount: "30.00", currency: "CNY", amounts: {CNY: "30.00"}, rates: {}, issues: []},
+        original_expense: {origin: "detail", amount: "100.00", currency: "CNY", split_count: 2, row_number: "4",
+          table_label: "Expense table", source_entity: "Department A", description: '<img src=x onerror="bad()">'}})});
+    await work.detail("a");
+    assert.match(body.innerHTML, /Original expense line/);
+    assert.match(body.innerHTML, /Original expense amount<\/dt><dd>CNY 100\.00/);
+    assert.match(body.innerHTML, /Current detail amount<\/dt><dd>CNY 30\.00/);
+    assert.match(body.innerHTML, /Allocated into 2 detail lines/);
+    assert.match(body.innerHTML, /Source row<\/dt><dd>4/);
+    assert.match(body.innerHTML, /&lt;img/);
+    assert.doesNotMatch(body.innerHTML, /<img/);
   } finally {global.frappe.ui = previous;}
 });
 
