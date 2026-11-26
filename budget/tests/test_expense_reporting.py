@@ -32,6 +32,7 @@ def rate(currency, day):
 @pytest.fixture
 def database(monkeypatch):
 	"""Execute the actual selection/aggregate SQL, without a site or network."""
+	monkeypatch.setattr(legacy.regions, "company_regions", lambda context: {name: "mx" if name == "B" else "cn" for name in context["companies"]})
 	connection = sqlite3.connect(":memory:")
 	connection.row_factory = sqlite3.Row
 	path = Path(__file__).parents[1] / "budget/doctype/expense_report_line/expense_report_line.json"
@@ -148,6 +149,167 @@ def test_missing_currency_never_becomes_zero_or_partial_sum(database, monkeypatc
 	result = reporting.query()
 	assert result["summary"]["amounts"] == {"CNY": None, "MXN": None}
 	assert result["summary"]["review"] == 2
+
+
+@pytest.mark.parametrize("view", ["overview", "analysis", "budget", "details", "review"])
+@pytest.mark.parametrize("scope", [{}, {"region": "cn"}, {"region": "mx"}, {"company": "B"}, {"company": "A", "region": "mx"}])
+def test_regional_sql_and_snapshot_paths_agree(database, monkeypatch, view, scope):
+	seed, _ = database
+	seed([line("cn", amount="40"), line("cn2", company="Empty", amount="60"),
+		line("mx", company="B", currency="MXN", amount="200"),
+		line("budget", kind="budget", company="B", budget_state="effective", currency="MXN", amount="1000"),
+		line("pending", company="B", status="pending"),
+		line("undated", company="B", month=None, application_date=None)])
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	f = {"view": view, **scope}
+	assert canonical(reporting.query(f)) == canonical(legacy.query(f))
+	assert canonical(reporting.export_rows(f)) == canonical(legacy.export_rows(f))
+
+
+def test_regional_totals_shares_and_drilldown_do_not_mix_currencies(database):
+	seed, _ = database
+	seed([line("cn", amount="40"), line("cn2", company="Empty", amount="60"),
+		line("mx", company="B", currency="MXN", amount="200")])
+	result = reporting.query()
+	regions = {row["region"]: row for row in result["regions"]}
+	assert regions["cn"]["summary"]["amounts"]["CNY"] == "100.00"
+	assert regions["mx"]["summary"]["amounts"]["MXN"] == "200.00"
+	companies = {row["company"]: row for row in result["company_rows"]}
+	assert {key: row["regional_share"] for key, row in companies.items()} == {"A": "40.0", "Empty": "60.0", "B": "100.0"}
+	assert companies["B"]["display_currency"] == "MXN"
+	f = {"view": "details", "region": "mx", "measure": "approved"}
+	detail = reporting.query(f)
+	assert [row["key"] for row in detail["rows"]] == ["mx"]
+	assert reporting.export_rows(f)[0] == detail["rows"]
+	assert reporting.detail("mx", f)["row"] == detail["rows"][0]
+	with pytest.raises(ValueError, match="unavailable"):
+		reporting.detail("cn", f)
+	assert [row["region"] for row in reporting.query({"company": "B"})["regions"]] == ["mx"]
+	with pytest.raises(ValueError, match="Invalid"):
+		reporting.query({"region": "unknown"})
+
+
+def test_regional_filters_preserve_company_permissions_and_empty_scope(database):
+	seed, calls = database
+	seed([line("owned"), line("other", company="B"), line("restricted", scope_company="B"),
+		line("unassigned", company="")], companies=("A",), manager=True)
+	assert [row["key"] for row in reporting.export_rows({"view": "details", "region": "cn"})[0]] == ["owned"]
+	result = reporting.query({"view": "details", "region": "mx"})
+	assert result["rows"] == result["regions"] == result["company_rows"] == []
+	assert not any("in ()" in sql for sql in calls)
+	with pytest.raises(ValueError, match="unavailable"):
+		reporting.detail("other", {"region": "mx"})
+
+
+def test_missing_fx_is_isolated_by_region_and_never_partial(database, monkeypatch):
+	seed, _ = database
+	def missing(currency, day):
+		raise legacy.fx.RateUnavailable()
+	monkeypatch.setattr(__import__(__name__, fromlist=["rate"]), "rate", missing)
+	seed([line("cn"), line("mx", company="B", currency="MXN", amount="200")])
+	regions = reporting.query()["regions"]
+	assert [row["summary"]["amounts"][row["currency"]] for row in regions] == ["100.00", "200.00"]
+	seed([line("cn"), line("mx", company="B", currency="MXN", amount="200"),
+		line("unconvertible", company="B", currency="CNY")])
+	regions = reporting.query()["regions"]
+	assert [row["summary"]["amounts"][row["currency"]] for row in regions] == ["100.00", None]
+	assert next(row for row in reporting.query()["company_rows"] if row["company"] == "B")["regional_share"] is None
+
+
+def test_mexico_comparison_uses_mxn_even_when_monthly_fx_changes(database, monkeypatch):
+	seed, _ = database
+	def monthly_rate(currency, day):
+		return Decimal(1) if currency == "CNY" else Decimal("0.4" if day.startswith("2026-11") else "0.2")
+	monkeypatch.setattr(__import__(__name__, fromlist=["rate"]), "rate", monthly_rate)
+	seed([line("current", company="B", currency="MXN", amount="200"),
+		line("prior", company="B", currency="MXN", amount="100", month="2026-10", application_date="2026-10-10")])
+	result = reporting.query({"company": "B"})
+	assert result["comparison"]["percent"] == "300.0"  # Legacy CNY contract retained.
+	assert result["regions"][0]["comparison"]["percent"] == "100.0"
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
+@pytest.mark.parametrize("company,currency", [("A", "CNY"), ("B", "MXN")])
+@pytest.mark.parametrize("scenario", ["hidden_fx_only", "history", "amount", "unknown_issue", "local_fx_missing", "incomplete", "undated", "zero_baseline"])
+def test_local_comparison_ignores_only_hidden_currency_fx(database, monkeypatch, backend, company, currency, scenario):
+	seed, _ = database
+	def missing(code, day):
+		raise legacy.fx.RateUnavailable()
+	monkeypatch.setattr(__import__(__name__, fromlist=["rate"]), "rate", missing)
+	changes = {"history": {"issues": ["history"]}, "amount": {"amount": None},
+		"unknown_issue": {"issues": ["new_validation_rule"]}, "local_fx_missing": {"currency": "USD"}}.get(scenario, {})
+	rows = [line("now", company=company, **{"currency": currency, "amount": "200", **changes}),
+		line("prior", company=company, currency=currency, amount="0" if scenario == "zero_baseline" else "100",
+			month="2026-10", application_date="2026-10-10")]
+	if scenario == "undated":
+		rows.append(line("undated", company=company, currency=currency, month=None, application_date=None))
+	seed(rows, companies=(company,), complete=scenario != "incomplete")
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(missing))
+	service = reporting if backend == "sql" else legacy
+	result = service.query({"company": company})
+	region = result["regions"][0]
+	assert region["comparison"]["percent"] == ("100.0" if scenario == "hidden_fx_only" else None)
+	# General review and the legacy comparison retain all original issues.
+	assert result["comparison"]["percent"] is None
+	assert "exchange_rate" in service.detail("prior", {"month": "2026-10"})["row"]["issues"]
+	if scenario == "hidden_fx_only":
+		assert region["summary"]["amounts"][currency] == "200.00"
+		assert result["summary"]["review"] == 1
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
+def test_excel_distinguishes_verified_expenses_from_regional_scope(database, monkeypatch, backend):
+	import base64
+	from io import BytesIO
+	from openpyxl import load_workbook
+	from budget.api import expenses as api
+	seed, _ = database
+	def missing(code, day):
+		raise legacy.fx.RateUnavailable()
+	monkeypatch.setattr(__import__(__name__, fromlist=["rate"]), "rate", missing)
+	seed([line("cn"), line("unknown-country", company="B", currency="MXN"),
+		line("no-local-fx", currency="USD"), line("pending", status="pending"),
+		line("bad", amount=None), line("budget", kind="budget", budget_state="effective"),
+		line("zero", amount="0")])
+	monkeypatch.setattr(legacy.regions, "company_regions", lambda context: {"A": "cn", "B": "", "Empty": "cn"})
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(missing))
+	service = reporting if backend == "sql" else legacy
+	if backend == "sql":
+		monkeypatch.setattr(api.service, "export_rows", reporting.export_rows)
+	monkeypatch.setattr(api, "_", lambda value: value)
+	result = api.export_data({"view": "details"})
+	rows = list(load_workbook(BytesIO(base64.b64decode(result["content"]))).active.values)
+	index = next(index for index, row in enumerate(rows) if row[0] == "Approval number")
+	exported = {row[0]: dict(zip(rows[index], row)) for row in rows[index + 1:]}
+	for key in ("cn", "zero", "no-local-fx"):
+		assert exported[key]["Verified approved expenditure"] == exported[key]["Included in regional scope"] == "Yes"
+	assert exported["zero"]["Reported amount"] == 0
+	assert exported["unknown-country"]["Verified approved expenditure"] == "Yes"
+	assert exported["unknown-country"]["Included in regional scope"] == "No"
+	assert exported["unknown-country"]["Reported amount"] is None
+	assert exported["unknown-country"]["Region"] == "Region not configured"
+	assert "budget" not in exported
+	for key in ("pending", "bad"):
+		assert exported[key]["Verified approved expenditure"] == exported[key]["Included in regional scope"] == "No"
+	# A missing local rate is still part of the scope, making its whole total
+	# unavailable. Never silently omit that line and publish a partial sum.
+	assert exported["no-local-fx"]["Reported amount"] is None
+	region = service.query()["regions"][0]
+	assert region["summary"]["count"] == 3 and region["summary"]["amounts"]["CNY"] is None
+
+
+def test_unknown_company_country_is_not_guessed_from_name_or_currency(database, monkeypatch):
+	seed, _ = database
+	seed([line("cn"), line("mx", company="B", currency="MXN")])
+	monkeypatch.setattr(legacy.regions, "company_regions", lambda context: {"A": "cn", "B": ""})
+	result = reporting.query()
+	assert [row["region"] for row in result["regions"]] == ["cn"]
+	unknown = next(row for row in result["company_rows"] if row["company"] == "B")
+	assert unknown["display_currency"] is unknown["regional_share"] is None
+	assert reporting.detail("mx")["row"]["display_currency"] is None
 
 
 def test_snapshot_contains_only_small_line_data_and_preserves_rounding(database):

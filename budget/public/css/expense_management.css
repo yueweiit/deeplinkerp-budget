@@ -226,6 +226,24 @@
 .em-kpi .em-money small {
   font-size: 14px;
 }
+.em-regional-kpi {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+.em-regional-kpi + .em-regional-kpi {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color, #dfe5ec);
+}
+.em-region-label {
+  color: var(--text-muted, #728198);
+  font-size: 14px;
+  font-weight: 600;
+}
+.em-regional-analysis + .em-regional-analysis {
+  margin-top: 20px;
+}
 .em-number {
   font-size: 27px;
   line-height: 1.3;

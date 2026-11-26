@@ -17,6 +17,8 @@ def prepare(values):
 	context, rules, metadata = read_context()
 	if f["company"] and f["company"] not in context["companies"]:
 		frappe.throw(_("You do not have permission to view this subsidiary."), frappe.PermissionError)
+	context = {**context, "company_regions": service.regions.company_regions(context)}
+	metadata = {**metadata, "company_regions": context["company_regions"]}
 	condition, params = store.where(context, f, categories=False)
 	condition += " and " + store.period(f, undated=f["view"] == "review")
 	if f["view"] not in ("review", "budget"):
@@ -32,7 +34,7 @@ def prepare(values):
 	return f, context, rules, metadata, condition, {**params, "month": f["month"]}
 
 
-def comparison(condition, params, f, metadata, undated):
+def comparison(condition, params, f, metadata, undated, *, currency=None):
 	from deeplinkerp_branding.services.mexico_expense_insights import comparison_period
 	month, previous = f["month"], service.management.shift_month(f["month"], -1)
 	last_day = monthrange(int(month[:4]), int(month[5:]))[1]
@@ -40,13 +42,14 @@ def comparison(condition, params, f, metadata, undated):
 	if not window:
 		return {"percent": None, "window": None}
 	summaries = [store.summaries(condition + " and reporting_month=%(month)s and application_date<=%(end)s",
-		{**params, "month": period, "end": window[end]})[0]
+		{**params, "month": period, "end": window[end]}, review_currency=currency)[0]
 		for period, end in ((month, "to_date"), (previous, "previous_to"))]
 	current, prior = summaries
+	currency = currency or "CNY"
 	known = metadata["complete"] and not undated and all(row["count"] and not row["review"]
-		and row["amounts"]["CNY"] is not None for row in summaries)
-	baseline = Decimal(prior["amounts"]["CNY"] or 0)
-	percent = str(((Decimal(current["amounts"]["CNY"]) / baseline - 1) * 100).quantize(Decimal("0.1"))) if known and baseline > 0 else None
+		and row["amounts"][currency] is not None for row in summaries)
+	baseline = Decimal(prior["amounts"][currency] or 0)
+	percent = str(((Decimal(current["amounts"][currency]) / baseline - 1) * 100).quantize(Decimal("0.1"))) if known and baseline > 0 else None
 	return {"percent": percent, "window": window}
 
 
@@ -57,7 +60,7 @@ def query(values=None, start=0):
 	response = {"filters": f, "companies": sorted(context["companies"]),
 		"categories": service.management.rules_service.CATEGORIES, "source_categories": metadata["source_categories"],
 		"issues": service.ISSUES, "metadata": metadata, "summary": store.summaries(current, params)[0], "undated": undated}
-	names = [f["company"]] if f["company"] else sorted(context["companies"])
+	names = service.regions.company_names(metadata["company_regions"], f)
 	groups = {row["company"]: row for row in store.summaries(current, params, group="company")}
 	response["company_rows"] = [groups.get(name) or {"company": name, **service.summarize([])} for name in names]
 	response["company_rows"].sort(key=lambda row: (row["amounts"]["CNY"] is None, -Decimal(row["amounts"]["CNY"] or 0), row["company"]))
@@ -105,7 +108,28 @@ def query(values=None, start=0):
 		total = store.count(selection, params)
 		response.update(total=total, start=start, has_more=start + 50 < total,
 			rows=[service.public(row) for row in store.select(selection, params, start=start, limit=50)])
-	return response
+	response["regions"] = []
+	for region in service.regions.descriptors(metadata["company_regions"], f):
+		regional_params = {**params, "regional_companies": region.pop("companies")}
+		regional_condition = condition + " and company in %(regional_companies)s"
+		regional_current = regional_condition + " and " + store.period(f)
+		region["summary"] = store.summaries(regional_current, regional_params)[0]
+		if f["view"] in ("overview", "analysis"):
+			sources = store.summaries(regional_current + " and kind!='budget'", regional_params, group="source_category_key")
+			for row in sources:
+				key = row.pop("source_category_key")
+				option = options[key]
+				row.update(category=key, kind=option["kind"], source_path=option["source_path"])
+			sources.sort(key=lambda row: -Decimal(row["amounts"][region["currency"]] or 0))
+			region["source_category_rows"] = sources
+			trend = {row.pop("reporting_month"): row for row in store.summaries(
+				regional_condition + " and reporting_month in %(months)s", {**regional_params, "months": months}, group="reporting_month")}
+			region["trend"] = [{"month": month, **(trend.get(month) or service.summarize([]))} for month in months]
+			regional_undated = store.count(regional_condition + " and reporting_month='' and approval_status in ('approved','pending','unknown')", regional_params)
+			region["comparison"] = comparison(regional_condition, regional_params, f, metadata,
+				bool(regional_undated), currency=region["currency"])
+		response["regions"].append(region)
+	return service.regions.annotate_response(response, metadata["company_regions"])
 
 
 def detail(key, values=None):
@@ -116,7 +140,7 @@ def detail(key, values=None):
 	rows = store.select(condition, {**params, "key": key}, limit=1)
 	if not rows:
 		frappe.throw(_("Expense detail is unavailable or outside your permitted scope."), frappe.PermissionError)
-	return {"row": service.public(rows[0]), "metadata": metadata}
+	return {"row": service.regions.annotate(service.public(rows[0]), metadata["company_regions"]), "metadata": metadata}
 
 
 def export_rows(values=None):
@@ -129,4 +153,4 @@ def export_rows(values=None):
 	rows = store.select(condition, params, limit=20001)
 	if len(rows) > 20000:
 		frappe.throw(_("Expense export exceeds 20000 rows. Narrow the subsidiary or category."))
-	return [service.public(row) for row in rows], f, metadata
+	return [service.regions.annotate(service.public(row), metadata["company_regions"]) for row in rows], f, metadata

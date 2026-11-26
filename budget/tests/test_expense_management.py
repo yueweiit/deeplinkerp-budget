@@ -29,6 +29,7 @@ def rate(currency, day):
 
 @pytest.fixture(autouse=True)
 def runtime(monkeypatch):
+	monkeypatch.setattr(s.regions, "company_regions", lambda context: {name: "mx" if name == "B" else "cn" for name in context["companies"]})
 	monkeypatch.setattr(s, "_", lambda value: value)
 	monkeypatch.setattr(s.regional, "_", lambda value: value)
 	monkeypatch.setattr(frappe.utils, "today", lambda: "2026-11-24")
@@ -168,7 +169,8 @@ def test_export_preserves_oa_categories_and_description_without_management_warni
 	assert values["OA expense subcategory"] == "Nómina"
 	assert values["Detail item"] == "Approval line text"
 	assert values["Review issues"] == values["Management category (optional)"] == ""
-	assert values["Amount in CNY"] == 100
+	assert values["Reporting currency"] == "CNY"
+	assert values["Reported amount"] == 100
 
 
 @pytest.mark.parametrize("values", [{"country":"Mexico"}, {"month":"2026-13"}, {"month":"2026-12"},
@@ -188,7 +190,7 @@ def test_company_ranking_totals_drilldown_and_export_reconcile(monkeypatch):
 	dataset(monkeypatch,[line(),line("b",company="B",currency="MXN",amount="50.00"),line("budget",kind="budget")])
 	result=s.query()
 	assert result["summary"]["amounts"] == {"CNY":"120.00","MXN":"300.00"}
-	assert [row["company"] for row in result["company_rows"]] == ["A","B","Empty"]
+	assert [row["company"] for row in result["company_rows"]] == ["A","Empty","B"]
 	detail=s.query({"company":"B","view":"details"})
 	exported,_,_=s.export_rows({"company":"B"})
 	assert exported == detail["rows"]
@@ -243,11 +245,12 @@ def test_unclassified_budget_keeps_amounts_without_comparisons_or_alerts(monkeyp
 	monkeypatch.setattr(api, "_", lambda value: value)
 	monkeypatch.setattr(api, "workbook", lambda data, filename: data)
 	exported = api.export_data(filters)[-1]
-	assert exported[1] == 100 and exported[3] == Decimal(spent)
-	assert exported[5:] == [None, None, None]
+	assert exported[:3] == ["A", "China", "CNY"]
+	assert exported[3] == 100 and exported[4] == Decimal(spent)
+	assert exported[5:] == [None, None]
 
 
-def test_export_dual_currency_and_formula_strings_remain_literal(monkeypatch):
+def test_export_regional_currency_and_formula_strings_remain_literal(monkeypatch):
 	import base64
 	from io import BytesIO
 	from openpyxl import load_workbook
@@ -260,8 +263,9 @@ def test_export_dual_currency_and_formula_strings_remain_literal(monkeypatch):
 	header=next(row for row in rows if row[0]=="Approval number")
 	row=rows[-1]
 	assert row[0] == "'=TEST()"
-	assert row[header.index("Amount in CNY")] == 100
-	assert row[header.index("Amount in MXN")] == 250
+	assert row[header.index("Reported amount")] == 100
+	assert row[header.index("Reporting currency")] == "CNY"
+	assert "Amount in MXN" not in header
 	assert row[header.index("Date source")] == "Application date"
 
 
@@ -275,7 +279,29 @@ def test_budget_export_is_company_matrix_and_preserves_missing_budget(monkeypatc
 	result=api.export_data({"view":"budget","company":"A"})
 	sheet=load_workbook(BytesIO(base64.b64decode(result["content"]))).active
 	row=list(sheet.values)[-1]
-	assert row[:7] == ("A",None,None,100,250,None,None)
+	assert row[:7] == ("A", "China", "CNY", None, 100, None, None)
+
+
+def test_excel_region_scope_and_mexico_budget_use_local_amounts(monkeypatch):
+	import base64
+	from io import BytesIO
+	from openpyxl import load_workbook
+	from budget.api import expenses as api
+	monkeypatch.setattr(api, "_", lambda value: value)
+	dataset(monkeypatch, [line("cn"), line("mx", company="B", currency="MXN", amount="200"),
+		line("budget", company="B", currency="MXN", amount="1000", kind="budget", budget_state="effective")])
+	def sheet(filters):
+		result = api.export_data(filters)
+		return list(load_workbook(BytesIO(base64.b64decode(result["content"]))).active.values)
+	rows = sheet({"view": "overview", "region": "mx"})
+	header_index = next(index for index, row in enumerate(rows) if row[0] == "Approval number")
+	assert len(rows[header_index + 1:]) == 1
+	values = dict(zip(rows[header_index], rows[-1]))
+	assert (values["Approval number"], values["Region"], values["Reporting currency"], values["Reported amount"]) == ("mx", "Mexico", "MXN", 200)
+	assert values["Original amount"] == 200 and values["Currency"] == "MXN"
+	assert rows[3][:2] == ("Region", "Mexico")
+	budget = sheet({"view": "budget", "company": "B"})[-1]
+	assert budget[:5] == ("B", "Mexico", "MXN", 1000, 200)
 
 
 def test_undated_rows_stay_out_of_month_totals_but_are_reviewable(monkeypatch):

@@ -10,7 +10,7 @@ global.DeepLinkERPMexicoExpenseMoney =
   );
 const {
   Workbench,
-  dual,
+  money,
   readFilters,
   shiftMonth,
 } = require("../public/js/expense_management.js");
@@ -19,6 +19,7 @@ test("current month defaults and corrupt bookmarks cannot break the month picker
   assert.deepEqual(readFilters(""), {
     month: "2026-11",
     company: "",
+    region: "",
     category: "",
     source_category: "",
     measure: "",
@@ -34,11 +35,59 @@ test("current month defaults and corrupt bookmarks cannot break the month picker
   assert.equal(readFilters("?expense_filters=%7Bbroken").company, "");
 });
 
-test("dual amount hierarchy preserves cents and unavailable currency is not zero", () => {
-  const html = dual({ CNY: "10000000000000.09", MXN: null });
-  assert.match(html, /<strong>.*CNY.*10,000,000,000,000.09<\/strong>/);
-  assert.match(html, /<small>.*MXN.*—<\/small>/);
-  assert.doesNotMatch(html, /MXN.*0\.00/);
+test("local amount preserves cents and unavailable currency is not zero", () => {
+  const amounts = { CNY: "10000000000000.09", MXN: null };
+  assert.match(money(amounts, "CNY"), /<strong>.*CNY.*10,000,000,000,000.09<\/strong>/);
+  assert.doesNotMatch(money(amounts, "CNY"), /MXN/);
+  assert.match(money(amounts, "MXN"), /MXN.*—/);
+  assert.doesNotMatch(money(amounts, "MXN"), /CNY|0\.00/);
+  assert.match(money(amounts, null), /Region not configured/);
+});
+
+test("regional cards and company rows display one currency per region and company", () => {
+  const work = Object.create(Workbench.prototype);
+  Object.assign(work, {view: "overview", filters: {}, content(html) {this.html = html;}, data: {
+    metadata: {complete: true, has_data: true}, summary: {review: 0, pending: 0, excluded: 0}, undated: 0,
+    regions: [
+      {region: "cn", label: "China", currency: "CNY", summary: {amounts: {CNY: "100", MXN: "250"}, applications: 1, count: 1}, comparison: {percent: "50.0"}},
+      {region: "mx", label: "Mexico", currency: "MXN", summary: {amounts: {CNY: "80", MXN: "200"}, applications: 1, count: 1}, comparison: {percent: null}},
+    ],
+    company_rows: [
+      {company: "CN <test>", display_currency: "CNY", amounts: {CNY: "100", MXN: "250"}, regional_share: "100.0", applications: 1, review: 0},
+      {company: "MX", display_currency: "MXN", amounts: {CNY: "80", MXN: "200"}, regional_share: "100.0", applications: 1, review: 0},
+    ],
+  }});
+  work.render();
+  assert.match(work.html, /China/);
+  assert.match(work.html, /Mexico/);
+  assert.match(work.html, /data-region="mx"/);
+  assert.match(work.html, /Share within region/);
+  assert.match(work.html, /CN &lt;test&gt;/);
+  assert.match(work.html, /100\.0%/);
+  assert.doesNotMatch(work.html, /250|80\.00/);
+  const rows = work.companies().match(/<tr>.*?<\/tr>/g);
+  assert.match(rows[1], /CNY/);
+  assert.doesNotMatch(rows[1], /MXN/);
+  assert.match(rows[2], /MXN/);
+  assert.doesNotMatch(rows[2], /CNY/);
+});
+
+test("region drilldowns carry region and company changes clear stale regional filters", () => {
+  assert.equal(readFilters('?expense_filters=' + encodeURIComponent(JSON.stringify({region: "bad"}))).region, "");
+  const work = Object.create(Workbench.prototype);
+  Object.assign(work, {filters: {month: "2026-11", company: "", region: "mx"}, syncURL() {}, controls() {}, load() {}});
+  let options;
+  global.frappe.set_route = (route, values) => {options = values.expense_filters;};
+  for (const action of ["details", "trend", "source-category"]) {
+    work.click({target: {closest: () => ({dataset: {action, region: "mx", category: "a".repeat(64), month: "2026-10"}})}});
+    assert.equal(options.region, "mx");
+    assert.equal(options.measure, "approved");
+  }
+  work.update({company: "China company"});
+  assert.equal(work.filters.region, "");
+  work.filters.region = "cn";
+  work.go("overview", {company: "Mexico company"});
+  assert.equal(options.region, "");
 });
 
 test("all-company navigation explicitly clears company and category while retaining month", () => {
@@ -55,6 +104,7 @@ test("all-company navigation explicitly clears company and category while retain
     expense_filters: {
       month: "2026-10",
       company: "",
+      region: "",
       category: "",
       source_category: "",
       measure: "",
@@ -69,13 +119,13 @@ test("month navigation crosses years correctly", () => {
 
 test("source category bookmarks and drilldowns retain exact scope alongside optional legacy filters", () => {
   const filters = {month: "2026-10", company: "A", source_category: "a".repeat(64), category: "service"};
-  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters))), {...filters, measure: ""});
+  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters))), {...filters, region: "", measure: ""});
   const work = Object.create(Workbench.prototype);
   work.filters = filters;
   let target;
   work.go = (view, values) => {target = {view, values};};
   work.click({target: {closest: () => ({dataset: {action: "source-category", category: "b".repeat(64)}})}});
-  assert.deepEqual(target, {view: "details", values: {source_category: "b".repeat(64), measure: "approved"}});
+  assert.deepEqual(target, {view: "details", values: {source_category: "b".repeat(64), measure: "approved", region: ""}});
 });
 
 test("expense composition and detail tables use escaped OA paths without requiring management categories", () => {
@@ -88,6 +138,7 @@ test("expense composition and detail tables use escaped OA paths without requiri
       source_path: path, management_category: "", issues: [], amounts: {CNY: "10", MXN: "25"}}],
     total: 1, start: 0, has_more: false,
   };
+  work.data.regions = [{region: "cn", label: "China", currency: "CNY", source_category_rows: work.data.source_category_rows, trend: []}];
   const analysis = work.analysis(), details = work.details();
   assert.match(analysis, /data-action="source-category"/);
   assert.match(analysis, /Services &lt;source&gt; \/ Payroll/);

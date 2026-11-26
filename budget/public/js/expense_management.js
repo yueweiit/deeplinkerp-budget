@@ -51,10 +51,10 @@
     )}</button>`;
   const textMoney = (value) =>
     value == null ? "—" : root.DeepLinkERPMexicoExpenseMoney.format(value);
-  function dual(amounts) {
-    return `<span class="em-money"><strong><span class="em-currency">CNY</span> ${textMoney(
-      amounts?.CNY
-    )}</strong><small><span class="em-currency">MXN</span> ${textMoney(amounts?.MXN)}</small></span>`;
+  function money(amounts, currency) {
+    if (!["CNY", "MXN"].includes(currency))
+      return `<span class="em-muted">${esc(t("Region not configured"))}</span>`;
+    return `<span class="em-money"><strong><span class="em-currency">${currency}</span> ${textMoney(amounts?.[currency])}</strong></span>`;
   }
   function sourceLabels(row) {
     const path = [...(row.source_path || [])];
@@ -72,6 +72,7 @@
     const result = {
       month: monthNow(),
       company: "",
+      region: "",
       category: "",
       source_category: "",
       measure: "",
@@ -86,6 +87,7 @@
       result.month > monthNow()
     )
       result.month = monthNow();
+    if (!["", "cn", "mx"].includes(result.region)) result.region = "";
     return result;
   }
   function shiftMonth(month, delta) {
@@ -270,6 +272,7 @@
       );
     }
     update(values) {
+      if (Object.hasOwn(values, "company") && !Object.hasOwn(values, "region")) values = {...values, region: ""};
       Object.assign(this.filters, values);
       this.start = 0;
       this.syncURL();
@@ -277,6 +280,7 @@
       this.load();
     }
     go(view, values = {}) {
+      if (Object.hasOwn(values, "company") && !Object.hasOwn(values, "region")) values = {...values, region: ""};
       return root.frappe.set_route(ROUTES[view], {
         expense_filters: { ...this.filters, measure: "", ...values },
       });
@@ -319,7 +323,7 @@
       ).innerHTML = `<div class="em-heading"><h2>${esc(
         f.company || t("Subsidiary expense overview")
       )}</h2><div class="em-heading-actions">${
-        f.company || f.category || f.source_category ? button("all", "All Subsidiaries") : ""
+        f.company || f.region || f.category || f.source_category ? button("all", "All Subsidiaries") : ""
       }${button(
         "policy",
         "Reporting policy"
@@ -427,6 +431,8 @@
       let html = this.filters.measure === "approved"
         ? `<div class="em-status"><span class="em-chip">${esc(t("Verified approvals only"))}</span>${button("all-statuses", "All statuses")}</div>`
         : "";
+      if (this.filters.region)
+        html += `<div class="em-status"><span class="em-chip">${esc(t(this.filters.region === "cn" ? "China" : "Mexico"))}</span>${button("clear-region", "All regions")}</div>`;
       const notices = [];
       if (d.metadata.reporting_pending) notices.push(t("Expense reports are being updated. Showing the last completed version."));
       if (!d.metadata.complete) notices.push(t("Source data incomplete"));
@@ -443,33 +449,16 @@
         );
         return;
       }
-      if (["overview", "analysis"].includes(this.view))
-        html += `<div class="em-kpis"><article class="em-kpi em-primary"><span>${esc(
-          t("Verified approved expenditure")
-        )}</span>${dual(
-          s.amounts
-        )}<button class="em-link" data-action="details">${esc(
-          t("{0} applications · {1} lines", [s.applications, s.count])
-        )}</button></article><article class="em-kpi"><span>${esc(
-          t("Compared with the same period last month")
-        )}</span><strong class="em-number">${
-          d.comparison?.percent == null
-            ? esc(t("Not comparable"))
-            : `${Number(d.comparison.percent) > 0 ? "+" : ""}${esc(
-                d.comparison.percent
-              )}%`
-        }</strong>${button(
-          "policy",
-          "Comparison details",
-          "",
-          "em-subtle"
-        )}</article><article class="em-kpi"><span>${esc(
-          t("Data Review")
-        )}</span><button class="em-number em-link" data-action="review">${
-          s.review + d.undated
-        }</button><span class="em-muted">${esc(
-          t("{0} pending approval lines", [s.pending])
-        )}</span></article></div>`;
+      if (["overview", "analysis"].includes(this.view)) {
+        const regions = d.regions || [];
+        html += `<div class="em-kpis"><article class="em-kpi em-primary"><span>${esc(t("Verified approved expenditure"))}</span>
+          ${regions.map((region) => `<div class="em-regional-kpi"><span class="em-region-label">${esc(t(region.label))}</span>${money(region.summary.amounts, region.currency)}
+            <button class="em-link" data-action="details" data-region="${esc(region.region)}">${esc(t("{0} applications · {1} lines", [region.summary.applications, region.summary.count]))}</button></div>`).join("") || `<span>${esc(t("Region not configured"))}</span>`}
+          </article><article class="em-kpi"><span>${esc(t("Compared with the same period last month"))}</span>
+          ${regions.map((region) => `<div class="em-regional-kpi"><span class="em-region-label">${esc(t(region.label))}</span><strong class="em-number">${region.comparison?.percent == null ? esc(t("Not comparable")) : `${Number(region.comparison.percent) > 0 ? "+" : ""}${esc(region.comparison.percent)}%`}</strong></div>`).join("")}
+          ${button("policy", "Comparison details", "", "em-subtle")}</article>
+          <article class="em-kpi"><span>${esc(t("Data Review"))}</span><button class="em-number em-link" data-action="review">${s.review + d.undated}</button><span class="em-muted">${esc(t("{0} pending approval lines", [s.pending]))}</span></article></div>`;
+      }
       if (this.view === "overview") html += this.companies();
       if (this.view === "analysis") html += this.analysis();
       if (this.view === "budget") html += this.budget();
@@ -477,21 +466,14 @@
       this.content(html);
     }
     companies() {
-      const d = this.data,
-        total = Number(d.summary.amounts.CNY);
+      const d = this.data;
       const rows = d.company_rows.map((row) => {
-        const share =
-          total > 0 && row.amounts.CNY != null
-            ? Math.max(
-                0,
-                Math.min(100, (Number(row.amounts.CNY) / total) * 100)
-              )
-            : null;
+        const share = row.regional_share == null ? null : Number(row.regional_share);
         return [
           `<button class="em-link em-company" data-action="company" data-company="${esc(
             row.company
           )}">${esc(row.company)} <span aria-hidden="true">›</span></button>`,
-          dual(row.amounts),
+          money(row.amounts, row.display_currency),
           share == null
             ? "—"
             : `<div class="em-share"><span>${share.toFixed(
@@ -505,30 +487,26 @@
           }</button>`,
         ];
       });
-      return `<section class="em-panel em-companies" aria-label="${esc(t("Subsidiaries"))}">${table(["Subsidiary", "Verified approved expenditure", "Share", "Applications", "Needs review"], rows, "No records in this month", d.company_rows.length)}${d.unassigned ? `<div class="em-panel-footer">${button("review", "Review unassigned expenses")} <span class="em-warning">${d.unassigned}</span></div>` : ""}</section>`;
+      return `<section class="em-panel em-companies" aria-label="${esc(t("Subsidiaries"))}">${table(["Subsidiary", "Verified approved expenditure", "Share within region", "Applications", "Needs review"], rows, "No records in this month", d.company_rows.length)}${d.unassigned ? `<div class="em-panel-footer">${button("review", "Review unassigned expenses")} <span class="em-warning">${d.unassigned}</span></div>` : ""}</section>`;
     }
     analysis() {
-      const d = this.data,
-        rows = (d.source_category_rows || []).map((row) => [
-          `<button class="em-link" data-action="source-category" data-category="${esc(
-            row.category
-          )}">${esc(sourceLabels(row).join(" / ") || t("Category not provided"))}</button>`,
-          dual(row.amounts),
-          row.count,
+      return (this.data.regions || []).map((region) => {
+        const rows = (region.source_category_rows || []).map((row) => [
+          `<button class="em-link" data-action="source-category" data-category="${esc(row.category)}" data-region="${esc(region.region)}">${esc(sourceLabels(row).join(" / ") || t("Category not provided"))}</button>`,
+          money(row.amounts, region.currency), row.count,
         ]);
-      const max = Math.max(
-        ...d.trend.map((row) => Number(row.amounts.CNY) || 0),
-        1
-      );
-      return `<div class="em-analysis"><section class="em-panel"><div class="em-panel-title"><h3>${esc(
-        t("Expense composition")
-      )}</h3></div>${table(["OA expense category", "Verified approved expenditure", "Detail lines"], rows)}</section><section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Last six months"))}</h3></div><div class="em-trend">${d.trend.map((row) => `<button class="em-trend-row" data-action="trend" data-month="${row.month}"><span>${esc(row.month)}</span><i style="--share:${(Math.max(0, Number(row.amounts.CNY) || 0) / max) * 100}%"></i>${dual(row.amounts)}</button>`).join("")}</div></section></div>`;
+        const trend = region.trend || [];
+        const max = Math.max(...trend.map((row) => Number(row.amounts[region.currency]) || 0), 1);
+        return `<section class="em-regional-analysis"><h3 class="em-region-label">${esc(t(region.label))} · ${esc(region.currency)}</h3><div class="em-analysis"><section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Expense composition"))}</h3></div>
+          ${table(["OA expense category", "Verified approved expenditure", "Detail lines"], rows)}</section>
+          <section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Last six months"))}</h3></div><div class="em-trend">${trend.map((row) => `<button class="em-trend-row" data-action="trend" data-month="${esc(row.month)}" data-region="${esc(region.region)}"><span>${esc(row.month)}</span><i style="--share:${(Math.max(0, Number(row.amounts[region.currency]) || 0) / max) * 100}%"></i>${money(row.amounts, region.currency)}</button>`).join("")}</div></section></div></section>`;
+      }).join("");
     }
     budget() {
       const rows = this.data.budgets.map((row) => {
-        const c = row.metrics.CNY,
-          m = row.metrics.MXN;
-        const amount = (key) => dual({ CNY: c[key], MXN: m[key] });
+        const currency = row.display_currency;
+        const c = row.metrics[currency] || {budget: null, approved: null, balance: null, execution_rate: null, flags: []};
+        const amount = (key) => money({[currency]: c[key]}, currency);
         return [
           `<button class="em-link" data-action="budget-company" data-company="${esc(
             row.company
@@ -562,7 +540,7 @@
         esc(row.application_date || "—"),
         esc(t(STATUS[row.status] || "Unknown")),
         esc(sourceLabels(row).join(" / ") || t("Category not provided")),
-        dual(row.amounts),
+        money(row.amounts, row.display_currency),
         row.issues.length
           ? `<button class="em-link em-warning" data-action="detail" data-key="${esc(
               row.key
@@ -592,9 +570,7 @@
         const { row } = await this.call("get_detail", { key, filters });
         if (!this.current() || token !== this.detailSeq) return;
         const path = sourceLabels(row);
-        body.innerHTML = `<div class="em-detail">${dual(
-          row.amounts
-        )}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
+        body.innerHTML = `<div class="em-detail">${money(row.amounts, row.display_currency)}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
           row.company || t("Company not matched")
         )}</dd><dt>${esc(t("Approval number"))}</dt><dd>${esc(
           row.number
@@ -613,10 +589,8 @@
         )} ${textMoney(row.amount)}</dd><dt>${esc(
           t("Exchange rate date")
         )}</dt><dd>${esc(row.rate_date || "—")}</dd><dt>${esc(
-          t("CNY exchange rate")
-        )}</dt><dd>${esc(row.rates.CNY || "—")}</dd><dt>${esc(
-          t("MXN exchange rate")
-        )}</dt><dd>${esc(row.rates.MXN || "—")}</dd><dt>${esc(
+          t("Exchange rate")
+        )}</dt><dd>${esc(row.display_currency || "—")} ${esc(row.rates[row.display_currency] || "—")}</dd><dt>${esc(
           t("Detail item")
         )}</dt><dd>${esc(row.line_label || row.description || "—")}</dd><dt>${esc(t("OA expense category"))}</dt><dd>${esc(path[0] || t("Category not provided"))}</dd><dt>${esc(t("OA expense subcategory"))}</dt><dd>${esc(path.slice(1).join(" / ") || "—")}</dd></dl>${
           row.issues.length
@@ -639,7 +613,8 @@
       const meta = this.data?.metadata,
         comparison = this.data?.comparison;
       const lines = [
-        "CNY primary · MXN secondary",
+        "Amounts follow the subsidiary country: China in CNY, Mexico in MXN. Regional totals are kept separate.",
+        "Shares and comparisons are calculated within each region. Companies without a supported country are not included in regional totals.",
         "Approved expenses by application month; approval does not confirm payment.",
         "MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.",
         "Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.",
@@ -720,14 +695,17 @@
       if (action === "source-category")
         return this.go("details", {
           source_category: item.dataset.category,
+          region: item.dataset.region || this.filters.region || "",
           measure: "approved",
         });
       if (action === "trend")
         return this.go("details", {
           month: item.dataset.month,
+          region: item.dataset.region || this.filters.region || "",
           measure: "approved",
         });
-      if (action === "details") return this.go(action, { measure: "approved" });
+      if (action === "details") return this.go(action, { measure: "approved", region: item.dataset.region || this.filters.region || "" });
+      if (action === "clear-region") return this.update({ region: "" });
       if (action === "review") return this.go(action);
       if (action === "all-statuses") return this.update({ measure: "" });
       if (action === "detail") return this.detail(item.dataset.key);
@@ -747,5 +725,5 @@
       if (action === "retry") return this.load();
     }
   }
-  return { Workbench, dual, readFilters, shiftMonth, errorMessage, sourceLabels, ROUTES };
+  return { Workbench, money, readFilters, shiftMonth, errorMessage, sourceLabels, ROUTES };
 });

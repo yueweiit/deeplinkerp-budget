@@ -21,6 +21,7 @@ from . import cn_approval_management as management
 from . import cn_approval_settings as settings
 from . import cn_approval_workbench as approvals
 from .expense_sync import cn_revision
+from . import expense_regions as regions
 
 CURRENCIES = ("CNY", "MXN")
 BLOCKING = {"amount", "amount_pending", "total", "currency", "structure", "identity",
@@ -36,15 +37,16 @@ PUBLIC = ("key", "company", "number", "application_date", "month", "kind", "stat
 
 def filters(values=None):
 	values = frappe.parse_json(values) if isinstance(values, str) else {} if values is None else values
-	if not isinstance(values, dict) or set(values) - {"month", "company", "category", "source_category", "view", "measure"}:
+	if not isinstance(values, dict) or set(values) - {"month", "company", "region", "category", "source_category", "view", "measure"}:
 		frappe.throw(_("Invalid expense management filters."))
-	result = {key: str(values.get(key) or "").strip() for key in ("month", "company", "category", "source_category", "view", "measure")}
+	result = {key: str(values.get(key) or "").strip() for key in ("month", "company", "region", "category", "source_category", "view", "measure")}
 	result["month"] = result["month"] or frappe.utils.today()[:7]
 	result["view"] = result["view"] or "overview"
 	if (not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", result["month"])
 			or not "1900-01" <= result["month"] <= frappe.utils.today()[:7]
 			or result["view"] not in VIEWS
 			or result["measure"] not in ("", "approved")
+			or result["region"] not in ("", *regions.REGIONS)
 			or len(result["company"]) > 140
 			or result["source_category"] and not re.fullmatch(r"missing|[0-9a-f]{64}", result["source_category"])
 			or result["category"] and result["category"] not in management.rules_service.CATEGORIES | {"unclassified": ""}):
@@ -231,13 +233,14 @@ def totals(rows):
 		else str(sum((Decimal(row["amounts"][currency]) for row in rows), Decimal("0.00"))) for currency in CURRENCIES}
 
 
-def summarize(rows):
+def summarize(rows, *, review_currency=None):
 	spending = [row for row in rows if row["kind"] != "budget"]
 	approved = [row for row in spending if row["status"] == "approved" and row["eligible"]]
 	return {"amounts": totals(approved), "count": len(approved),
 		"applications": len({row["source_key"] for row in approved}),
 		"pending": len([row for row in spending if row["status"] == "pending"]),
-		"review": len([row for row in spending if row["status"] in ("approved", "pending", "unknown") and row["issues"]]),
+		"review": len([row for row in spending if row["status"] in ("approved", "pending", "unknown")
+			and (regions.needs_currency_review(row, review_currency) if review_currency else row["issues"])]),
 		"excluded": len([row for row in spending if row["status"] == "approved" and not row["eligible"]])}
 
 
@@ -262,7 +265,10 @@ def prepare(values=None):
 	rows, context, rules, metadata = load()
 	if f["company"] and f["company"] not in context["companies"]:
 		frappe.throw(_("You do not have permission to view this subsidiary."), frappe.PermissionError)
-	metadata = {**metadata, "source_categories": source_category_options(rows, f)}
+	mapping = regions.company_regions(context)
+	if f["region"]:
+		rows = [row for row in rows if mapping.get(row["company"]) == f["region"]]
+	metadata = {**metadata, "company_regions": mapping, "source_categories": source_category_options(rows, f)}
 	return scope(rows, f), context, rules, metadata, f
 
 
@@ -299,7 +305,7 @@ def query(values=None, start=0):
 	response = {"filters": f, "companies": sorted(context["companies"]),
 		"categories": management.rules_service.CATEGORIES, "source_categories": metadata["source_categories"], "issues": ISSUES, "metadata": metadata,
 		"summary": summarize(current), "undated": len(undated)}
-	names = [f["company"]] if f["company"] else sorted(context["companies"])
+	names = regions.company_names(metadata["company_regions"], f)
 	groups = defaultdict(list)
 	for row in current:
 		groups[row["company"]].append(row)
@@ -343,10 +349,28 @@ def query(values=None, start=0):
 		start = pagination(start)
 		response.update(total=len(selected), start=start, has_more=start + 50 < len(selected),
 			rows=[public(row) for row in selected[start:start + 50]])
-	return response
+	response["regions"] = []
+	for region in regions.descriptors(metadata["company_regions"], f):
+		owned = set(region.pop("companies"))
+		selected = [row for row in current if row["company"] in owned]
+		region["summary"] = summarize(selected)
+		if f["view"] in ("overview", "analysis"):
+			grouped = defaultdict(list)
+			for row in selected:
+				if row["kind"] != "budget":
+					grouped[row["source_category_key"]].append(row)
+			region["source_category_rows"] = [{"category": key, "kind": group[0]["kind"],
+				"source_path": group[0]["source_path"], **summarize(group)} for key, group in grouped.items()]
+			region["source_category_rows"].sort(key=lambda row: -Decimal(row["amounts"][region["currency"]] or 0))
+			selected_history = [row for row in history if row["company"] in owned]
+			region["trend"] = [{"month": month, **summarize(row for row in selected_history if row["month"] == month)} for month in months]
+			region["comparison"] = comparison(selected_history, f, metadata,
+				any(row["company"] in owned for row in undated), currency=region["currency"])
+		response["regions"].append(region)
+	return regions.annotate_response(response, metadata["company_regions"])
 
 
-def comparison(rows, f, metadata, undated):
+def comparison(rows, f, metadata, undated, *, currency=None):
 	from deeplinkerp_branding.services.mexico_expense_insights import comparison_period
 	month, previous = f["month"], management.shift_month(f["month"], -1)
 	last_day = monthrange(int(month[:4]), int(month[5:]))[1]
@@ -355,11 +379,13 @@ def comparison(rows, f, metadata, undated):
 		return {"percent": None, "window": None}
 	groups = {period: [row for row in rows if row.get("month") == period and row.get("application_date")
 		and row["application_date"] <= window[end]] for period, end in ((month, "to_date"), (previous, "previous_to"))}
-	current, prior = summarize(groups[month]), summarize(groups[previous])
+	current, prior = (summarize(groups[period], review_currency=currency) for period in (month, previous))
+	# Omitted currency keeps the legacy global comparison and review rules.
+	currency = currency or "CNY"
 	known = metadata["complete"] and not undated and all(value["count"] and not value["review"]
-		and value["amounts"]["CNY"] is not None for value in (current, prior))
-	baseline = Decimal(prior["amounts"]["CNY"] or 0)
-	percent = str(((Decimal(current["amounts"]["CNY"]) / baseline - 1) * 100).quantize(Decimal("0.1"))) if known and baseline > 0 else None
+		and value["amounts"][currency] is not None for value in (current, prior))
+	baseline = Decimal(prior["amounts"][currency] or 0)
+	percent = str(((Decimal(current["amounts"][currency]) / baseline - 1) * 100).quantize(Decimal("0.1"))) if known and baseline > 0 else None
 	return {"percent": percent, "window": window}
 
 
@@ -378,7 +404,7 @@ def detail(key, values=None):
 		frappe.throw(_("Expense detail is unavailable or outside your permitted scope."), frappe.PermissionError)
 	if f["view"] == "details" and f["measure"] == "approved" and (row["status"] != "approved" or not row["eligible"] or row["kind"] == "budget"):
 		frappe.throw(_("Expense detail is unavailable or outside your permitted scope."), frappe.PermissionError)
-	return {"row": public(converter()([row])[0]), "metadata": metadata}
+	return {"row": regions.annotate(public(converter()([row])[0]), metadata["company_regions"]), "metadata": metadata}
 
 
 def export_rows(values=None):
@@ -396,4 +422,4 @@ def export_rows(values=None):
 	selected = detail_rows(converter()(candidates), f)
 	if len(selected) > 20000:
 		frappe.throw(_("Expense export exceeds 20000 rows. Narrow the subsidiary or category."))
-	return [public(row) for row in selected], f, metadata
+	return [regions.annotate(public(row), metadata["company_regions"]) for row in selected], f, metadata

@@ -112,6 +112,12 @@ def where(context, f, *, categories=True):
 	if f["company"]:
 		conditions.append("company=%(company)s")
 		params["company"] = f["company"]
+	if f.get("region"):
+		names = sorted(name for name, region in context.get("company_regions", {}).items()
+			if name in context["companies"] and region == f["region"])
+		conditions.append("company in %(region_companies)s" if names else "1=0")
+		if names:
+			params["region_companies"] = names
 	if categories:
 		if f["category"]:
 			conditions.append("management_category=%(category)s")
@@ -143,13 +149,21 @@ def count(conditions, params):
 	return frappe.db.sql("select count(*) from `tabExpense Report Line` where " + conditions, params)[0][0]
 
 
-def summaries(conditions, params, *, group=None):
+def summaries(conditions, params, *, group=None, review_currency=None):
 	assert group in (None, "company", "management_category", "source_category_key", "reporting_month")
+	assert review_currency in (None, "CNY", "MXN")
+	review = "has_issues"
+	if review_currency:
+		# Match expense_regions.needs_currency_review without loading all detail
+		# rows. An absent/unknown issue list remains blocked, not assumed FX-only.
+		review = (f"case when eligible=1 and {review_currency.lower()}_known=1 "
+			"and JSON_EXTRACT(detail_json, '$.issues')=%(fx_only_issues)s then 0 else has_issues end")
+		params = {**params, "fx_only_issues": encode(["exchange_rate"])}
 	approved = "kind!='budget' and approval_status='approved' and eligible=1"
 	columns = [f"count(case when {approved} then 1 end) as line_count",
 		f"count(distinct case when {approved} then source_key end) as applications",
 		"count(case when kind!='budget' and approval_status='pending' then 1 end) as pending",
-		"count(case when kind!='budget' and approval_status in ('approved','pending','unknown') and has_issues=1 then 1 end) as review",
+		f"count(case when kind!='budget' and approval_status in ('approved','pending','unknown') and ({review})=1 then 1 end) as review",
 		"count(case when kind!='budget' and approval_status='approved' and eligible=0 then 1 end) as excluded"]
 	for currency in ("cny", "mxn"):
 		columns.append(f"case when count(case when {approved} and {currency}_known=0 then 1 end)>0 then null "

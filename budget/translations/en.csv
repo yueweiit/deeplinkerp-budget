@@ -356,3 +356,15 @@ Use default binding,Use default binding
 Used budget snapshot,Used budget snapshot
 Utilities category,Utilities category
 {0} detail rows,{0} detail rows
+Region not configured,Region not configured
+All regions,All regions
+China,China
+Mexico,Mexico
+Share within region,Share within region
+Region,Region
+Reporting currency,Reporting currency
+Reported amount,Reported amount
+"Amounts follow the subsidiary country: China in CNY, Mexico in MXN. Regional totals are kept separate.","Amounts follow the subsidiary country: China in CNY, Mexico in MXN. Regional totals are kept separate."
+Shares and comparisons are calculated within each region. Companies without a supported country are not included in regional totals.,Shares and comparisons are calculated within each region. Companies without a supported country are not included in regional totals.
+Included in regional scope,Included in regional scope
+Regional scope requires a supported company country. Missing exchange rates leave the regional total unavailable.,Regional scope requires a supported company country. Missing exchange rates leave the regional total unavailable.

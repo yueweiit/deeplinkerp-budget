@@ -49,7 +49,7 @@
         const params = new URLSearchParams(window.location.search);
         if (params.has("expense_filters")) {
             const values = objectFilter(params.get("expense_filters"));
-            return Object.fromEntries(["month", "company", "category", "source_category", "measure"]
+            return Object.fromEntries(["month", "company", "region", "category", "source_category", "measure"]
                 .filter(key => typeof values[key] === "string").map(key => [key, values[key]]));
         }
         const values = objectFilter(params.get(legacy.startsWith("mexico-") ? "mx_filters" : "cn_approval_filters"));

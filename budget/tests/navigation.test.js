@@ -282,7 +282,7 @@ test('malformed old filters and bare links cannot reuse previous tab company or 
 });
 
 test('explicit unified filters survive old bookmarks with only supported keys',()=>{
-    const values={month:'2026-10',company:'A',category:'service',source_category:'missing',measure:'approved',country:'Mexico'};
+    const values={month:'2026-10',company:'A',region:'cn',category:'service',source_category:'missing',measure:'approved',country:'Mexico'};
     const {frappe,calls}=navigation({unified:true,search:'?'+new URLSearchParams({expense_filters:JSON.stringify(values)})});
     frappe.router.re_route('china-expense-details');
     delete values.country;

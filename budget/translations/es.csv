@@ -952,3 +952,15 @@ Use default binding,Usar asignación predeterminada
 Used budget snapshot,Resumen del presupuesto utilizado
 Utilities category,Categoría de servicios públicos
 {0} detail rows,{0} filas de detalle
+Region not configured,Región no configurada
+All regions,Todas las regiones
+China,China
+Mexico,México
+Share within region,Participación en la región
+Region,Región
+Reporting currency,Moneda de presentación
+Reported amount,Importe presentado
+"Amounts follow the subsidiary country: China in CNY, Mexico in MXN. Regional totals are kept separate.",Los importes se muestran según el país de la filial: CNY para China y MXN para México. Los totales regionales se mantienen separados.
+Shares and comparisons are calculated within each region. Companies without a supported country are not included in regional totals.,Las participaciones y comparaciones se calculan dentro de cada región. Las empresas sin un país admitido no se incluyen en los totales regionales.
+Included in regional scope,Incluido en el alcance regional
+Regional scope requires a supported company country. Missing exchange rates leave the regional total unavailable.,"El alcance regional requiere que el país de la empresa esté admitido. Si faltan tipos de cambio, el total regional no está disponible."
