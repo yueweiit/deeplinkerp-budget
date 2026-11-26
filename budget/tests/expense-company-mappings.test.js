@@ -53,6 +53,55 @@ test("candidate recommendations do not assign companies and duplicate pages cann
   assert.equal(rows[0].company, "MX 2");
 });
 
+test("nameless source groups cannot partially apply a batch assignment", () => {
+  for (const name of ["", "   ", null, undefined]) {
+    const rows = [row("Existing")], before = structuredClone(rows), model = new Model(rows, saved);
+    const valid = candidate("Unmapped"), missing = candidate(name, {count: 1370});
+    for (const item of [valid, missing]) model.candidates.set(key(item), item);
+    assert.throws(() => model.assign([key(rows[0]), key(valid), key(missing)], "CN"), /no identifiable source name/);
+    assert.deepEqual(rows, before);
+    assert.throws(() => model.put({...missing, company: "CN"}), /source information/);
+    assert.deepEqual(rows, before);
+  }
+});
+
+test("select all skips nameless groups while preserving their counts and other draft changes", () => {
+  const rows = [row("Existing", {company: "CN"})], view = controller(rows);
+  const valid = candidate("Unmapped"), missing = candidate("", {count: 1370, suggestions: ["CN"]});
+  for (const item of [valid, missing]) view.model.candidates.set(key(item), item);
+  view.render();
+  view.change({target: {dataset: {mappingRole: "all"}, checked: true}});
+  assert.deepEqual([...view.selected], [key(valid)]);
+  assert.equal(view.element.querySelector('[data-mapping-role="all"]').indeterminate, false);
+  const item = view.visible.find(item => item.key === key(missing));
+  const html = view.rowHTML(item, view.visible.indexOf(item), "");
+  assert.match(html, /Source name missing/);
+  assert.match(html, /1370 expense lines/);
+  assert.match(html, /data-mapping-role="row"[^>]*disabled/);
+  assert.doesNotMatch(html, /data-mapping-role="row-company"|data-mapping-action="suggest"/);
+  view.model.assign(view.selected, "CN");
+  assert.equal(rows.length, 2);
+  assert.equal(rows.find(item => item.source_name === "Unmapped").company, "CN");
+  assert.equal(view.model.items().find(item => item.key === key(missing)).mapped, false);
+  assert.equal(view.model.items().find(item => item.key === key(missing)).dirty, false);
+});
+
+test("details for a nameless group explain the repair without opening a mapping editor", () => {
+  const rows = [row("Existing")], before = structuredClone(rows), view = controller(rows);
+  const missing = candidate("", {count: 1370});
+  view.model.candidates.set(key(missing), missing);
+  let message;
+  const original = global.frappe.msgprint;
+  try {
+    global.frappe.msgprint = value => { message = value; };
+    view.edit(view.model.items().find(item => item.key === key(missing)));
+    assert.equal(message.title, "Source name missing");
+    assert.match(message.message, /entity or department field mapping/);
+    assert.equal(view.editor, undefined);
+    assert.deepEqual(rows, before);
+  } finally { global.frappe.msgprint = original; }
+});
+
 test("all mapping kinds allow authorized Chinese companies in inline and batch controls", () => {
   const rows = [row("Entity"), row("Department", {match_kind: "department"}),
     row("Organization", {match_kind: "organization", corp_id: "corp-a"})];

@@ -980,3 +980,5 @@ Source row,Número de fila de origen
 Original expense details are unavailable or outside your permitted scope.,Los datos del gasto original no están disponibles o están fuera de su ámbito autorizado.
 Detail amount in original currency,Importe de esta línea en moneda original
 CN Cash Journal Entry,Libro de caja
+Source name missing,Falta el nombre de origen
+"These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again.","Estas líneas de gasto no tienen un nombre de origen identificable y no pueden compartir una asignación de empresa. Revise la asignación del campo de entidad o departamento de la plantilla, o complete las aprobaciones originales y vuelva a sincronizar."
