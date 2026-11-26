@@ -100,7 +100,7 @@ def legacy_projection(legacy_ids, context, rules, templates=()):
 	# Use the MX parser's stable source identity, then retain every authorized
 	# active sibling, including mapped lines and lines in another subsidiary.
 	source_names = sorted(regional.digest([corp, instance]) for corp, instance in legacy_ids)
-	lines = frappe.get_list(mx.LINE, filters={"is_active": 1, "source": ["in", source_names]},
+	lines = mx._get_management_lines(filters={"is_active": 1, "source": ["in", source_names]},
 		fields=["name", "source", "source_version", "company", "regional_company", "approval_no", "approval_status",
 			"amount", "currency", "description", "approval_type", "review_state", "issues", "classification_path"],
 		limit_page_length=50001)

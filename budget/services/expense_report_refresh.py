@@ -10,7 +10,7 @@ from frappe import _
 
 from . import expense_report_store as store
 
-VERSION = "expense-report-v3"
+VERSION = "expense-report-v4"
 JOB = "expense-report-refresh"
 TIMEOUT = 300
 
@@ -214,6 +214,7 @@ def refresh():
 
 def read_context():
 	from . import cn_approval_workbench as approvals
+	from deeplinkerp_branding.services import mexico_expenses as mx
 	approvals.require_reader()
 	context = {"companies": approvals.allowed_companies(),
 		"manager": frappe.session.user == "Administrator" or "System Manager" in frappe.get_roles()}
@@ -227,7 +228,7 @@ def read_context():
 	# Historical MX exceptions retain their original DocType, field and
 	# company/mapping permissions. Only names are read here, never raw JSON.
 	legacy_sources = frappe.db.sql("select distinct source_key from `tabExpense Report Line` where is_legacy=1")
-	context["legacy_keys"] = frappe.get_list("Mexico Expense Line",
+	context["legacy_keys"] = mx._get_management_lines(
 		filters={"is_active": 1, "source": ["in", [row[0] for row in legacy_sources]]},
 		pluck="name", limit_page_length=store.MAX_LINES + 1) if legacy_sources else []
 	visible, params = store.where(context, {"company": "", "category": "", "source_category": ""})

@@ -331,6 +331,110 @@ def test_legacy_lines_keep_native_doctype_permissions(database):
 		reporting.detail("stale-mapping")
 
 
+@pytest.fixture
+def historical_company_scope(database, monkeypatch):
+	"""Run both reporting paths with the actual native permission SQL hook."""
+	from .test_expense_management import legacy_dataset
+	from deeplinkerp_branding.services import mexico_expenses as mx
+	seed, _calls = database
+	loader = legacy.load
+	converter = legacy.converter
+	stored = legacy_dataset(monkeypatch)
+	stored[0].company = "B"  # Preserve the old manually confirmed Mexican line.
+	for row in stored:
+		row.mapping_version = "v1"
+	env = SimpleNamespace(stored=stored, companies={"A", "B"}, manager=True)
+	companies = [frappe._dict(name=name, country=country, is_group=group) for name, country, group in
+		(("A", "China", 0), ("B", "Mexico", 0), ("Group", "China", 1))]
+	columns = list(stored[0])
+	frappe.db.sql('create table native_lines (' + ','.join(
+		f'"{key}" ' + ('integer' if key == 'is_active' else 'text') for key in columns) + ')')
+	def get_list(doctype, *, filters=None, user=None, fields=None, pluck=None, limit_page_length=0):
+		if doctype == "Company":
+			return [row.name for row in companies if row.name in env.companies
+				and all(row.get(key) == value for key, value in (filters or {}).items())]
+		assert doctype == mx.LINE
+		frappe.db.sql('delete from native_lines')
+		for row in stored:
+			frappe.db.sql('insert into native_lines (' + ','.join(columns) + ') values ('
+				+ ','.join('%(' + key + ')s' for key in columns) + ')', dict(row))
+		rows = frappe.db.sql('select * from native_lines where ' + mx.permission_query_conditions(), as_dict=True)
+		rows = [row for row in rows if all(row.get(key) in value[1] if isinstance(value, list)
+			else row.get(key) == value for key, value in (filters or {}).items())]
+		if limit_page_length:
+			rows = rows[:limit_page_length]
+		return [row[pluck] for row in rows] if pluck else rows
+	monkeypatch.setattr(frappe, "get_list", get_list)
+	monkeypatch.setattr(frappe, "session", SimpleNamespace(user="reviewer"))
+	monkeypatch.setattr(frappe, "get_roles", lambda *args: ["System Manager"] if env.manager else ["Accounts User"])
+	monkeypatch.setattr(frappe.db, "escape", lambda value: "'" + value.replace("'", "''") + "'", raising=False)
+	monkeypatch.setattr(mx, "_mapping_version", lambda settings: "v1")
+	monkeypatch.setattr(legacy.approvals, "allowed_companies", lambda: env.companies)
+	monkeypatch.setattr(legacy.approvals, "access_context", lambda: {"companies": env.companies, "manager": env.manager})
+	# Publish through the real legacy projection before testing SQL reads.
+	rows, _context, _rules, metadata = loader()
+	monkeypatch.setattr(legacy, "converter", converter)
+	seed(rows)
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	monkeypatch.setattr(legacy, "load", loader)
+	monkeypatch.setattr(reporting, "read_context", refresh.read_context)
+	state = {"publication": "p1", "data_revision": "data", "policy_revision": "policy",
+		"built_at": datetime(2026, 11, 25), "rates_checked_at": datetime(2026, 11, 25), "fx_missing": 0,
+		"metadata_json": json.dumps(metadata), "rules_json": json.dumps(rules.defaults())}
+	monkeypatch.setattr(store, "state", lambda **kwargs: state)
+	monkeypatch.setattr(refresh, "live_revision", lambda: {"data": "data", "policy": "policy", "complete": True, "rebuilding": False})
+	monkeypatch.setattr(refresh, "enqueue", lambda: pytest.fail("unchanged publication must not rebuild"))
+	return env
+
+
+def test_manual_mx_approval_keeps_chinese_sibling_in_projection_and_publication(historical_company_scope):
+	from deeplinkerp_branding.services import mexico_expenses as mx
+	env = historical_company_scope
+	manual = deepcopy(env.stored[0])
+	for service in (legacy, reporting):
+		assert service.query()["summary"]["amounts"]["CNY"] == "100.00"
+		assert service.query()["summary"]["applications"] == 1
+		assert service.query({"company": "A"})["summary"]["amounts"]["CNY"] == "70.00"
+		assert service.query({"company": "B"})["summary"]["amounts"]["CNY"] == "30.00"
+		details = service.query({"view": "details"})["rows"]
+		assert {row["key"] for row in details} == {"manual", "mapped"}
+		assert service.export_rows()[0] == details
+		assert service.detail("mapped")["row"]["amounts"]["CNY"] == "70.00"
+	assert env.stored[0] == manual
+	# The internal reporting read must not widen ordinary MX queries.
+	assert frappe.get_list(mx.LINE, pluck="name") == ["manual"]
+
+
+@pytest.mark.parametrize("companies,keys,total", [({"A"}, {"mapped"}, "70.00"),
+	({"B"}, {"manual"}, "30.00"), (set(), set(), "0.00")])
+def test_historical_report_company_permissions_apply_to_both_read_paths(historical_company_scope, companies, keys, total):
+	env = historical_company_scope
+	env.companies, env.manager = companies, False
+	for service in (legacy, reporting):
+		assert service.query()["summary"]["amounts"]["CNY"] == total
+		assert {row["key"] for row in service.export_rows()[0]} == keys
+		for key in {"manual", "mapped"} - keys:
+			with pytest.raises(ValueError):
+				service.detail(key)
+
+
+@pytest.mark.parametrize("change", ["stale_mapping", "regional_owner", "group_company"])
+def test_historical_report_still_excludes_stale_or_unauthorized_siblings(historical_company_scope, change):
+	env = historical_company_scope
+	env.manager = False
+	env.stored[0].mapping_version = "old"  # Manual decisions retain their exception.
+	if change == "stale_mapping":
+		env.stored[1].mapping_version = "old"
+	elif change == "regional_owner":
+		env.stored[1].regional_company = "Forbidden"
+	else:
+		env.companies.add("Group")
+		env.stored[1].company = "Group"
+	for service in (legacy, reporting):
+		assert service.query()["summary"]["amounts"]["CNY"] == "30.00"
+		assert [row["key"] for row in service.export_rows()[0]] == ["manual"]
+
+
 def test_missing_category_option_is_not_duplicated_across_approval_types(database):
 	seed, _ = database
 	seed([line("operating", source_path=[]), line("purchase", kind="purchase", source_path=[])])
@@ -536,6 +640,16 @@ def test_current_oa_corporation_scope_invalidates_published_reports(monkeypatch,
 	allowed[:] = ["corp-A", "corp-B"]
 	frappe.flags.clear()
 	assert refresh.read_context()[2]["complete"]
+	# A deployment must not reuse the old publication which omitted CN siblings.
+	with monkeypatch.context() as old_code:
+		old_code.setattr(refresh, "VERSION", "expense-report-v3")
+		previous = refresh.live_revision()
+	assert previous["policy"] != before["policy"] and previous["data"] != before["data"]
+	state.update(policy_revision=previous["policy"], data_revision=previous["data"])
+	queued.clear()
+	with pytest.raises(ValueError, match="being prepared"):
+		refresh.read_context()
+	assert queued == [True]
 
 
 @pytest.mark.parametrize("failure", ["client", "key", "set", "queue", "cleanup"])
