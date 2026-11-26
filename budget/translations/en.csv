@@ -385,3 +385,5 @@ Source row,Source row
 Original expense details are unavailable or outside your permitted scope.,Original expense details are unavailable or outside your permitted scope.
 Detail amount in original currency,Detail amount in original currency
 CN Cash Journal Entry,Cash Journal
+Source name missing,Source name missing
+"These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again.","These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again."

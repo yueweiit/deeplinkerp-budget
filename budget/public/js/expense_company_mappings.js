@@ -8,6 +8,8 @@
   const t = (text, args) => root.__(text, args);
   const esc = value => root.frappe.utils.escape_html(String(value ?? ""));
   const KINDS = {organization: "Source organization", entity: "Expense-bearing entity", department: "Expense-bearing department"};
+  const hasSourceName = row => typeof row.source_name === "string" && Boolean(row.source_name.trim());
+  const missingSourceHelp = "These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again.";
   const copy = row => Object.fromEntries(["match_kind", "corp_id", "source_name", "company", "reason"].map(name => [name, row[name] || ""]).concat([["excluded", Number(row.excluded) === 1 ? 1 : 0]]));
   function key(row) {
     const name = String(row.source_name || "").trim();
@@ -37,6 +39,7 @@
     }
     assign(keys, company) {
       const wanted = new Set(keys), items = this.items().filter(item => wanted.has(item.key));
+      if (items.some(item => !hasSourceName(item.row))) throw Error(t(missingSourceHelp));
       if (!items.length || items.length !== wanted.size || !company || items.some(item => !this.companies(item.row).includes(company)))
         throw Error(t("Choose a subsidiary available to every selected source."));
       for (const item of items) {
@@ -179,7 +182,8 @@
       const view = JSON.stringify([this.tab, this.query, this.kind, this.company, this.page]);
       const scrollTop = view === this.renderedView ? scroll?.scrollTop || 0 : 0;
       this.visible = filtered.slice(this.page * size, (this.page + 1) * size);
-      const visibleKeys = new Set(this.visible.map(item => item.key));
+      const selectable = this.visible.filter(item => hasSourceName(item.row));
+      const visibleKeys = new Set(selectable.map(item => item.key));
       this.selected = new Set([...this.selected].filter(identity => visibleKeys.has(identity)));
       const counts = {pending: all.filter(row => !row.mapped && !row.removed).length,
         mapped: all.filter(row => row.mapped).length, changes: all.filter(row => row.dirty).length};
@@ -202,22 +206,24 @@
       </div>`;
       this.element.querySelector('[data-mapping-part="results"]').innerHTML = `<div class="em-mapping-batch"><span>${esc(t("{0} selected on this page", [selectedRows.length]))}</span><select class="form-control" data-mapping-role="batch-company" aria-label="${esc(t("Batch subsidiary"))}" ${!selectedRows.length || disabled ? "disabled" : ""}>${this.options(choices)}</select><button type="button" class="btn btn-sm btn-primary" data-mapping-action="assign" ${!selectedRows.length || disabled ? "disabled" : ""}>${esc(t("Apply to selected sources"))}</button></div>
       ${error ? `<div class="alert alert-warning">${esc(t("Some sources could not be loaded. Existing edits are retained."))} <button type="button" class="btn btn-xs btn-default" data-mapping-action="load" ${this.loading || disabled ? "disabled" : ""}>${esc(t("Retry"))}</button></div>` : ""}
-      <div class="em-mapping-table-wrap"><table class="em-mapping-table"><thead><tr><th class="em-mapping-check"><input type="checkbox" data-mapping-role="all" aria-label="${esc(t("Select this page"))}" ${selectedRows.length && selectedRows.length === this.visible.length ? "checked" : ""} ${!this.visible.length || disabled ? "disabled" : ""}></th><th>${esc(t("Source name"))}</th><th>${esc(t("Subsidiary"))}</th><th>${esc(t("Status"))}</th><th>${esc(t("Actions"))}</th></tr></thead><tbody>${this.visible.map((item, index) => this.rowHTML(item, index, disabled)).join("") || `<tr><td colspan="5" class="em-mapping-empty">${esc(t(this.tab === "pending" && !loaded ? "Load local sources to assign their subsidiaries." : "No mappings match the current filters."))}${this.tab === "pending" && !loaded ? `<br><button type="button" class="btn btn-sm btn-default" data-mapping-action="load" ${this.loading || disabled ? "disabled" : ""}>${esc(t("Load unmapped sources"))}</button>` : ""}</td></tr>`}</tbody></table></div>
+      <div class="em-mapping-table-wrap"><table class="em-mapping-table"><thead><tr><th class="em-mapping-check"><input type="checkbox" data-mapping-role="all" aria-label="${esc(t("Select this page"))}" ${selectedRows.length && selectedRows.length === selectable.length ? "checked" : ""} ${!selectable.length || disabled ? "disabled" : ""}></th><th>${esc(t("Source name"))}</th><th>${esc(t("Subsidiary"))}</th><th>${esc(t("Status"))}</th><th>${esc(t("Actions"))}</th></tr></thead><tbody>${this.visible.map((item, index) => this.rowHTML(item, index, disabled)).join("") || `<tr><td colspan="5" class="em-mapping-empty">${esc(t(this.tab === "pending" && !loaded ? "Load local sources to assign their subsidiaries." : "No mappings match the current filters."))}${this.tab === "pending" && !loaded ? `<br><button type="button" class="btn btn-sm btn-default" data-mapping-action="load" ${this.loading || disabled ? "disabled" : ""}>${esc(t("Load unmapped sources"))}</button>` : ""}</td></tr>`}</tbody></table></div>
       <div class="em-mapping-footer"><span role="status">${esc(this.loading ? t("Loading mapping sources…") : t("{0} matching sources", [filtered.length]))}</span><button type="button" class="btn btn-xs btn-default" data-mapping-action="previous" ${!this.page || disabled ? "disabled" : ""}>${esc(t("Previous"))}</button><span>${this.page + 1} / ${Math.max(1, Math.ceil(filtered.length / size))}</span><button type="button" class="btn btn-xs btn-default" data-mapping-action="next" ${(this.page + 1) * size >= filtered.length || disabled ? "disabled" : ""}>${esc(t("Next"))}</button>${more && this.tab === "pending" ? `<button type="button" class="btn btn-xs btn-default" data-mapping-action="load" ${this.loading || disabled ? "disabled" : ""}>${esc(t("Load more sources"))}</button>` : ""}</div>
       <p class="em-mapping-help">${esc(t("Search covers saved mappings and loaded sources. Changes take effect after Save Settings."))}</p>`;
       const allCheckbox = this.element.querySelector('[data-mapping-role="all"]');
-      allCheckbox.indeterminate = Boolean(selectedRows.length && selectedRows.length < this.visible.length);
+      allCheckbox.indeterminate = Boolean(selectedRows.length && selectedRows.length < selectable.length);
       const table = this.element.querySelector(".em-mapping-table-wrap");
       table.scrollTop = scrollTop; table.scrollLeft = scrollLeft;
       this.renderedView = view;
     }
     rowHTML(item, index, disabled) {
       const {row, candidate, removed, dirty} = item;
-      const suggestions = (candidate?.suggestions || []).map(value => typeof value === "string" ? value : value.company).filter(company => this.model.companies(row).includes(company));
-      const status = removed ? "Removed in draft" : dirty ? "Not saved" : item.mapped ? Number(row.excluded) === 1 ? "Excluded" : "Mapped" : "Unmapped";
-      return `<tr><td class="em-mapping-check"><input type="checkbox" data-mapping-role="row" data-index="${index}" aria-label="${esc(t("Select {0}", [row.source_name]))}" ${this.selected.has(item.key) ? "checked" : ""} ${disabled}></td>
-        <td class="em-mapping-source"><strong>${esc(row.source_name)}</strong><div class="em-mapping-source-meta"><span>${esc(t(KINDS[row.match_kind]))}</span>${row.match_kind === "organization" && this.saved.corporations.length > 1 ? `<span>${esc(row.corp_id)}</span>` : ""}${candidate ? `<span>${esc(t(row.match_kind === "organization" ? "{0} approvals" : "{0} expense lines", [candidate.count]))}</span>` : ""}</div></td>
-        <td class="em-mapping-company"><select class="form-control" data-mapping-role="row-company" data-index="${index}" aria-label="${esc(t("Subsidiary for {0}", [row.source_name]))}" ${disabled}>${this.options(this.model.companies(row), removed ? "" : row.company)}</select>${!item.mapped && suggestions.length ? `<div class="em-mapping-suggestions">${esc(t("Suggested subsidiaries"))}: ${suggestions.map((company, suggestion) => `<button type="button" class="btn btn-xs btn-default" data-mapping-action="suggest" data-index="${index}" data-suggestion="${suggestion}" ${disabled}>${esc(company)}</button>`).join("")}</div>` : ""}</td>
+      const named = hasSourceName(row), name = named ? row.source_name : t("Source name missing");
+      const assignmentDisabled = !named || disabled ? "disabled" : "";
+      const suggestions = named ? (candidate?.suggestions || []).map(value => typeof value === "string" ? value : value.company).filter(company => this.model.companies(row).includes(company)) : [];
+      const status = !named ? "Source name missing" : removed ? "Removed in draft" : dirty ? "Not saved" : item.mapped ? Number(row.excluded) === 1 ? "Excluded" : "Mapped" : "Unmapped";
+      return `<tr><td class="em-mapping-check"><input type="checkbox" data-mapping-role="row" data-index="${index}" aria-label="${esc(t("Select {0}", [name]))}" ${this.selected.has(item.key) ? "checked" : ""} ${assignmentDisabled}></td>
+        <td class="em-mapping-source"><strong>${esc(name)}</strong><div class="em-mapping-source-meta"><span>${esc(t(KINDS[row.match_kind]))}</span>${row.match_kind === "organization" && this.saved.corporations.length > 1 ? `<span>${esc(row.corp_id)}</span>` : ""}${candidate ? `<span>${esc(t(row.match_kind === "organization" ? "{0} approvals" : "{0} expense lines", [candidate.count]))}</span>` : ""}</div></td>
+        <td class="em-mapping-company">${named ? `<select class="form-control" data-mapping-role="row-company" data-index="${index}" aria-label="${esc(t("Subsidiary for {0}", [name]))}" ${assignmentDisabled}>${this.options(this.model.companies(row), removed ? "" : row.company)}</select>` : `<span class="text-muted">${esc(t(missingSourceHelp))}</span>`}${!item.mapped && suggestions.length ? `<div class="em-mapping-suggestions">${esc(t("Suggested subsidiaries"))}: ${suggestions.map((company, suggestion) => `<button type="button" class="btn btn-xs btn-default" data-mapping-action="suggest" data-index="${index}" data-suggestion="${suggestion}" ${disabled}>${esc(company)}</button>`).join("")}</div>` : ""}</td>
         <td><span class="em-mapping-state ${dirty ? "is-dirty" : item.mapped ? "is-mapped" : ""}">${esc(t(status))}</span></td>
         <td class="em-mapping-row-actions">${dirty ? `<button type="button" class="btn btn-xs btn-default" data-mapping-action="undo" data-index="${index}" ${disabled}>${esc(t("Undo"))}</button>` : ""}<button type="button" class="btn btn-xs btn-default" data-mapping-action="edit" data-index="${index}" ${disabled}>${esc(t("Details"))}</button>${item.mapped ? `<button type="button" class="btn btn-xs btn-default" data-mapping-action="remove" data-index="${index}" ${disabled}>${esc(t("Remove mapping"))}</button>` : ""}</td></tr>`;
     }
@@ -243,8 +249,8 @@
       const input = event.target, role = input.dataset.mappingRole, item = this.visible[Number(input.dataset.index)];
       try {
         if (role === "kind" || role === "company") { this[role] = input.value; this.resetView(); this.render(); }
-        else if (role === "all") { this.selected = new Set(input.checked ? this.visible.map(item => item.key) : []); this.render(); }
-        else if (role === "row" && item) { if (input.checked) this.selected.add(item.key); else this.selected.delete(item.key); this.render(); }
+        else if (role === "all") { this.selected = new Set(input.checked ? this.visible.filter(item => hasSourceName(item.row)).map(item => item.key) : []); this.render(); }
+        else if (role === "row" && item) { if (input.checked && hasSourceName(item.row)) this.selected.add(item.key); else this.selected.delete(item.key); this.render(); }
         else if (role === "row-company" && item) {
           if (input.value) this.model.assign([item.key], input.value); else this.model.remove(item.key);
           this.changed();
@@ -252,6 +258,10 @@
       } catch (error) { root.frappe.msgprint(error.message); this.render(); }
     }
     edit(item) {
+      if (item && !hasSourceName(item.row)) {
+        root.frappe.msgprint({title: t("Source name missing"), message: esc(t(missingSourceHelp)), indicator: "orange"});
+        return;
+      }
       const row = item ? copy(item.row) : {match_kind: "organization", corp_id: this.saved.corporations.length === 1 ? this.saved.corporations[0] : ""};
       const helpers = root.CNApprovalSettings;
       let editor;

@@ -980,3 +980,5 @@ Source row,来源行号
 Original expense details are unavailable or outside your permitted scope.,原始费用信息暂不可用，或超出当前权限范围。
 Detail amount in original currency,本条明细原币金额
 CN Cash Journal Entry,日记账
+Source name missing,来源名称缺失
+"These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again.",这些费用明细没有可识别的来源名称，不能共用一条公司映射。请检查模板中承担主体或部门的字段映射，或补齐审批原单后重新同步。
