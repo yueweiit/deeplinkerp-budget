@@ -395,6 +395,7 @@ def public(row):
 
 def detail(key, values=None):
 	from . import expense_report_store, expense_reporting
+	from .expense_approval_links import original_url
 	if expense_report_store.installed():
 		return expense_reporting.detail(key, values)
 	rows, _context, _rules, metadata, f = prepare(values)
@@ -404,7 +405,8 @@ def detail(key, values=None):
 		frappe.throw(_("Expense detail is unavailable or outside your permitted scope."), frappe.PermissionError)
 	if f["view"] == "details" and f["measure"] == "approved" and (row["status"] != "approved" or not row["eligible"] or row["kind"] == "budget"):
 		frappe.throw(_("Expense detail is unavailable or outside your permitted scope."), frappe.PermissionError)
-	return {"row": regions.annotate(public(converter()([row])[0]), metadata["company_regions"]), "metadata": metadata}
+	return {"row": regions.annotate(public(converter()([row])[0]), metadata["company_regions"]),
+		"metadata": metadata, "approval_url": original_url(row, _context, _rules)}
 
 
 def export_rows(values=None):

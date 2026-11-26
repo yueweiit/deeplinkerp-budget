@@ -133,6 +133,7 @@ def query(values=None, start=0):
 
 
 def detail(key, values=None):
+	from .expense_approval_links import original_url
 	f, _context, _rules, metadata, condition, params = prepare(values)
 	condition += " and name=%(key)s and " + store.period(f, undated=f["view"] == "review")
 	if f["view"] == "details" and f["measure"] == "approved":
@@ -140,7 +141,8 @@ def detail(key, values=None):
 	rows = store.select(condition, {**params, "key": key}, limit=1)
 	if not rows:
 		frappe.throw(_("Expense detail is unavailable or outside your permitted scope."), frappe.PermissionError)
-	return {"row": service.regions.annotate(service.public(rows[0]), metadata["company_regions"]), "metadata": metadata}
+	return {"row": service.regions.annotate(service.public(rows[0]), metadata["company_regions"]),
+		"metadata": metadata, "approval_url": original_url(rows[0], _context, _rules)}
 
 
 def export_rows(values=None):
