@@ -18,6 +18,7 @@ from budget.services import bank_journal_io as formats
 
 PREVIEW_VERSION = 1
 MAX_PREVIEW_ROWS = 100
+ROWS_SCOPE = "bank-journal-rows/v1:CNY"
 
 
 def _store():
@@ -62,7 +63,7 @@ def _read(filename, content_base64, mapping):
 	return hashlib.sha256(payload).hexdigest(), parsed["mapping_used"], parsed
 
 
-def _sign(doc, filename, file_hash, mapping, version):
+def _sign(doc, input_type, content_hash, mapping, version):
 	fields = [
 		PREVIEW_VERSION,
 		frappe.session.user,
@@ -70,8 +71,8 @@ def _sign(doc, filename, file_hash, mapping, version):
 		doc.company,
 		doc.account,
 		str(version),
-		Path(filename).suffix.lower(),
-		file_hash,
+		input_type,
+		content_hash,
 		mapping,
 	]
 	payload = json.dumps(fields, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
@@ -82,30 +83,43 @@ def _ready(parsed):
 	return bool(parsed["rows"]) and not parsed["errors"] and not parsed["needs_mapping"]
 
 
+def _preview(parsed, version, token):
+	rows = parsed["rows"]
+	return {
+		"version": version,
+		"row_count": len(rows),
+		"error_count": len(parsed["errors"]),
+		"errors": parsed["errors"][:MAX_PREVIEW_ROWS],
+		"rows": [
+			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof")}
+			for row in rows[:MAX_PREVIEW_ROWS]
+		],
+		"income_total": format(sum((Decimal(r["income"] or 0) for r in rows), Decimal(0)), ".2f"),
+		"expense_total": format(sum((Decimal(r["expense"] or 0) for r in rows), Decimal(0)), ".2f"),
+		"preview_id": token,
+	}
+
+
 @frappe.whitelist(methods=["POST"])
 def preview_import(book, filename, content_base64, mapping=None):
 	doc = _store().authorize_book(book)
 	file_hash, mapping, parsed = _read(filename, content_base64, mapping)
 	version = doc.revision
-	result = {
-		k: parsed[k]
-		for k in ("opening", "opening_date", "account_label", "headers", "suggested_mapping", "needs_mapping")
+	token = _sign(doc, Path(filename).suffix.lower(), file_hash, mapping, version) if _ready(parsed) else ""
+	return {
+		**{
+			k: parsed[k]
+			for k in (
+				"opening",
+				"opening_date",
+				"account_label",
+				"headers",
+				"suggested_mapping",
+				"needs_mapping",
+			)
+		},
+		**_preview(parsed, version, token),
 	}
-	rows = parsed["rows"]
-	result.update(
-		version=version,
-		row_count=len(rows),
-		error_count=len(parsed["errors"]),
-		errors=parsed["errors"][:MAX_PREVIEW_ROWS],
-		rows=[
-			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof")}
-			for row in rows[:MAX_PREVIEW_ROWS]
-		],
-		income_total=format(sum((Decimal(r["income"] or 0) for r in rows), Decimal(0)), ".2f"),
-		expense_total=format(sum((Decimal(r["expense"] or 0) for r in rows), Decimal(0)), ".2f"),
-		preview_id=_sign(doc, filename, file_hash, mapping, version) if _ready(parsed) else "",
-	)
-	return result
 
 
 @frappe.whitelist(methods=["POST"])
@@ -119,7 +133,9 @@ def apply_import(
 		or version is None
 		or not isinstance(preview_id, str)
 		or not re.fullmatch(r"[0-9a-f]{64}", preview_id)
-		or not hmac.compare_digest(_sign(doc, filename, file_hash, mapping, version), preview_id)
+		or not hmac.compare_digest(
+			_sign(doc, Path(filename).suffix.lower(), file_hash, mapping, version), preview_id
+		)
 	):
 		frappe.throw("流水文件、列映射或账本预览已变化，请重新预览后导入")
 	if not isinstance(request_id, str) or not request_id.strip():
@@ -133,6 +149,81 @@ def apply_import(
 		opening=parsed["opening"],
 		opening_date=parsed["opening_date"],
 		template=parsed["template"],
+	)
+
+
+def _read_rows(book, company, account, currency, rows, extra):
+	# Frappe adds cmd to every RPC request. Reject other application arguments explicitly.
+	if extra.keys() - {"cmd"}:
+		frappe.throw("请求含未定义的参数")
+	if not isinstance(book, str) or not book:
+		frappe.throw("请选择有效的公司银行账簿")
+	doc = _store().authorize_book(book)
+	if doc.company != company or doc.account != account:
+		frappe.throw("所选账簿与指定公司或银行账户不一致")
+	if currency != "CNY":
+		frappe.throw("请明确使用此账簿的人民币币种代码 CNY")
+	try:
+		parsed = formats.parse_rows(rows)
+	except formats.StatementError as exc:
+		frappe.throw(str(exc))
+	for row in parsed["rows"]:
+		if row["date"] < str(doc.opening_date):
+			parsed["errors"].append(
+				{"row": row["source_row"], "field": "date", "message": "流水日期早于账簿启用日"}
+			)
+	return doc, parsed
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_rows(book=None, company=None, account=None, currency=None, rows=None, **extra):
+	"""Preview extracted bank transactions against the explicitly selected RMB book."""
+	doc, parsed = _read_rows(book, company, account, currency, rows, extra)
+	version = int(doc.revision or 0)
+	token = _sign(doc, ROWS_SCOPE, parsed["input_hash"], None, version) if not parsed["errors"] else ""
+	return {
+		"book": doc.name,
+		"company": doc.company,
+		"account": doc.account,
+		"currency": currency,
+		"opening": parsed["opening"],
+		"opening_date": parsed["opening_date"],
+		**_preview(parsed, version, token),
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_rows(
+	book=None,
+	company=None,
+	account=None,
+	currency=None,
+	rows=None,
+	preview_id=None,
+	version=None,
+	request_id=None,
+	**extra,
+):
+	"""Confirm an unchanged extraction with the same native writer used by file imports."""
+	doc, parsed = _read_rows(book, company, account, currency, rows, extra)
+	if (
+		parsed["errors"]
+		or type(version) is not int
+		or version < 0
+		or not isinstance(preview_id, str)
+		or not re.fullmatch(r"[0-9a-f]{64}", preview_id)
+		or not hmac.compare_digest(_sign(doc, ROWS_SCOPE, parsed["input_hash"], None, version), preview_id)
+	):
+		frappe.throw("流水、账簿或预览参数已变化，请重新预览后提交")
+	return _store().apply_batch(
+		doc.name,
+		parsed["rows"],
+		"Import",
+		version,
+		request_id,
+		opening=parsed["opening"],
+		opening_date=parsed["opening_date"],
+		request_facts=[ROWS_SCOPE, parsed["input_hash"]],
 	)
 
 

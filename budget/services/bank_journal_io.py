@@ -14,9 +14,10 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
-from budget.services.bank_journal_contract import clean_row, references
+from budget.services.bank_journal_contract import TEXT, as_date, clean_row, references
 
 MAX_BYTES = 6 * 1024 * 1024
+MAX_MOVEMENTS = 10000
 MAX_ROWS = 20000
 MAX_COLS = 160
 MAX_CELLS = 1500000
@@ -447,6 +448,109 @@ def _order_and_validate(result, supplied_opening):
 			balance = stated
 
 
+def _append_row(result, row, row_number, occurrences, seen_ids):
+	if row["bank_ref"]:
+		if row["bank_ref"] in seen_ids:
+			raise StatementError("同一批次中银行流水号重复，请核对该行", "bank_ref")
+		seen_ids.add(row["bank_ref"])
+		key = _record_key("bank-reference", row["bank_ref"])
+	else:
+		identity = (row["date"], row["income"], row["expense"], row["balance"], row["summary"])
+		occurrences[identity] += 1
+		key = _record_key("bank-movement", *identity, occurrences[identity])
+	row.update(source_row=row_number, source_key=key)
+	result["rows"].append(row)
+
+
+def _finish_rows(result):
+	_order_and_validate(result, result["opening"])
+	weak_rows = [r for r in result["rows"] if not r["bank_ref"] and r["balance"] is None]
+	if weak_rows:
+		# Without either bank ID or balance a matching movement in a different
+		# statement can be a separate payment. Require the same file inventory.
+		proof = _record_key("bank-inventory", sorted(r["source_key"] for r in result["rows"]))
+		for row in weak_rows:
+			row["weak_file_proof"] = proof
+	result["opening_date"] = result["rows"][0]["date"]
+
+
+_JSON_FIELDS = frozenset((*TEXT, "date", "income", "expense", "balance", "bank_ref", "refs"))
+_JSON_MONEY = re.compile(r"-?(?:0|[1-9][0-9]{0,12})(?:\.[0-9]{1,2})?\Z")
+
+
+def _json_movement(raw):
+	if not isinstance(raw, dict):
+		raise StatementError("每行必须是 JSON 对象", "row")
+	for field, value in raw.items():
+		if field not in _JSON_FIELDS:
+			raise StatementError("流水含未定义的字段", field)
+		if field in ("income", "expense", "balance"):
+			if value is None:
+				continue
+			if not isinstance(value, str) or not _JSON_MONEY.fullmatch(value):
+				raise StatementError("请使用精确到分的十进制金额字符串", field)
+			if field != "balance" and Decimal(value) <= 0:
+				raise StatementError("收入或支出金额必须大于零", field)
+		elif field == "refs":
+			if not isinstance(value, list):
+				raise StatementError("钉钉单号须为字符串数组", field)
+		elif not isinstance(value, str) or "\x00" in value or (field in TEXT and len(value) > 12000):
+			raise StatementError("该字段须为有效文本", field)
+	try:
+		day = as_date(raw.get("date")).isoformat()
+	except ValueError as exc:
+		raise StatementError(str(exc), "date") from exc
+	try:
+		refs = references(raw.get("refs", []))
+	except ValueError as exc:
+		raise StatementError(str(exc), "refs") from exc
+	for ref in refs:
+		_references(ref)  # Apply the same precision-loss checks as the bank file reader.
+	bank_ref = _bank_reference(raw.get("bank_ref", ""))
+	if len(bank_ref) > 140:
+		raise StatementError("银行流水号过长", "bank_ref")
+	income, expense = _movement(_money(raw.get("income"), "income"), _money(raw.get("expense"), "expense"))
+	return {
+		**{field: raw.get(field, "").strip() for field in TEXT},
+		"date": day,
+		"refs": refs,
+		"bank_ref": bank_ref,
+		"income": income,
+		"expense": expense,
+		"balance": _money(raw.get("balance"), "balance"),
+	}
+
+
+def parse_rows(rows):
+	"""Validate extracted JSON values and assign the same bank identities used by CSV/XLSX."""
+	if not isinstance(rows, list) or not 1 <= len(rows) <= MAX_MOVEMENTS:
+		raise StatementError("rows 须为包含 1 至 10,000 笔流水的 JSON 数组")
+	try:
+		payload = json.dumps(
+			rows, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
+		).encode()
+	except (ValueError, TypeError, RecursionError) as exc:
+		raise StatementError("rows 必须是可编码为 UTF-8 的 JSON 数组") from exc
+	if len(payload) > MAX_BYTES:
+		raise StatementError("单次流水 JSON 大小不能超过 6 MiB")
+	result = {
+		"rows": [],
+		"errors": [],
+		"opening": None,
+		"opening_date": None,
+		"input_hash": hashlib.sha256(payload).hexdigest(),
+	}
+	occurrences, seen_ids = Counter(), set()
+	for number, raw in enumerate(rows, 1):
+		try:
+			_append_row(result, _json_movement(raw), number, occurrences, seen_ids)
+		except StatementError as exc:
+			result["errors"].append({"row": number, "field": exc.field, "message": str(exc)})
+	if not result["errors"]:
+		_finish_rows(result)
+	return result
+
+
 def parse_statement(content, filename, mapping=None):
 	"""Parse a bank file, report each invalid row and return canonical decimal strings."""
 	sheet, final_terminator = _read(content, filename)
@@ -522,31 +626,13 @@ def parse_statement(content, filename, mapping=None):
 			if original and result["template"]["closing_row"] is not None:
 				raise StatementError("期末余额行之后仍有流水", "date")
 			row = _parse_row(raw, cols, original)
-			if row["bank_ref"]:
-				if row["bank_ref"] in seen_ids:
-					raise StatementError("同一文件中银行流水号重复，请核对该行", "bank_ref")
-				seen_ids.add(row["bank_ref"])
-				key = _record_key("bank-reference", row["bank_ref"])
-			else:
-				identity = (row["date"], row["income"], row["expense"], row["balance"], row["summary"])
-				occurrences[identity] += 1
-				key = _record_key("bank-movement", *identity, occurrences[identity])
-			row.update(source_row=i, source_key=key)
-			result["rows"].append(row)
+			_append_row(result, row, i, occurrences, seen_ids)
 		except StatementError as exc:
 			result["errors"].append({"row": i, "field": exc.field, "message": str(exc)})
 	if not result["rows"] and not result["errors"]:
 		result["errors"].append({"row": start + 1, "field": "date", "message": "文件未包含交易流水"})
 	if not result["errors"]:
-		_order_and_validate(result, result["opening"])
-		weak_rows = [r for r in result["rows"] if not r["bank_ref"] and r["balance"] is None]
-		if weak_rows:
-			# Without either bank ID or balance a matching movement in a different
-			# statement can be a separate payment. Require the same file inventory.
-			proof = _record_key("bank-inventory", sorted(r["source_key"] for r in result["rows"]))
-			for row in weak_rows:
-				row["weak_file_proof"] = proof
-		result["opening_date"] = result["rows"][0]["date"]
+		_finish_rows(result)
 		if original:
 			carry_label = _str(_at(result["template"]["carry"], 8))
 			period = re.fullmatch(r"承(\d{4})年(\d{1,2})月期末余额", carry_label.strip())
@@ -567,7 +653,7 @@ def parse_statement(content, filename, mapping=None):
 						"message": "期末余额与最后一笔流水不符",
 					}
 				)
-	if len(result["rows"]) > 10000:
+	if len(result["rows"]) > MAX_MOVEMENTS:
 		raise StatementError("单次最多导入 10,000 笔流水，请按月份拆分")
 	return result
 

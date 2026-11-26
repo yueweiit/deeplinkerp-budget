@@ -10,7 +10,9 @@ from budget.api import bank_journal_files as api
 
 @pytest.fixture
 def book(monkeypatch):
-	doc = SimpleNamespace(name="book", company="Example", account="Cash", revision=4)
+	doc = SimpleNamespace(
+		name="book", company="Example", account="Cash", revision=4, opening_date="2026-01-01"
+	)
 	store = SimpleNamespace(
 		authorize_book=Mock(return_value=doc), apply_batch=Mock(return_value={"added": 1})
 	)
@@ -86,3 +88,90 @@ def test_equivalent_suggested_mapping_from_ui_can_be_confirmed(book):
 		"req-1234",
 	)
 	assert result == {"added": 1}
+
+
+def test_structured_preview_apply_and_receipt_namespace(book):
+	store, encoded = book
+	scope = {"book": "book", "company": "Example", "account": "Cash", "currency": "CNY"}
+	rows = [{"date": "2026-11-16", "income": "1.00", "summary": "示例"}]
+	preview = api.preview_rows(**scope, rows=rows)
+	assert preview["rows"][0]["source_row"] == 1
+	assert preview["income_total"] == "1.00" and preview["version"] == 4
+	assert not {"weak_file_proof", "source_key"} & preview["rows"][0].keys()
+	params = {
+		**scope,
+		"rows": rows,
+		"preview_id": preview["preview_id"],
+		"version": 4,
+		"request_id": "json-req-1234",
+	}
+	assert api.apply_rows(**params) == {"added": 1}
+	assert store.apply_batch.call_args.args[2:] == ("Import", 4, "json-req-1234")
+	for invalid in [
+		{"preview_id": api.preview_import("book", "原表.csv", encoded)["preview_id"]},
+		{"rows": [dict(rows[0], category="changed")]},
+		{"currency": "USD"},
+		{"account": "Other"},
+		{"company": "Other"},
+	]:
+		with pytest.raises(ValueError):
+			api.apply_rows(**{**params, **invalid})
+	with pytest.raises(ValueError):
+		api.apply_import("book", "原表.csv", encoded, None, preview["preview_id"], 4, "file-req-1234")
+	assert store.apply_batch.call_count == 1
+
+
+def test_structured_preview_errors_block_confirmation_and_limit_rows(book):
+	scope = {"book": "book", "company": "Example", "account": "Cash", "currency": "CNY"}
+	for rows in ([], "[]", [{"date": "2026-11-01", "expense": "1"}] * 10001):
+		with pytest.raises(ValueError):
+			api.preview_rows(**scope, rows=rows)
+	rows = [{"date": "2026-11-03", "expense": "1.20"}] * 101
+	pre = api.preview_rows(**scope, rows=rows)
+	assert pre["row_count"] == 101 and len(pre["rows"]) == 100 and pre["expense_total"] == "121.20"
+	bad = api.preview_rows(**scope, rows=[*rows, {"date": "yesterday"}])
+	assert bad["error_count"] == 1 and bad["errors"][0]["row"] == 102 and bad["preview_id"] == ""
+	with pytest.raises(ValueError):
+		api.apply_rows(
+			**scope,
+			rows=[*rows, {"date": "yesterday"}],
+			version=4,
+			request_id="json-long-req",
+			preview_id=pre["preview_id"],
+		)
+
+
+def test_structured_contract_scope_size_and_date(book, monkeypatch):
+	store, _ = book
+	scope = {"book": "book", "company": "Example", "account": "Cash", "currency": "CNY"}
+	rows = [{"date": "2026-01-01", "expense": "2.00", "refs": ["00047"]}]
+	base = api.preview_rows(**scope, rows=rows, cmd="budget.api.bank_journal_files.preview_rows")
+	for change in (
+		{"company": "Other"},
+		{"account": "Other"},
+		{"currency": "USD"},
+		{"currency": None},
+		{"book": {}},
+		{"unknown": True},
+	):
+		with pytest.raises(ValueError):
+			api.preview_rows(**{**scope, **change}, rows=rows)
+	prior = api.preview_rows(**scope, rows=[dict(rows[0], date="2025-12-31")])
+	assert prior["preview_id"] == "" and prior["errors"][0]["field"] == "date"
+	check = {
+		**scope,
+		"preview_id": base["preview_id"],
+		"version": 4,
+		"request_id": "json-scope-check",
+		"rows": rows,
+	}
+	for version in (True, "4", 5):
+		with pytest.raises(ValueError):
+			api.apply_rows(**{**check, "version": version})
+	monkeypatch.setattr(frappe, "session", SimpleNamespace(user="other user"))
+	with pytest.raises(ValueError):
+		api.apply_rows(**check)
+	store.apply_batch.assert_not_called()
+	monkeypatch.setattr(api.formats, "MAX_BYTES", 25)
+	with pytest.raises(ValueError, match="6 MiB"):
+		api.preview_rows(**scope, rows=rows)
