@@ -109,12 +109,11 @@
             const retired = new Set(["china operating expenses", "mexico expenses",
                 ...(frappe.boot.expense_retired_sidebars || [])]);
             if (!sidebar || retired.has(String(sidebar).toLowerCase())) {
-                this.set_route_options_from_url();
-                frappe.route_options = {...frappe.route_options, sidebar: "Expense Management"};
-                frappe.route_hash = window.location.hash;
-                frappe.route_flags = {...frappe.route_flags, replace_route: true};
-                frappe.set_route("china-cash-journal");
-                return true;
+                // Fix the bookmark in place. A native same-page set_route can
+                // reenter re_route before its query string has been written.
+                params.set("sidebar", "Expense Management");
+                const url = window.location.pathname + "?" + params.toString() + window.location.hash;
+                window.history.replaceState(window.history.state, "", url);
             }
         }
         const destination = destinations().get(legacy);
