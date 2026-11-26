@@ -37,6 +37,14 @@
   },
   {
    "type": "Link",
+   "label": "CN Cash Journal Entry",
+   "link_type": "Page",
+   "link_to": "china-cash-journal",
+   "icon": "book-open",
+   "child": 0
+  },
+  {
+   "type": "Link",
    "label": "Data Review",
    "link_type": "Page",
    "link_to": "expense-review",

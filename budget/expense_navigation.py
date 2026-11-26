@@ -2,6 +2,8 @@
 import frappe
 
 PAGES = ("expense-management", "expense-analysis", "expense-budget", "expense-details", "expense-review")
+JOURNAL_ROUTE = "china-cash-journal"
+JOURNAL_DOCTYPE = "CN Cash Journal Entry"
 LEGACY = {"Mexico Expenses", "China Operating Expenses"}
 LEGACY_ROUTES = {
 	"china-expenses": "expense-management",
@@ -46,6 +48,23 @@ def visible_sidebar_items(items):
 	return result
 
 
+def journal_sidebar_items(items, allowed):
+	"""Attach the existing manual journal without requiring it for reporting."""
+	def journal(item):
+		return item.get("link_type") == "Page" and item.get("link_to") == JOURNAL_ROUTE
+	if not allowed:
+		return [item for item in items if not journal(item)]
+	if any(journal(item) for item in items):
+		return list(items)
+	result = list(items)
+	anchor = next((index + 1 for index, item in enumerate(result)
+		if item.get("link_type") == "Page" and item.get("link_to") == "expense-details"), len(result))
+	# Native sidebar labels have already been translated before boot hooks run.
+	result.insert(anchor, {"type": "Link", "label": frappe._(JOURNAL_DOCTYPE), "link_type": "Page",
+		"link_to": JOURNAL_ROUTE, "icon": "book-open", "child": 0})
+	return result
+
+
 def install():
 	if "deeplinkerp_branding" not in frappe.get_installed_apps():
 		return
@@ -70,6 +89,9 @@ def boot(bootinfo):
 	ready = ("deeplinkerp_branding" in frappe.get_installed_apps()
 		and all(route in pages for route in PAGES) and "expense management" in sidebars)
 	bootinfo["unified_expense_management"] = ready
+	journal_allowed = ready and JOURNAL_ROUTE in pages and JOURNAL_DOCTYPE in (
+		(bootinfo.get("user") or {}).get("can_read") or [])
+	bootinfo["expense_cash_journal"] = bool(journal_allowed)
 	bootinfo["expense_legacy_routes"] = dict(LEGACY_ROUTES) if ready else {}
 	icons = bootinfo.get("desktop_icons") or []
 	if ready:
@@ -83,6 +105,8 @@ def boot(bootinfo):
 				continue
 			items = sidebar.get("items") or []
 			remaining = visible_sidebar_items(items)
+			if key == "expense management":
+				remaining = journal_sidebar_items(remaining, journal_allowed)
 			# Only retire sidebars emptied by this projection. My Workspaces must
 			# remain available even when empty for native personal-workspace setup.
 			if key != "my workspaces" and remaining != items and not any(

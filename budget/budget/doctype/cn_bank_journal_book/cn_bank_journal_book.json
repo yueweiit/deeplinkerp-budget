@@ -1,0 +1,68 @@
+{
+ "doctype": "DocType",
+ "name": "CN Bank Journal Book",
+ "module": "Budget",
+ "engine": "InnoDB",
+ "allow_rename": 0,
+ "track_changes": 0,
+ "field_order": [
+  "company",
+  "account",
+  "opening",
+  "opening_date",
+  "revision",
+  "next_sequence",
+  "last_operation",
+  "template_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "search_index": 1
+  },
+  {
+   "fieldname": "account",
+   "fieldtype": "Data",
+   "label": "Bank account label"
+  },
+  {
+   "fieldname": "opening",
+   "fieldtype": "Currency",
+   "label": "Opening balance",
+   "precision": "2"
+  },
+  {
+   "fieldname": "opening_date",
+   "fieldtype": "Date",
+   "label": "Opening date"
+  },
+  {
+   "fieldname": "revision",
+   "fieldtype": "Int",
+   "label": "Book revision"
+  },
+  {
+   "fieldname": "next_sequence",
+   "fieldtype": "Int",
+   "label": "Last assigned sequence"
+  },
+  {
+   "fieldname": "last_operation",
+   "fieldtype": "Data",
+   "label": "Latest operation"
+  },
+  {
+   "fieldname": "template_json",
+   "fieldtype": "Long Text",
+   "label": "Original journal layout"
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "index_web_pages_for_search": 0
+}

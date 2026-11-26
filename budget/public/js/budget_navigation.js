@@ -100,6 +100,23 @@
     const nativeReroute = router.re_route;
     router.re_route = function (subpath) {
         const legacy = subpath.replace(/\/$/, "");
+        if (unified() && frappe.boot.expense_cash_journal && legacy === "china-cash-journal") {
+            // Old journal bookmarks can still carry a now-retired sidebar.
+            // Keep the existing Page and its parameters; only repair ownership.
+            const params = new URLSearchParams(window.location.search);
+            let sidebar = params.get("sidebar");
+            try { sidebar = JSON.parse(sidebar); } catch { /* Native plain query value. */ }
+            const retired = new Set(["china operating expenses", "mexico expenses",
+                ...(frappe.boot.expense_retired_sidebars || [])]);
+            if (!sidebar || retired.has(String(sidebar).toLowerCase())) {
+                this.set_route_options_from_url();
+                frappe.route_options = {...frappe.route_options, sidebar: "Expense Management"};
+                frappe.route_hash = window.location.hash;
+                frappe.route_flags = {...frappe.route_flags, replace_route: true};
+                frappe.set_route("china-cash-journal");
+                return true;
+            }
+        }
         const destination = destinations().get(legacy);
         if (!destination) {
             return nativeReroute.apply(this, arguments);

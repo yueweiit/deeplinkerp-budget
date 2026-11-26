@@ -1,0 +1,49 @@
+{
+ "doctype": "DocType",
+ "name": "CN Bank Journal Source",
+ "module": "Budget",
+ "engine": "InnoDB",
+ "allow_rename": 0,
+ "track_changes": 0,
+ "field_order": [
+  "book",
+  "entry",
+  "source",
+  "source_key",
+  "digest"
+ ],
+ "fields": [
+  {
+   "fieldname": "book",
+   "fieldtype": "Data",
+   "label": "Book",
+   "search_index": 1
+  },
+  {
+   "fieldname": "entry",
+   "fieldtype": "Data",
+   "label": "Journal entry",
+   "search_index": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source"
+  },
+  {
+   "fieldname": "source_key",
+   "fieldtype": "Small Text",
+   "label": "Source identifier"
+  },
+  {
+   "fieldname": "digest",
+   "fieldtype": "Data",
+   "label": "Source digest"
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "index_web_pages_for_search": 0
+}
