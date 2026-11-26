@@ -22,7 +22,8 @@ def runtime(monkeypatch):
 
 def shared_source(monkeypatch, context, *, origin="mx", entries=None):
 	entries = entries or [{"region": "mx", "company": "MX"}]
-	record = frappe._dict(name=SOURCE, origin=origin, allocations_json=entries)
+	record = frappe._dict(name=SOURCE, origin=origin, allocations_json=entries,
+		state="confirmed", modified="2026-11-26 10:00:00.000001")
 	lines = [frappe._dict(name=str(index), company=entry["company"] if entry["region"] == "mx" else "",
 		regional_company=entry["company"] or entry.get("matched_company", ""), is_active=1,
 		company_basis="mapping", mapping_version="v1") for index, entry in enumerate(entries)]
@@ -40,7 +41,8 @@ def shared_source(monkeypatch, context, *, origin="mx", entries=None):
 	monkeypatch.setattr(links.mx, "_settings", lambda: frappe._dict())
 	monkeypatch.setattr(links.mx, "_mapping_version", lambda settings: "v1")
 	row = {"key": links.regional.digest([SOURCE, "regional-" + entries[0]["region"], 0]),
-		"source_key": SOURCE, "kind": "operating", "company": entries[0]["company"]}
+		"source_key": SOURCE, "kind": "operating", "company": entries[0]["company"],
+		"allocation_modified": str(record.modified)}
 	return row, record, lines
 
 
@@ -181,8 +183,8 @@ def test_fallback_detail_adds_link_only_after_row_scope_check(monkeypatch):
 	monkeypatch.setattr(service, "prepare", lambda values: ([row], {}, {}, {"company_regions": {}},
 		{"month": "2026-11", "view": "overview"}))
 	monkeypatch.setattr(service, "converter", lambda: lambda rows: rows)
-	resolver = Mock(return_value=URL)
-	monkeypatch.setattr(links, "original_url", resolver)
+	resolver = Mock(return_value={"approval_url": URL, "original_expense": None})
+	monkeypatch.setattr(links, "original_context", resolver)
 	result = service.detail(KEY)
 	assert result["approval_url"] == URL
 	assert "source_key" not in result["row"] and "approval_url" not in result["row"]
@@ -203,8 +205,8 @@ def test_sql_detail_adds_link_only_after_authorized_selection(monkeypatch):
 	row = {"key": KEY, "source_key": SOURCE, "company": "CN"}
 	selection = Mock(return_value=[row])
 	monkeypatch.setattr(reporting.store, "select", selection)
-	resolver = Mock(return_value=URL)
-	monkeypatch.setattr(links, "original_url", resolver)
+	resolver = Mock(return_value={"approval_url": URL, "original_expense": None})
+	monkeypatch.setattr(links, "original_context", resolver)
 	result = reporting.detail(KEY)
 	assert result["approval_url"] == URL and "source_key" not in result["row"]
 	resolver.assert_called_once_with(row, context, rules)
@@ -216,3 +218,83 @@ def test_sql_detail_adds_link_only_after_authorized_selection(monkeypatch):
 	with pytest.raises(frappe.PermissionError):
 		reporting.detail(KEY)
 	resolver.assert_not_called()
+
+
+def test_allocated_detail_returns_only_its_original_line_after_whole_source_permission(monkeypatch, runtime):
+	entries = [{"region": "mx", "company": "MX", "line_key": "original", "amount": "30.00"},
+		{"region": "cn", "company": "CN", "line_key": "original", "amount": "70.00"}]
+	row, record, _lines = shared_source(monkeypatch, runtime, entries=entries)
+	row.update(amount="30.00", currency="CNY")
+	record.facts_json = [{"currency": "CNY"}, [
+		{"line_key": "original", "table_id": "detail-table", "source_row_id": "2", "amount": "100.00",
+			"currency": "CNY", "description": "Shared service", "source_entity": "Group service department"},
+		{"line_key": "another", "amount": "999.00", "description": "Other expense must not be returned"}]]
+	result = links.original_context(row, runtime, {})
+	assert result["approval_url"] == URL
+	assert result["original_expense"] == {"origin": "detail", "table_label": "", "row_number": "2",
+		"amount": "100.00", "currency": "CNY", "description": "Shared service",
+		"source_entity": "Group service department", "split_count": 2}
+	assert "another" not in str(result) and "999.00" not in str(result)
+	assert row["amount"] == "30.00"  # Preview never replaces the allocated report amount.
+	runtime["companies"].remove("CN")
+	assert links.original_context(row, runtime, {}) == {"approval_url": "", "original_expense": None}
+
+
+def test_original_preview_can_be_read_without_a_dingtalk_link_and_rejects_stale_amount(monkeypatch, runtime):
+	row, record, _lines = shared_source(monkeypatch, runtime,
+		entries=[{"region": "mx", "company": "MX", "line_key": "header", "amount": "40.00"}])
+	record.facts_json = [{"currency": "MXN"}, [{"line_key": "header", "table_id": "header", "amount": "40.00", "currency": "MXN"}]]
+	row.update(amount="40", currency="MXN")
+	monkeypatch.setattr(links.mx, "_dingtalk_url", lambda source: "")
+	assert links.original_context(row, runtime, {})["original_expense"]["amount"] == "40.00"
+	row["amount"] = "30.00"
+	assert links.original_context(row, runtime, {})["original_expense"] is None
+	row["amount"] = "40.00"
+	record.facts_json = "{broken"
+	assert links.original_context(row, runtime, {})["original_expense"] is None
+
+
+def test_old_split_cannot_preview_new_facts_or_an_unreviewed_allocation(monkeypatch, runtime):
+	entries = [{"region": "mx", "company": "MX", "line_key": "original", "amount": "30.00"},
+		{"region": "cn", "company": "CN", "line_key": "original", "amount": "70.00"}]
+	row, record, _lines = shared_source(monkeypatch, runtime, entries=entries)
+	original = {"line_key": "original", "table_id": "detail-table", "source_row_id": "2", "amount": "100.00",
+		"currency": "CNY", "description": "Shared service", "source_entity": "Group service department"}
+	record.facts_json = [{"currency": "CNY", "approval_status": "approved"}, [original]]
+	row.update(amount="30.00", currency="CNY", status="approved", description="Shared service",
+		line_label="Shared service", source_path=links.regional.contract.management_path(original))
+	assert links.original_context(row, runtime, {})["original_expense"]["amount"] == "100.00"
+	# An OA edit keeps the manual split until it is reviewed again. The old
+	# publication remains readable, but its original amount must not become 200.
+	original["amount"] = "200.00"
+	record.modified = "2026-11-26 10:05:00.000002"
+	record.state = "stale"
+	assert links.original_context(row, runtime, {}) == {"approval_url": URL, "original_expense": None}
+	# Even a freshly published review row cannot treat a stale plan as valid.
+	row["allocation_modified"] = str(record.modified)
+	assert links.original_context(row, runtime, {})["original_expense"] is None
+	# After review, the new 30+170 split is valid, but the old report's version
+	# still cannot be used as evidence, even with identical display fields.
+	entries[1]["amount"] = "170.00"
+	record.state = "confirmed"
+	record.modified = "2026-11-26 10:06:00.000003"
+	assert links.original_context(row, runtime, {})["original_expense"] is None
+	row["allocation_modified"] = str(record.modified)
+	assert links.original_context(row, runtime, {})["original_expense"]["amount"] == "200.00"
+	entries[0]["source_available"] = False
+	assert links.original_context(row, runtime, {})["original_expense"] is None
+	entries[0].pop("source_available")
+	# Publications built before provenance was stored fail closed until rebuilt.
+	row.pop("allocation_modified")
+	assert links.original_context(row, runtime, {}) == {"approval_url": URL, "original_expense": None}
+
+
+def test_source_preview_is_absent_from_public_rows_and_stored_reporting_payloads():
+	from budget.services import expense_management, expense_report_store
+	from .test_expense_reporting import line, rate
+	row = expense_management.converter(rate)([line("selected")])[0]
+	row["original_expense"] = {"amount": "999", "description": "Private original"}
+	row["approval_url"] = URL
+	assert "original_expense" not in expense_management.public(row)
+	assert "original_expense" not in expense_report_store.pack(row)["detail_json"]
+	assert "Private original" not in str(expense_report_store.pack(row))

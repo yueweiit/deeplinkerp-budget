@@ -124,6 +124,24 @@ def test_database_pagination_and_single_row_detail_never_load_snapshot(database)
 	assert all("Snapshot" not in sql and "Allocation" not in sql for sql in calls)
 
 
+def test_source_revision_survives_sql_storage_only_for_authorized_detail_resolution(database, monkeypatch):
+	from budget.services import expense_approval_links
+	seed, _calls = database
+	revision = "2026-11-26 10:00:00.000001"
+	seed([line("selected", allocation_modified=revision)])
+	seen = []
+	def resolve(row, context, _rules):
+		assert row["company"] in context["companies"]
+		seen.append(row["allocation_modified"])
+		return {"approval_url": "", "original_expense": None}
+	monkeypatch.setattr(expense_approval_links, "original_context", resolve)
+	result = reporting.detail("selected", {"view": "details"})
+	assert seen == [revision]
+	assert "allocation_modified" not in result["row"]
+	assert "allocation_modified" not in reporting.query({"view": "details"})["rows"][0]
+	assert "allocation_modified" not in reporting.export_rows({"view": "details"})[0][0]
+
+
 @pytest.mark.parametrize("manager", [False, True])
 def test_current_company_permissions_cover_extra_ownership_and_unknown_rows(database, manager):
 	seed, _ = database

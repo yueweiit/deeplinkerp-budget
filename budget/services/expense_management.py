@@ -147,14 +147,17 @@ def legacy_projection(legacy_ids, context, rules, templates=()):
 	return output
 
 
+def normalized_source_path(row):
+	path = [part for part in row.get("source_path") or [] if isinstance(part, str) and part.strip()]
+	return [] if path == ["unitemized"] and row.get("kind") == "budget" else path
+
+
 def normalize(row):
 	# Unified classification is optional here. Keep the underlying CN/MX
 	# projections and all amount/company/date validation unchanged.
 	row = {**row, "issues": sorted(set(row.get("issues") or []) - {"management_category"}),
 		"date_basis": row.get("date_basis") or ("budget" if row.get("kind") == "budget" else "application")}
-	path = [part for part in row.get("source_path") or [] if isinstance(part, str) and part.strip()]
-	if path == ["unitemized"] and row.get("kind") == "budget":
-		path = []
+	path = normalized_source_path(row)
 	row["source_path"] = path
 	row["source_category_key"] = hashlib.sha256(json.dumps([row.get("kind"), path], ensure_ascii=False).encode()).hexdigest() if path else "missing"
 	# Financial-approval period is irrelevant to this view. It remains intact
@@ -395,7 +398,7 @@ def public(row):
 
 def detail(key, values=None):
 	from . import expense_report_store, expense_reporting
-	from .expense_approval_links import original_url
+	from .expense_approval_links import original_context
 	if expense_report_store.installed():
 		return expense_reporting.detail(key, values)
 	rows, _context, _rules, metadata, f = prepare(values)
@@ -406,7 +409,7 @@ def detail(key, values=None):
 	if f["view"] == "details" and f["measure"] == "approved" and (row["status"] != "approved" or not row["eligible"] or row["kind"] == "budget"):
 		frappe.throw(_("Expense detail is unavailable or outside your permitted scope."), frappe.PermissionError)
 	return {"row": regions.annotate(public(converter()([row])[0]), metadata["company_regions"]),
-		"metadata": metadata, "approval_url": original_url(row, _context, _rules)}
+		"metadata": metadata, **original_context(row, _context, _rules)}
 
 
 def export_rows(values=None):

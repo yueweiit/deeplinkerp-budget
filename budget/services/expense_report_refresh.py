@@ -10,7 +10,7 @@ from frappe import _
 
 from . import expense_report_store as store
 
-VERSION = "expense-report-v4"
+VERSION = "expense-report-v5"
 JOB = "expense-report-refresh"
 TIMEOUT = 300
 

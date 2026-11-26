@@ -54,10 +54,11 @@ def pack(row):
 		"eligible": int(row["eligible"]), "has_issues": int(bool(row["issues"])),
 		"amount_cny": row["amounts"]["CNY"] or "0", "amount_mxn": row["amounts"]["MXN"] or "0",
 		"cny_known": int(row["amounts"]["CNY"] is not None), "mxn_known": int(row["amounts"]["MXN"] is not None)}
-	# Small per-line presentation data only. No raw approvals, attachments,
-	# workflow evidence or complete cross-company allocation plans are copied.
+	# Small per-line presentation data and an internal provenance revision only.
+	# No raw approvals, attachments, workflow evidence or allocation plans.
 	from .expense_management import PUBLIC
-	values["detail_json"] = encode({key: row.get(key) for key in (*PUBLIC, "source_key", "budget_categories_complete")})
+	values["detail_json"] = encode({key: row.get(key) for key in (
+		*PUBLIC, "source_key", "budget_categories_complete", "allocation_modified")})
 	values["row_hash"] = digest(values)
 	return values
 
