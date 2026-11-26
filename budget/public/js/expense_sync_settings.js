@@ -198,6 +198,28 @@
       {fieldname: "template_help", fieldtype: "HTML", options: `<p class="text-muted">${esc(t("Shared approval templates appear once. Disable historical templates instead of deleting them."))}</p>`},
       {fieldname: "remove_drafts", label: t("Remove selected draft templates"), fieldtype: "Button",
         click: () => {if (!saving) {invalidatePreview(); removeDraftTemplates(dialog.fields_dict.templates.grid, persistedRows);}}},
+      {fieldname: "configure_mapping", label: t("Configure field mapping"), fieldtype: "Button", click: async () => {
+        if (saving) return;
+        invalidatePreview();
+        helpers.flushGridEditors(dialog.fields_dict.templates.grid);
+        const context = previewContext();
+        if (!context) return root.frappe.msgprint(t("Select exactly one template"));
+        const error = validateTemplates([context.args.template], saved.corporations, context.args.template.idx);
+        if (error) return root.frappe.msgprint(error);
+        const sequence = previewSequence, signature = JSON.stringify(context.args);
+        const current = () => {
+          if (saving || !dialog.is_visible || sequence !== previewSequence || (options.isCurrent && !options.isCurrent())) return false;
+          helpers.flushGridEditors(dialog.fields_dict.templates.grid);
+          const latest = previewContext();
+          return latest?.row === context.row && JSON.stringify(latest.args) === signature;
+        };
+        await root.ExpenseTemplateMapping.open({args: context.args, call, isCurrent: current, onApply: draft => {
+          if (!current()) return;
+          for (const key of ["application_fields", "expense_fields"]) if (draft[key] !== undefined) context.row[key] = draft[key];
+          dialog.fields_dict.templates.grid.refresh();
+          invalidatePreview();
+        }});
+      }},
       {fieldname: "preview", label: t("Preview Selected Template"), fieldtype: "Button", click: async () => {
         invalidatePreview();
         helpers.flushGridEditors(dialog.fields_dict.templates.grid);

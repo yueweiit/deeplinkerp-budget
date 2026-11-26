@@ -56,7 +56,7 @@ def source_path(row, table=None, detail=None):
 
 def allocation_sources(row):
 	if row["kind"] == "operating":
-		return {cell_value(detail, ("部门", "Departamento")) for table in row.get("tables", []) if table.get("is_amount")
+		return {detail.get("entity", cell_value(detail, ("部门", "Departamento"))) for table in row.get("tables", []) if table.get("is_amount")
 			for detail in table.get("rows", [])} - {""}
 	return set()
 
@@ -105,7 +105,8 @@ def analytical_lines(rows, context, rules):
 		base["project"] = next((item["value"] for item in original.get("facts", []) if item["label"] == "Project"), "")
 		parts = [(table, detail, ti, di) for ti, table in enumerate(original.get("tables", [])) if table.get("is_amount")
 			for di, detail in enumerate(table.get("rows", []))]
-		complete = (bool(parts) and original.get("amount") is not None and original.get("currency") == "CNY"
+		complete = (bool(parts) and original.get("amount") is not None and original.get("currency")
+			and all(detail.get("amount_currency", "CNY") == original["currency"] for _, detail, _, _ in parts)
 			and all(detail.get("amount") is not None for _, detail, _, _ in parts)
 			and sum((Decimal(detail["amount"]) for _, detail, _, _ in parts), Decimal(0)) == Decimal(original["amount"]))
 		if original["kind"] == "budget" and not complete:
@@ -126,7 +127,7 @@ def analytical_lines(rows, context, rules):
 				item["amount"] = detail["amount"]
 				item["line_label"] = detail.get("label") or table.get("label") or ""
 				if original["kind"] == "operating":
-					item.update(entity=cell_value(detail, ("部门", "Departamento")), entity_id="")
+					item.update(entity=detail.get("entity", cell_value(detail, ("部门", "Departamento"))), entity_id=detail.get("entity_id", ""))
 			else:
 				item["line_label"] = ""
 			item["source_path"] = path

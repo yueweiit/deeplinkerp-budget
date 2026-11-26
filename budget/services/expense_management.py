@@ -68,13 +68,13 @@ def load():
 	native = [row for row in snapshot["rows"] if row["kind"] == "budget"
 		or (row["corp_id"], row["process_instance_id"]) not in identities | legacy_ids]
 	rows = management.analytical_lines(native, context, rules) + allocated
+	mx_settings = mx._settings()
+	templates = mx._templates(mx_settings)
 	if legacy_ids - identities:
-		rows += legacy_projection(legacy_ids - identities, context, rules)
+		rows += legacy_projection(legacy_ids - identities, context, rules, templates)
 	if len(rows) > 50000:
 		frappe.throw(_("Expense analysis exceeds 50000 detail lines. Narrow the configured scope."))
 	management.annotate_budget_completeness(rows)
-	mx_settings = mx._settings()
-	templates = mx._templates(mx_settings)
 	mx_complete = bool(templates) and all(item.get("enabled") and item.get("last_sync_at")
 		and not any(item.get(key) for key in ("last_error", "cursor", "sync_until")) for item in templates)
 	sync = snapshot.get("sync") or {}
@@ -89,7 +89,7 @@ def load():
 	return [normalize(row) for row in rows], context, rules, metadata
 
 
-def legacy_projection(legacy_ids, context, rules):
+def legacy_projection(legacy_ids, context, rules, templates=()):
 	"""Honor existing MX manual decisions without rewriting their source data."""
 	from deeplinkerp_branding.services import mexico_expenses as mx
 	if not legacy_ids:
@@ -111,8 +111,10 @@ def legacy_projection(legacy_ids, context, rules):
 	if not lines:
 		return []
 	sources = {row.name: row for row in frappe.get_all(mx.SOURCE, filters={"name": ["in", sorted({line.source for line in lines})]},
-		fields=["name", "corp_id", "process_instance_id", "raw_json", "source_version", "request_date"], limit_page_length=50001)}
-	dates = {name: regional.application_date_info(regional.decode(source.raw_json)) for name, source in sources.items()
+		fields=["name", "corp_id", "process_code", "process_instance_id", "raw_json", "source_version", "request_date"], limit_page_length=50001)}
+	by_template = {(row.get("corp_id"), row.get("process_code")): row for row in templates}
+	dates = {name: regional.application_date_info(regional.decode(source.raw_json),
+		by_template.get((source.corp_id, source.process_code))) for name, source in sources.items()
 		if (source.corp_id, source.process_instance_id) in legacy_ids}
 	output = []
 	for line in lines:

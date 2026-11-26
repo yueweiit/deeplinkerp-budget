@@ -894,3 +894,61 @@ Reporting Line Fingerprint,查询明细指纹
 Reporting Line Details,查询明细内容
 Historical MX Exception,历史 MX 人工归属例外
 Exchange Rates Checked At,汇率核验时间
+Additional header fields,其他表头字段
+Allocation amount currency,分摊金额币种
+Apply to template draft,应用到模板草稿
+Budget item,预算项目
+Budget snapshot,预算快照
+CNY (legacy default),人民币（原默认值）
+Choose fields from up to 3 sample approvals. The mapping is shared by this template and is saved with OA settings.,从最多 3 条审批样本中选择字段。此模板共用该映射，点击“保存设置”后生效。
+Choose one detail table with populated sample rows to configure its fields.,请选择一张样本中有明细行的表，再配置表内字段。
+Configure field mapping,配置字段映射
+Current binding,当前绑定
+Department allocation details,部门分摊明细
+Department or entity,部门或主体
+Detail amount,明细金额
+Detail note,明细备注
+Duplicate or unauthorized approval template,审批模板重复或未获授权
+Expense category,支出类别
+Expense details,费用明细
+Header fields,表头字段
+Header total,表头合计
+Keep current binding,保持当前绑定
+Logistics category,物流类别
+Mapping applied to draft. Save OA settings to persist it.,字段映射已应用到草稿，请保存 OA 设置使其生效。
+Mapping changed. Preview again to check rows and totals.,映射已修改，请重新预览以核对明细及合计。
+No sample approvals found; save this template disabled first,未找到审批样本，请先以停用状态保存此模板
+Office budget details,办公预算明细
+Office expense details,办公费用明细
+Operating budget details,运营预算明细
+Operating category,运营支出类别
+Payroll details,薪酬明细
+Personnel budget details,人资预算明细
+Personnel category,人员费用类别
+Preview mapping,预览映射结果
+Preview the changed mapping before applying it.,请先预览修改后的映射，再应用到草稿。
+Processor details,加工商明细
+Purchase category,采购类别
+Purchase items,采购物品明细
+Quantity,数量
+Same as header currency,与表头币种相同
+Sample validation passed,样本校验通过
+Sample {0},样本 {0}
+Sample {0}: mapped detail field missing or ambiguous: {1} / {2},样本 {0}：明细字段缺失或有歧义：{1} / {2}
+Sample {0}: mapped field missing or ambiguous: {1},样本 {0}：映射字段缺失或有歧义：{1}
+Sample {0}: unmapped detail table: {1},样本 {0}：尚未映射的明细表：{1}
+Selling category,销售费用类别
+Services category,服务费用类别
+Showing the first 20 rows; totals include all rows.,仅显示前 20 行，合计包含全部明细行。
+Social contribution details,社保公积金明细
+Tax category,税费类别
+Template sample exceeds the preview limit.,模板样本超过预览数量上限。
+Template sample structure is invalid. Review the OA template.,模板样本结构无效，请核对 OA 模板。
+Total amount,总金额
+Unavailable,不可用
+Unavailable in current samples,当前样本中不存在
+Unit price,单价
+Use default binding,使用默认绑定
+Used budget snapshot,已用预算快照
+Utilities category,公用事业类别
+{0} detail rows,{0} 行明细

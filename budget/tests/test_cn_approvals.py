@@ -126,6 +126,27 @@ def test_operating_allocation_checks_header_without_adding_it_twice():
 	assert service.aggregate([item])["cards"][1]["totals"][0]["amount"] == "100.00"
 
 
+def test_operating_allocation_override_checks_the_same_table_as_shared_expenses():
+	row, config = sample()
+	config["field_mapping"] = '{"allocation_table":["TableField_copy"]}'
+	for table_id, values in (("TableField_copy", ("60", "40")), ("TableField_1T6MS9XEQUE80", ("900",))):
+		row["form_component_values"].append(field(table_id, [
+			{"rowValue": [{"label": "部门Departamento", "value": "A"},
+				{"label": "金额（元）Monto (yuan)", "value": value}]} for value in values], "TableField"))
+	item = contract.project(row, config)
+	assert item["detail_total"] == "100.00" and "detail_mismatch" not in item["issues"]
+	assert [table["source_table_id"] for table in item["tables"] if table["is_amount"]] == ["TableField_copy"]
+
+
+def test_absent_allocation_binding_does_not_claim_a_table_without_id():
+	row, config = sample()
+	config["field_mapping"] = '{"allocation_table":["TableField_absent"]}'
+	row["form_component_values"].append(field(None, [
+		{"rowValue": [{"label": "金额（元）Monto (yuan)", "value": "900"}]}], "TableField"))
+	item = contract.project(row, config)
+	assert item["detail_total"] is None
+
+
 def test_purchase_supporting_items_are_not_added_to_header():
 	row, config = sample("purchase")
 	row["form_component_values"].append(field("TableField_119WFD19L8R40", [

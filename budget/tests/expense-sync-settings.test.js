@@ -69,6 +69,32 @@ test("one save submits all templates and mapping domains with both versions", as
   assert.equal(state.savedCount,1);assert.equal(dialog.visible,false);assert.equal(dialog.disabled,false);
 });
 
+test("field mapping edits only the selected draft and uses the existing versioned save",async()=>{
+  const state=runtime(),dialog=await settings.open();let editorOptions;
+  global.ExpenseTemplateMapping={open:async options=>{editorOptions=options;}};
+  state.saved.templates[0].__checked=true;
+  await dialog.fields_dict.configure_mapping.df.click();
+  assert.equal(editorOptions.args.processing_mode,"approval");
+  assert.equal(editorOptions.isCurrent(),true);
+  editorOptions.onApply({...editorOptions.args.template,application_fields:'{"amount":["new"]}',expense_fields:'{"amount":["new"]}'});
+  assert.equal(state.saved.templates[0].expense_fields,'{"amount":["new"]}');
+  assert.equal(state.calls.length,1); // Loading settings is the only server request so far.
+  await dialog.config.primary_action();
+  assert.deepEqual(state.calls.at(-1).args.values.versions,{cn:"cn-v1",mx:"mx-v1"});
+  assert.equal(state.calls.at(-1).args.values.templates[0].application_fields,'{"amount":["new"]}');
+});
+
+test("changing the parent draft while the field editor is open rejects its apply callback",async()=>{
+  const state=runtime(),dialog=await settings.open();let editorOptions;
+  global.ExpenseTemplateMapping={open:async options=>{editorOptions=options;}};
+  state.saved.templates[0].__checked=true;
+  await dialog.fields_dict.configure_mapping.df.click();
+  state.saved.templates[0].template_name="Changed";
+  assert.equal(editorOptions.isCurrent(),false);
+  editorOptions.onApply({...editorOptions.args.template,expense_fields:'{"amount":["wrong"]}'});
+  assert.equal(state.saved.templates[0].expense_fields,'{"amount":["MXField"]}');
+});
+
 test("common choices are outside template rows and inherited by every draft",async()=>{
   const state=runtime(), dialog=await settings.open();
   for(const name of ["corp_id","processing_rule"])

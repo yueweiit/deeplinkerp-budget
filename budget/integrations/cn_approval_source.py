@@ -17,7 +17,8 @@ MAX_PAGES = 250
 # This is an asynchronous full scan, not a page-request time budget. Keep a
 # bound while allowing multiple templates to finish over a slower OA link.
 SCAN_TIMEOUT = 600
-SNAPSHOT_VERSION = 5
+# Rebuild cached detail totals using the shared department-allocation amount binding.
+SNAPSHOT_VERSION = 6
 
 
 class ApprovalScanTimeout(frappe.ValidationError):
@@ -44,7 +45,7 @@ def legacy_templates(corps):
 
 
 def normalize_templates(configured, corps, *, allow_empty=False):
-	from deeplinkerp_branding.services.mexico_expense_templates import FIELDS
+	from deeplinkerp_branding.services.expense_template_mapping import validate
 	from deeplinkerp_branding.services.mexico_expense_classification import validate_fields
 	if not isinstance(configured, list) or (not configured and not allow_empty) or len(configured) > 100:
 		frappe.throw(_("CN approval templates are not configured correctly."))
@@ -64,12 +65,8 @@ def normalize_templates(configured, corps, *, allow_empty=False):
 			if not isinstance(classification_fields, str):
 				classification_fields = json.dumps(classification_fields)
 			validate_fields(classification_fields)
+			validate(mapping, item["approval_type"])
 		except (ValueError, TypeError):
-			frappe.throw(_("CN approval templates are not configured correctly."))
-		if not isinstance(mapping, dict) or set(mapping) - set(FIELDS):
-			frappe.throw(_("CN approval templates are not configured correctly."))
-		if any(not isinstance(ids, list) or not ids or len(ids) > 20 or
-			any(not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,140}", value) for value in ids) for ids in mapping.values()):
 			frappe.throw(_("CN approval templates are not configured correctly."))
 		seen.add(key)
 		templates.append({"approval_type": item["approval_type"], "corp_id": key[0], "process_code": key[1],

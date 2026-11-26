@@ -306,7 +306,7 @@ def save_settings(values):
 			raise
 
 
-def preview_template(template, business_timezone, template_defaults=None, processing_mode=None):
+def prepare_preview(template, template_defaults=None, processing_mode=None):
 	# Preview is an explicit, bounded OA read, never part of opening the editor.
 	cn_saved, mx_doc, corps = read()
 	row = cn.parse(template)
@@ -318,6 +318,17 @@ def preview_template(template, business_timezone, template_defaults=None, proces
 	index = row.get("idx")
 	validate_template(row, index if type(index) is int and 1 <= index <= 200 else 1, corps,
 		require_finance=processing_mode != "approval")
+	return row, corps
+
+
+def inspect_template(template, business_timezone, template_defaults=None, processing_mode="approval"):
+	row, corps = prepare_preview(template, template_defaults, processing_mode)
+	from .expense_template_editor import inspect
+	return inspect(row, business_timezone, corps, RULES[row["processing_rule"]])
+
+
+def preview_template(template, business_timezone, template_defaults=None, processing_mode=None):
+	row, corps = prepare_preview(template, template_defaults, processing_mode)
 	if processing_mode == "approval":
 		from .expense_sync_preview import preview
 		return preview(row, business_timezone, corps, RULES[row["processing_rule"]])

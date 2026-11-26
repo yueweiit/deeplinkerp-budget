@@ -8,7 +8,7 @@ import frappe
 import pytest
 
 from budget.integrations import cn_approval_source as source
-from budget.tests.test_cn_approvals import sample
+from budget.tests.test_cn_approvals import field, sample
 from deeplinkerp_branding.services import oa_sync_policy as policy
 
 START = datetime(2026, 11, 25, 1, tzinfo=timezone.utc)
@@ -123,6 +123,26 @@ def test_legacy_snapshot_and_changed_template_configuration_require_full_baselin
 		current, reader = scan([row], previous=previous, templates=[config], now=START + timedelta(minutes=5))
 		assert "updated_after" not in reader.call_args.kwargs
 		assert current["_refresh"]["full_templates"]
+
+
+def test_department_amount_parser_upgrade_rebuilds_unchanged_cached_approvals(scan, monkeypatch):
+	row, template = sample()
+	row["form_component_values"].append(field("TableField_1T6MS9XEQUE80", [{"rowValue": [
+		{"key": "MoneyField_D5PL7PJDHD40", "label": "分摊金额", "value": "100"}]}], "TableField"))
+	with monkeypatch.context() as old_version:
+		old_version.setattr(source, "SNAPSHOT_VERSION", 5)
+		old_key = source.cache_key("url", [template])
+		baseline, _ = scan([row])
+	# The old parser stored a missing total even though the raw approval was valid.
+	baseline["rows"][0].update(detail_total=None, issues=["detail_amount"])
+	before = deepcopy(baseline)
+	assert source.cache_key("url", [template]) != old_key
+	current, reader = scan([row], previous=baseline, now=START + timedelta(minutes=5))
+	assert "updated_after" not in reader.call_args.kwargs
+	assert current["_refresh"]["full_templates"] == [template]
+	assert current["rows"][0]["detail_total"] == "100.00" and current["rows"][0]["issues"] == []
+	assert current["sync_fingerprints"] == baseline["sync_fingerprints"]
+	assert baseline == before
 
 
 def test_accumulated_delta_cannot_exceed_local_snapshot_bound(scan, monkeypatch):

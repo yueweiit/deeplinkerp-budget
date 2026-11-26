@@ -894,3 +894,61 @@ Reporting Line Fingerprint,Huella de la línea del informe
 Reporting Line Details,Detalles de la línea del informe
 Historical MX Exception,Excepción histórica de MX
 Exchange Rates Checked At,Fecha de verificación de tipos de cambio
+Additional header fields,Otros campos de cabecera
+Allocation amount currency,Moneda del importe distribuido
+Apply to template draft,Aplicar al borrador de plantilla
+Budget item,Partida presupuestaria
+Budget snapshot,Resumen del presupuesto
+CNY (legacy default),CNY (valor predeterminado anterior)
+Choose fields from up to 3 sample approvals. The mapping is shared by this template and is saved with OA settings.,Seleccione campos de hasta 3 solicitudes de muestra. La plantilla comparte esta asignación y se guarda con la configuración de OA.
+Choose one detail table with populated sample rows to configure its fields.,Seleccione una tabla con filas de muestra para configurar sus campos.
+Configure field mapping,Configurar asignación de campos
+Current binding,Asignación actual
+Department allocation details,Detalle de distribución por departamento
+Department or entity,Departamento o entidad
+Detail amount,Importe del detalle
+Detail note,Nota del detalle
+Duplicate or unauthorized approval template,Plantilla de aprobación duplicada o no autorizada
+Expense category,Categoría de gasto
+Expense details,Detalle de gastos
+Header fields,Campos de cabecera
+Header total,Total de cabecera
+Keep current binding,Mantener asignación actual
+Logistics category,Categoría de logística
+Mapping applied to draft. Save OA settings to persist it.,Asignación aplicada al borrador. Guarde la configuración de OA para conservarla.
+Mapping changed. Preview again to check rows and totals.,La asignación cambió. Revise otra vista previa de las filas y los totales.
+No sample approvals found; save this template disabled first,No hay solicitudes de muestra; guarde primero esta plantilla deshabilitada
+Office budget details,Detalle del presupuesto de oficina
+Office expense details,Detalle de gastos de oficina
+Operating budget details,Detalle del presupuesto operativo
+Operating category,Categoría de gastos operativos
+Payroll details,Detalle de nómina
+Personnel budget details,Detalle del presupuesto de personal
+Personnel category,Categoría de gastos de personal
+Preview mapping,Vista previa de la asignación
+Preview the changed mapping before applying it.,Revise la vista previa de la asignación modificada antes de aplicarla.
+Processor details,Detalle de proveedores de procesamiento
+Purchase category,Categoría de compra
+Purchase items,Detalle de artículos de compra
+Quantity,Cantidad
+Same as header currency,Igual que la moneda de cabecera
+Sample validation passed,Validación de la muestra correcta
+Sample {0},Muestra {0}
+Sample {0}: mapped detail field missing or ambiguous: {1} / {2},Muestra {0}: campo de detalle ausente o ambiguo: {1} / {2}
+Sample {0}: mapped field missing or ambiguous: {1},Muestra {0}: campo asignado ausente o ambiguo: {1}
+Sample {0}: unmapped detail table: {1},Muestra {0}: tabla de detalle sin asignación: {1}
+Selling category,Categoría de gastos de venta
+Services category,Categoría de gastos de servicios
+Showing the first 20 rows; totals include all rows.,Se muestran las primeras 20 filas; los totales incluyen todas las filas.
+Social contribution details,Detalle de aportaciones sociales
+Tax category,Categoría de impuestos
+Template sample exceeds the preview limit.,Las muestras de la plantilla superan el límite de vista previa.
+Template sample structure is invalid. Review the OA template.,La estructura de la muestra no es válida. Revise la plantilla de OA.
+Total amount,Importe total
+Unavailable,No disponible
+Unavailable in current samples,No disponible en las muestras actuales
+Unit price,Precio unitario
+Use default binding,Usar asignación predeterminada
+Used budget snapshot,Resumen del presupuesto utilizado
+Utilities category,Categoría de servicios públicos
+{0} detail rows,{0} filas de detalle

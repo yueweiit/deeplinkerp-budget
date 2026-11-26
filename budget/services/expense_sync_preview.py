@@ -9,7 +9,7 @@ from deeplinkerp_branding.services.regional_expenses import application_date_inf
 from . import cn_approval_contract as contract, cn_approval_settings as settings
 
 
-def preview(row, business_timezone, corporations, processors):
+def template_configs(row, business_timezone, corporations, processors):
 	try:
 		ZoneInfo(business_timezone)
 	except (ValueError, TypeError, ZoneInfoNotFoundError):
@@ -27,6 +27,11 @@ def preview(row, business_timezone, corporations, processors):
 				templates[processor] = mx.templates.normalize(item, require_finance=False)
 			except (ValueError, TypeError):
 				frappe.throw(_("Invalid approval template"))
+	return templates
+
+
+def preview(row, business_timezone, corporations, processors):
+	templates = template_configs(row, business_timezone, corporations, processors)
 	url, allowed = mx.http.configuration()
 	if row["corp_id"] not in allowed:
 		frappe.throw(_("Duplicate or unauthorized approval template"))
@@ -41,7 +46,7 @@ def preview(row, business_timezone, corporations, processors):
 		if "mx" in templates:
 			source, lines = mx.projection.project(raw, templates["mx"], business_timezone, include_finance=False)
 			problems = {issue for line in lines for issue in line["base_issues"]}
-			applied, date_state = application_date_info(raw)
+			applied, date_state = application_date_info(raw, templates["mx"])
 			applied, _basis = management_date(applied, date_state, source.get("request_date"), allow_submission=True)
 			if not applied:
 				problems.add("period")

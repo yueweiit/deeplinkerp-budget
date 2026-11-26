@@ -287,3 +287,72 @@ Reporting Line Details,Reporting Line Details
 Historical MX Exception,Historical MX Exception
 Exchange Rates Checked At,Exchange Rates Checked At
 Currency,Currency
+Additional header fields,Additional header fields
+Allocation amount currency,Allocation amount currency
+Apply to template draft,Apply to template draft
+Budget item,Budget item
+Budget snapshot,Budget snapshot
+CNY (legacy default),CNY (legacy default)
+Choose fields from up to 3 sample approvals. The mapping is shared by this template and is saved with OA settings.,Choose fields from up to 3 sample approvals. The mapping is shared by this template and is saved with OA settings.
+Choose one detail table with populated sample rows to configure its fields.,Choose one detail table with populated sample rows to configure its fields.
+Configure field mapping,Configure field mapping
+Current binding,Current binding
+Delivery date,Delivery date
+Department allocation details,Department allocation details
+Department or entity,Department or entity
+Description,Description
+Detail amount,Detail amount
+Detail note,Detail note
+Detail total,Detail total
+Duplicate or unauthorized approval template,Duplicate or unauthorized approval template
+Exchange rate,Exchange rate
+Expense category,Expense category
+Expense details,Expense details
+Header fields,Header fields
+Header total,Header total
+Keep current binding,Keep current binding
+Loading approvals…,Loading approvals…
+Logistics category,Logistics category
+Mapping applied to draft. Save OA settings to persist it.,Mapping applied to draft. Save OA settings to persist it.
+Mapping changed. Preview again to check rows and totals.,Mapping changed. Preview again to check rows and totals.
+No sample approvals found; save this template disabled first,No sample approvals found; save this template disabled first
+Office budget details,Office budget details
+Office expense details,Office expense details
+Operating budget details,Operating budget details
+Operating category,Operating category
+Payee,Payee
+Payment terms,Payment terms
+Payroll details,Payroll details
+Payroll type,Payroll type
+Personnel budget details,Personnel budget details
+Personnel category,Personnel category
+Planned payment date,Planned payment date
+Preview mapping,Preview mapping
+Preview the changed mapping before applying it.,Preview the changed mapping before applying it.
+Processor details,Processor details
+Production type,Production type
+Purchase category,Purchase category
+Purchase items,Purchase items
+Quantity,Quantity
+Request type,Request type
+Same as header currency,Same as header currency
+Sample validation passed,Sample validation passed
+Sample {0},Sample {0}
+Sample {0}: mapped detail field missing or ambiguous: {1} / {2},Sample {0}: mapped detail field missing or ambiguous: {1} / {2}
+Sample {0}: mapped field missing or ambiguous: {1},Sample {0}: mapped field missing or ambiguous: {1}
+Sample {0}: unmapped detail table: {1},Sample {0}: unmapped detail table: {1}
+Selling category,Selling category
+Services category,Services category
+Showing the first 20 rows; totals include all rows.,Showing the first 20 rows; totals include all rows.
+Social contribution details,Social contribution details
+Tax category,Tax category
+Template sample exceeds the preview limit.,Template sample exceeds the preview limit.
+Template sample structure is invalid. Review the OA template.,Template sample structure is invalid. Review the OA template.
+Total amount,Total amount
+Unavailable,Unavailable
+Unavailable in current samples,Unavailable in current samples
+Unit price,Unit price
+Use default binding,Use default binding
+Used budget snapshot,Used budget snapshot
+Utilities category,Utilities category
+{0} detail rows,{0} detail rows

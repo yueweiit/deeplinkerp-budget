@@ -9,6 +9,7 @@ from decimal import Decimal
 
 from deeplinkerp_branding.services import mexico_expense_templates as templates
 from deeplinkerp_branding.services import mexico_expense_classification as classification
+from deeplinkerp_branding.services import expense_template_mapping as bindings
 from deeplinkerp_branding.services.mexico_expense_contract import exact_amount, approval_status, organization_id
 from deeplinkerp_branding.services.mexico_expense_projection import text
 
@@ -81,7 +82,8 @@ def approval_finished_at(raw):
 		return None
 
 
-def _table(field, family, issues, *, is_amount):
+def _table(field, family, issues, *, is_amount, department_allocation=False, template=None, table_kind=None, header_currency=None):
+	template = template or {}
 	try:
 		rows = decode(field.get("value"), [])
 		if not isinstance(rows, list) or len(rows) > 2000:
@@ -91,15 +93,36 @@ def _table(field, family, issues, *, is_amount):
 			cells = row.get("rowValue")
 			if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
 				raise ValueError()
+			if bindings.missing_children(template, table_kind, cells):
+				issues.append("structure")
 			cell = lambda prefixes: pick(cells, prefixes=prefixes, issues=issues).get("value")
+			def mapped(role, fallback):
+				if bindings.child_configured(template, table_kind, role):
+					return bindings.child(template, table_kind, role, cells).get("value")
+				return fallback()
 			visible = [{"label": text(c.get("label")), "value": text(c.get("value"))[:2000]}
 				for c in cells if c.get("label") and not text(c.get("key")).startswith("TextNote") and c.get("value") not in (None, "")]
-			value = (cell(("人民币金额", "Monto en yuanes")) if family == "budget" else cell(("金额", "总金额", "Monto", "Importe"))) if is_amount else None
+			if is_amount and department_allocation:
+				value = bindings.child(template, table_kind, "amount", cells, *templates.ALLOCATION_AMOUNT_FIELD).get("value")
+			else:
+				value = mapped("amount", lambda: cell(("人民币金额", "Monto en yuanes")) if family == "budget" else cell(("金额", "总金额", "Monto", "Importe"))) if is_amount else None
 			output.append({"index": index + 1, "amount": amount(value), "cells": visible,
-				"label": text(cell(("明细项目", "预算明细", "部门", "Ítem", "Departamento"))),
-				"original_amount": amount(cell(("原币金额", "Monto en moneda"))) if is_amount else None,
-				"currency": currency(cell(("币种", "Moneda"))) if is_amount else None,
-				"exchange_rate": text(cell(("汇率", "Tipo de cambio", "Tasa de cambio"))) if is_amount else ""})
+				"label": text(mapped("label", lambda: cell(("明细项目", "预算明细", "部门", "Ítem", "Departamento")))),
+				"original_amount": amount(mapped("original_amount", lambda: cell(("原币金额", "Monto en moneda")))) if is_amount else None,
+				"currency": currency(mapped("currency", lambda: cell(("币种", "Moneda")))) if is_amount else None,
+				"exchange_rate": text(mapped("exchange_rate", lambda: cell(("汇率", "Tipo de cambio", "Tasa de cambio")))) if is_amount else ""})
+			if department_allocation:
+				output[-1]["amount_currency"] = bindings.allocation_currency(template, header_currency)
+			elif family == "operating" and (table_kind in bindings.decode(template)
+					or table_kind in bindings.decode(template).get("table_fields", {})):
+				output[-1]["amount_currency"] = header_currency
+			if bindings.child_configured(template, table_kind, "entity"):
+				owner = bindings.child(template, table_kind, "entity", cells)
+				from deeplinkerp_branding.services.mexico_expense_contract import _entity
+				label, multiple = _entity(owner.get("value"))
+				if not label or multiple:
+					issues.append("structure")
+				output[-1].update(entity=label, entity_id=organization_id(owner), label=label)
 		return output
 	except (ValueError, TypeError, AttributeError):
 		issues.append("structure")
@@ -120,18 +143,26 @@ def project(row, template):
 	if not isinstance(fields, list) or len(fields) > 500 or any(not isinstance(f, dict) for f in fields):
 		raise ValueError("Invalid approval fields")
 	issues = []
+	mapping = bindings.decode(template)
 	value = lambda ids=(), prefixes=(): pick(fields, ids, prefixes, issues=issues).get("value")
+	def mapped_field(key, ids=(), prefixes=()):
+		# Explicit bindings are authoritative, including invalid/missing targets.
+		# Only unmapped fields may use legacy prefix matching and its diagnostics.
+		if key in mapping:
+			return resolved.get(key, {})
+		return pick(fields, ids, prefixes, issues=issues)
 	if family == "budget":
-		total = amount(value(("MoneyField_1JA1U3NP3Q4G0", "MoneyField_NAO8CPC23000"), ("预算总金额", "Presupuesto Total")))
+		resolved, errors = templates.resolve(fields, template, schema=bindings.BUDGET_FIELDS)
+		issues.extend(errors)
+		total = amount(mapped_field("amount", ("MoneyField_1JA1U3NP3Q4G0", "MoneyField_NAO8CPC23000"), ("预算总金额", "Presupuesto Total")).get("value"))
 		unit = "CNY"
-		entity_field = pick(fields, ("DepartmentField-K0C3VCCH",), ("部门", "Departamento"), issues=issues)
+		entity_field = mapped_field("entity", ("DepartmentField-K0C3VCCH",), ("部门", "Departamento"))
 		entity = text(entity_field.get("value"))
-		period = iso_date(value(("DDDateField_RG3T9I5UX1S0",), ("预算月份", "Mes presupuestario")), month=True)
-		applied = iso_date(value(("DDDateField_TFZ1WT5RP9C0",), ("申请日期", "Fecha de solicitud")))
-		category = text(value(("DDSelectField_1Y8RI4CCPWN40",), ("预算类型", "Tipo de presupuesto")))
+		period = iso_date(mapped_field("budget_month", ("DDDateField_RG3T9I5UX1S0",), ("预算月份", "Mes presupuestario")).get("value"), month=True)
+		applied = iso_date(mapped_field("application_date", ("DDDateField_TFZ1WT5RP9C0",), ("申请日期", "Fecha de solicitud")).get("value"))
+		category = text(mapped_field("expense_type", ("DDSelectField_1Y8RI4CCPWN40",), ("预算类型", "Tipo de presupuesto")).get("value"))
 		path = [{"label": category}] if category else []
-		resolved = {}
-		description = text(value(("TextareaField_1JHTRP1E89TS0",), ("备注", "Observaciones")))
+		description = text(mapped_field("description", ("TextareaField_1JHTRP1E89TS0",), ("备注", "Observaciones")).get("value"))
 	else:
 		# CN scope comes from the configured corporation and template. Ignore
 		# legacy region bindings without changing the shared MX field resolver.
@@ -141,7 +172,7 @@ def project(row, template):
 		get = lambda key: resolved.get(key, {}).get("value")
 		total, unit, entity = amount(get("amount")), currency(get("currency")), text(get("entity"))
 		entity_field = resolved.get("entity") or {}
-		applied = iso_date(value(("DDDateField_29I59O630HUS", "DDDateField_B0K470VSL0O0"), ("申请日期", "Fecha de solicitud")))
+		applied = iso_date(mapped_field("application_date", *bindings.APPLICATION_DATE[:2]).get("value"))
 		period = applied[:7] if applied else None
 		path, errors = classification.extract({**row, "form_component_values": fields}, template)
 		issues.extend(errors)
@@ -165,14 +196,33 @@ def project(row, template):
 	if len([f.get("id") for f in fields if f.get("id")]) != len({f.get("id") for f in fields if f.get("id")}):
 		issues.append("structure")
 	tables = []
+	allocation_tables = set(ALLOCATION_TABLES)
+	allocation_id = None
+	if family == "operating":
+		# Follow the same explicit binding as the shared expense-line adapter.
+		allocation_tables.difference_update(templates.FIELDS["allocation_table"][0])
+		if allocation_id := resolved.get("allocation_table", {}).get("id"):
+			allocation_tables.add(allocation_id)
 	for field in fields:
 		if field.get("componentType") != "TableField" or not field.get("value"):
 			continue
 		is_amount = (field.get("id") in BUDGET_TABLES or any(text(field.get("name")).startswith(p)
-			for p in ("人资预算", "办公场地预算", "预算项目"))) if family == "budget" else field.get("id") in ALLOCATION_TABLES
-		rows = _table(field, family, issues, is_amount=is_amount)
+			for p in ("人资预算", "办公场地预算", "预算项目"))) if family == "budget" else field.get("id") in allocation_tables
+		table_kind = next((key for key, selected in resolved.items() if key.endswith("_table") and selected.get("id") == field.get("id")), None)
+		if family == "budget":
+			replaced = {identity for key in mapping if key in bindings.BUDGET_FIELDS and key.endswith("_table") for identity in bindings.BUDGET_FIELDS[key][0]}
+			if field.get("id") in replaced: is_amount = False
+			if table_kind in bindings.TABLE_ROLES["budget"]: is_amount = True
+		elif family == "operating" and table_kind in bindings.TABLE_ROLES[family] and (
+			table_kind in mapping or table_kind in mapping.get("table_fields", {})):
+			is_amount = True
+		rows = _table(field, family, issues, is_amount=is_amount,
+			department_allocation=bool(allocation_id and field.get("id") == allocation_id),
+			template=template, table_kind=table_kind, header_currency=unit)
 		tables.append({"label": text(field.get("name")), "source_table_id": field.get("id"), "group": BUDGET_TABLES.get(field.get("id")),
 			"is_amount": is_amount, "rows": rows})
+		if family == "budget" and table_kind in bindings.TABLE_ROLES["budget"]:
+			tables[-1]["group"] = {"hr_table": "hr", "budget_office_table": "office", "operation_table": "operation"}[table_kind]
 	monetary = [detail for table in tables if table["is_amount"] for detail in table["rows"]]
 	detail_total = None
 	if monetary:
@@ -180,7 +230,7 @@ def project(row, template):
 			issues.append("detail_amount")
 		else:
 			detail_total = str(sum((Decimal(detail["amount"]) for detail in monetary), Decimal(0)))
-			if unit != "CNY":
+			if any(detail.get("amount_currency", "CNY") != unit for detail in monetary):
 				issues.append("detail_currency")
 			elif total is not None and abs(Decimal(total) - Decimal(detail_total)) > Decimal("0.01"):
 				issues.append("detail_mismatch")
@@ -219,7 +269,7 @@ def project(row, template):
 		"amount": total, "currency": unit,
 		"category": category, "classification": [node["label"] for node in path],
 		"description": description[:12000], "facts": facts, "tables": tables, "detail_total": detail_total,
-		"detail_currency": "CNY" if monetary else None,
+		"detail_currency": next(iter({detail.get("amount_currency", "CNY") for detail in monetary})) if monetary and len({detail.get("amount_currency", "CNY") for detail in monetary}) == 1 else None,
 		"budget_snapshot": {key: amount(resolved.get(source, {}).get("value")) for key, source in
 			(("budget", "budget"), ("used", "budget_used"))}, "attachments": attachments[:100],
 		"issues": sorted(set(issues)), "updated_at": text(row.get("updated_at"))}

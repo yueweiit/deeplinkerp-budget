@@ -369,6 +369,31 @@ def legacy_dataset(monkeypatch, *, snapshot=True, companies=("A", "B")):
 	return stored
 
 
+@pytest.mark.parametrize("value,expected", [("2026-10-14", "2026-10-14"), ("", None), (None, None)])
+def test_legacy_manual_rows_use_explicit_template_date_without_submission_fallback(monkeypatch, value, expected):
+	import json
+	stored = legacy_dataset(monkeypatch)
+	source = frappe.get_all(mx.SOURCE, filters={"name": ["in", [stored[0].source]]})[0]
+	source.process_code = "PROC-custom"
+	source.raw_json = json.dumps({"form_component_values": [] if value is None else [
+		{"id": "DDDateField_custom", "componentType": "DDDateField", "value": value}]})
+	monkeypatch.setattr(mx, "_templates", lambda settings: [{"corp_id": "corp", "process_code": "PROC-custom",
+		"field_mapping": '{"application_date":["DDDateField_custom"]}', "enabled": 1, "last_sync_at": "2026-11-24"}])
+	rows, _context, _rules, _metadata = s.load()
+	assert len(rows) == 2 and all(row["application_date"] == expected for row in rows)
+	assert all(("period" in row["issues"]) is (expected is None) for row in rows)
+	assert [row.amount for row in stored] == ["30.00", "70.00"]
+
+
+def test_legacy_date_mapping_never_crosses_corporations(monkeypatch):
+	stored = legacy_dataset(monkeypatch)
+	source = frappe.get_all(mx.SOURCE, filters={"name": ["in", [stored[0].source]]})[0]
+	source.process_code = "PROC-custom"
+	monkeypatch.setattr(mx, "_templates", lambda settings: [{"corp_id": "foreign", "process_code": "PROC-custom",
+		"field_mapping": '{"application_date":["DDDateField_custom"]}'}])
+	assert all(row["application_date"] == source.request_date for row in s.load()[0])
+
+
 @pytest.mark.parametrize("mapped_company", ["A", "B"])
 def test_legacy_manual_approval_keeps_mapped_siblings_once_in_totals_details_and_export(monkeypatch, mapped_company):
 	stored = legacy_dataset(monkeypatch)

@@ -49,6 +49,12 @@ def preview_sync_template(template, business_timezone, template_defaults=None, p
 	return expense_sync_settings.preview_template(template, business_timezone, template_defaults, processing_mode)
 
 
+@frappe.whitelist(methods=["POST"])
+def inspect_sync_template(template, business_timezone, template_defaults=None, processing_mode="approval"):
+	from ..services import expense_sync_settings
+	return expense_sync_settings.inspect_template(template, business_timezone, template_defaults, processing_mode)
+
+
 @frappe.whitelist()
 def get_options():
 	service.approvals.require_reader()

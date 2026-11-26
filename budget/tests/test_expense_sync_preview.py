@@ -1,4 +1,6 @@
 """Unified previews read once and preserve date, identity and schema validation."""
+import json
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -101,3 +103,61 @@ def test_real_shared_parsers_accept_absent_application_date_with_oa_submission(m
 	assert result[0]["count"] == 1
 	assert s.contract.ISSUES["period"] not in result[0]["issues"]
 	read.assert_called_once()
+
+
+@pytest.mark.parametrize("table_id", ["TableField_1T6MS9XEQUE80", "TableField_copy"])
+@pytest.mark.parametrize("change,valid", [
+	("renamed", True), ("reference_amount", True), ("copied_column", True),
+	("ambiguous_label", False), ("unknown_label", False),
+	("blank_known_id", False), ("duplicate_id", False),
+])
+def test_department_amount_binding_agrees_in_both_parsers_and_unified_preview(monkeypatch, table_id, change, valid):
+	from .test_cn_approvals import field, sample
+	from deeplinkerp_branding.services import operating_expense_contract, regional_expense_contract
+
+	monkeypatch.setattr(operating_expense_contract, "_", lambda text: text)
+	monkeypatch.setattr(s, "_", lambda text: text)
+	raw, template = sample()
+	template["process_code"] = raw["process_code"] = "PROC-00000000-0000-0000-0000-000000000001"
+	template.update(template_name="Department allocation", field_mapping=json.dumps({"allocation_table": [table_id]}))
+	rows = []
+	for index, value in enumerate(("10.01", "20.02", "30.03", "39.94"), 1):
+		money = {"key": "MoneyField_D5PL7PJDHD40", "label": "金额（元）Monto (yuan)", "value": value}
+		cells = [{"key": "DepartmentField_1C2A4A8ZG8TC0", "label": "部门Departamento", "value": f"Department {index}"}, money]
+		if change == "renamed":
+			money["label"] = "分摊金额"
+		elif change == "reference_amount":
+			cells.append({"key": "MoneyField_reference", "label": "总金额（参考）", "value": "900"})
+		elif change in ("copied_column", "ambiguous_label", "unknown_label"):
+			money["key"] = "MoneyField_copy"
+			if change == "ambiguous_label":
+				cells.append({**money, "key": "MoneyField_other"})
+			elif change == "unknown_label":
+				money["label"] = "金额（待核对）"
+		elif change == "blank_known_id":
+			cells.append({**money, "key": "MoneyField_other"})
+			money["value"] = ""
+		elif change == "duplicate_id":
+			cells.append(dict(money))
+		rows.append({"rowNumber": str(index), "rowValue": cells})
+	raw["form_component_values"].append(field(table_id, json.dumps(rows), "TableField", "明细detalle"))
+	cn = s.contract.project(raw, template)
+	mx_source, mx_lines = s.mx.projection.project(raw, template, "Asia/Shanghai", include_finance=False)
+	if valid:
+		assert cn["detail_total"] == "100.00" and cn["issues"] == []
+		assert len(mx_lines) == 4 and all(not line["base_issues"] for line in mx_lines)
+		assert sum(Decimal(line["amount"]) for line in mx_lines) == Decimal(mx_source["total_amount"]) == 100
+	else:
+		assert cn["detail_total"] is None and "detail_amount" in cn["issues"]
+		assert any(regional_expense_contract.BLOCKING & set(line["base_issues"]) for line in mx_lines)
+	merged = {key: template[key] for key in ("corp_id", "process_code", "approval_type", "template_name")}
+	merged.update(application_fields=template["field_mapping"], expense_fields=template["field_mapping"])
+	monkeypatch.setattr(s.mx.http, "configuration", lambda: ("https://oa.invalid", [template["corp_id"]]))
+	read = Mock(return_value=([raw], {}))
+	monkeypatch.setattr(s.mx.http, "read_template_page", read)
+	result = s.preview(merged, "Asia/Shanghai", [template["corp_id"]], ("cn", "mx"))[0]
+	assert result["count"] == 1
+	assert (result["issues"] == []) is valid
+	if not valid:
+		assert s.contract.ISSUES["detail_amount"] in result["issues"]
+	read.assert_called_once_with("https://oa.invalid", template["corp_id"], template["process_code"], limit=3)
