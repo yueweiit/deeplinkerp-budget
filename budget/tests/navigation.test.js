@@ -26,7 +26,7 @@ const unifiedRoutes = {
     'mexico-expense-reports':'expense-analysis',
 };
 function navigation({enabled=true, unified=false, journal=false, search='', hash='', storage, tabs, retiredSidebars=[]}={}) {
-    const calls=[], nativeCalls=[];
+    const calls=[], nativeCalls=[], replacements=[];
     const listeners=new Map();
     const frappe={
         boot:{cn_budget_workbench:enabled,unified_expense_management:unified,expense_cash_journal:journal,
@@ -49,12 +49,16 @@ function navigation({enabled=true, unified=false, journal=false, search='', hash
         },
     };
     const context=vm.createContext({
-        frappe, window:{location:{search,hash},CustomFiltersDeskTabs:tabs,
+        frappe, window:{location:new URL('https://erp.example/desk/china-cash-journal/'+search+hash),
+            history:{state:{tab:'journal'},replaceState(state,title,url) {
+                replacements.push({state,url});
+                context.window.location=new URL(url,context.window.location);
+            }},CustomFiltersDeskTabs:tabs,
             addEventListener(name,listener) { listeners.set(name,listener); }},
         localStorage:storage || {getItem:()=>null}, URLSearchParams,
     });
     vm.runInContext(script,context);
-    return {context,frappe,calls,nativeCalls,
+    return {context,frappe,calls,nativeCalls,replacements,
         restoreTabs(controller) { listeners.get('custom-filters:desk-tabs-restored')?.({detail:controller}); }};
 }
 
@@ -361,17 +365,20 @@ test('authorized journal bookmarks repair retired sidebar without changing the j
     for (const sidebar of ['', 'China Operating Expenses', JSON.stringify('China Operating Expenses'), 'Expense Shortcuts']) {
         const params=new URLSearchParams({company:'A & B',currency:'MXN'});
         if (sidebar) params.set('sidebar',sidebar);
-        const {frappe,calls,context,nativeCalls}=navigation({unified:true,journal:true,
+        const {frappe,calls,context,nativeCalls,replacements}=navigation({unified:true,journal:true,
             search:'?'+params,hash:'#row',retiredSidebars:['expense shortcuts']});
-        assert.equal(frappe.router.re_route('china-cash-journal/'),true);
-        assert.equal(calls[0].route,'china-cash-journal');
-        assert.deepEqual(calls[0].options,{company:'A & B',currency:'MXN',sidebar:'Expense Management'});
-        assert.equal(calls[0].hash,'#row');
-        assert.equal(calls[0].flags.replace_route,true);
-        context.window.location.search='?'+new URLSearchParams({sidebar:JSON.stringify('Expense Management')});
-        assert.equal(frappe.router.re_route('china-cash-journal'),'native');
-        assert.equal(calls.length,1);
-        assert.equal(nativeCalls.length,1);
+        assert.equal(frappe.router.re_route('china-cash-journal/'),'native');
+        const {location, history}=context.window;
+        assert.equal(location.pathname,'/desk/china-cash-journal/');
+        assert.deepEqual(Object.fromEntries(location.searchParams),
+            {company:'A & B',currency:'MXN',sidebar:'Expense Management'});
+        assert.equal(location.hash,'#row');
+        assert.equal(replacements[0].state,history.state);
+        // Native push_state reenters routing synchronously and can drop route options.
+        assert.equal(calls.length,0);
+        assert.equal(frappe.router.re_route('china-cash-journal/'),'native');
+        assert.equal(nativeCalls.length,2);
+        assert.equal(replacements.length,1);
     }
 });
 

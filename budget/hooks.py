@@ -5,7 +5,11 @@ app_description = "预算与费用审批：钉钉开放平台接口 + OA 只读�
 app_email = "308642281@qq.com"
 app_license = "mit"
 
+auth_hooks = ["budget.services.bank_journal_access.restrict_import_request"]
+
 boot_session = ["budget.setup.boot_session", "budget.expense_navigation.boot"]
+
+page_js = {"china-cash-journal": "public/js/bank_journal.js"}
 
 app_include_js = [
 	"/assets/budget/js/budget_navigation.js",
@@ -51,3 +55,13 @@ doc_events = {
 # overrides/compose.budget-sync-cron.yaml）。同步入口均检查配置和启用状态；
 # 台账页面只读，不再因打开页面而自动入队。
 # CN 审批工作台独立使用上述 cron；页面可异步提交过期快照更新。
+
+after_install.append("budget.services.bank_journal_schema.install")
+after_migrate.append("budget.services.bank_journal_schema.install")
+doc_events["CN Cash Journal Entry"] = {
+    "validate": "budget.services.bank_journal_schema.guard",
+    "on_trash": "budget.services.bank_journal_schema.guard",
+}
+permission_query_conditions = {
+    "CN Cash Journal Entry": "budget.services.bank_journal_schema.active_filter",
+}

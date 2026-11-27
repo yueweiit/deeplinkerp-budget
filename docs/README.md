@@ -7,6 +7,7 @@
 
 | 模块 | 文档 | 状态 |
 | --- | --- | --- |
+| 银行日记账导入 | [AI 接口文档](bank-journal-api.md) · [OpenAPI 3.1](bank-journal.openapi.json) | CSV、Excel 与结构化明细 |
 | 审批对接（approval connector） | [modules/approval-connector/README.md](modules/approval-connector/README.md) | 只读链路已实现 |
 | 同上 · 时序与数据流 | [modules/approval-connector/workflow.md](modules/approval-connector/workflow.md) | — |
 

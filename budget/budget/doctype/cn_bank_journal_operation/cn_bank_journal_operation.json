@@ -1,0 +1,60 @@
+{
+ "doctype": "DocType",
+ "name": "CN Bank Journal Operation",
+ "module": "Budget",
+ "engine": "InnoDB",
+ "allow_rename": 0,
+ "track_changes": 0,
+ "field_order": [
+  "book",
+  "actor",
+  "operation",
+  "digest",
+  "prior_operation",
+  "changes",
+  "result_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "book",
+   "fieldtype": "Data",
+   "label": "Book",
+   "search_index": 1
+  },
+  {
+   "fieldname": "actor",
+   "fieldtype": "Data",
+   "label": "Operator"
+  },
+  {
+   "fieldname": "operation",
+   "fieldtype": "Data",
+   "label": "Operation"
+  },
+  {
+   "fieldname": "digest",
+   "fieldtype": "Data",
+   "label": "Request digest"
+  },
+  {
+   "fieldname": "prior_operation",
+   "fieldtype": "Data",
+   "label": "Previous operation"
+  },
+  {
+   "fieldname": "changes",
+   "fieldtype": "Long Text",
+   "label": "Undo information"
+  },
+  {
+   "fieldname": "result_json",
+   "fieldtype": "Long Text",
+   "label": "Operation result"
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "index_web_pages_for_search": 0
+}
