@@ -108,36 +108,49 @@ def get_options():
 	}
 
 
+def _lock_company_book(company, name):
+	frappe.get_doc("Company", company, for_update=True).check_permission("read")
+	return frappe.db.get_value(
+		BOOK, name, ["name", "opening", "opening_date"], as_dict=True, for_update=True
+	)
+
+
 @frappe.whitelist(methods=["POST"])
-def create_book(company, account, opening, opening_date):
+def create_book(company=None, account=None, opening=None, opening_date=None):
 	_doctype_permission("create")
+	if not isinstance(company, str) or not company.strip():
+		frappe.throw("请选择银行账簿所属公司。")
 	if company not in allowed_companies():
 		frappe.throw("没有此公司的权限。", frappe.PermissionError)
 	if not isinstance(account, str) or not account.strip() or len(account.strip()) > 140:
 		frappe.throw("请填写银行账户的账簿名称。")
 	account = account.strip()
-	amount = money(opening)
-	start = as_date(opening_date)
+	try:
+		amount = money(opening)
+	except ValueError:
+		frappe.throw("请提供明确的人民币期初余额，最多保留两位小数。")
+	try:
+		start = as_date(opening_date)
+	except ValueError:
+		frappe.throw("请填写有效的账簿启用日期（YYYY-MM-DD）。")
 	name = digest([company, account])
-	frappe.get_doc("Company", company, for_update=True).check_permission("read")
-	existing = frappe.db.get_value(
-		BOOK, name, ["name", "opening", "opening_date"], as_dict=True, for_update=True
-	)
-	if existing:
-		if money(existing.opening) != amount or str(existing.opening_date) != str(start):
-			frappe.throw("该账户已有账簿，期初设置不同。")
-	else:
-		frappe.get_doc(
-			dict(
-				doctype=BOOK,
-				company=company,
-				account=account,
-				opening=amount,
-				opening_date=start,
-				revision=0,
-				next_sequence=0,
-			)
-		).insert(ignore_permissions=True, set_name=name)
+	with _transaction():
+		existing = _lock_current_snapshot(lambda: _lock_company_book(company, name))
+		if existing:
+			if money(existing.opening) != amount or str(existing.opening_date) != str(start):
+				frappe.throw("该账户已有账簿，期初设置不同。")
+		else:
+			frappe.get_doc(
+				dict(
+					doctype=BOOK,
+					company=company,
+					account=account,
+					opening=amount,
+					opening_date=start,
+					revision=0,
+					next_sequence=0,
+				)
+			).insert(ignore_permissions=True, set_name=name)
 	return {"name": name, "book": name, "account": account, "company": company}
 
 
@@ -310,15 +323,13 @@ def _transaction():
 		raise
 
 
-def _locked_book(book, permission):
-	# With innodb_snapshot_isolation, concurrent requests may both have read
-	# native role metadata before the first acquires this lock. MariaDB reports
-	# 1020 if the preceding winner committed while this request was waiting.
-	# Only retry this first lock and only if the caller has no pending writes.
+def _lock_current_snapshot(acquire):
+	# MariaDB snapshot isolation can reject a locking read if another request
+	# committed after this transaction began. Retry only before any writes.
 	for attempt in range(3):
 		clean_transaction = not frappe.db.transaction_writes
 		try:
-			return authorize_book(book, permission, lock=True)
+			return acquire()
 		except frappe.QueryDeadlockError:
 			if not clean_transaction or attempt == 2:
 				raise
@@ -329,7 +340,7 @@ def _locked_book(book, permission):
 def _begin(book, permission, version, request_id, kind, payload):
 	if not isinstance(request_id, str) or not re.fullmatch(r"[0-9A-Za-z_-]{8,100}", request_id):
 		frappe.throw("操作标识无效，请刷新页面后重试。")
-	doc = _locked_book(book, permission)
+	doc = _lock_current_snapshot(lambda: authorize_book(book, permission, lock=True))
 	ident = digest([doc.name, frappe.session.user, request_id])
 	fingerprint = digest([kind, payload])
 	previous = frappe.db.get_value(OP, ident, ["digest", "result_json"], as_dict=True, for_update=True)

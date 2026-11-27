@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "DeepLinkERP 银行日记账导入",
-    "version": "1.0.0",
-    "description": "人民币银行日记账。先查询公司及账户，再预览和提交。读操作要求 CN Cash Journal Entry 读取权限和公司权限；提交还要求创建权限，匹配已有流水时需要修改权限。示例使用虚构数据。"
+    "version": "1.1.0",
+    "description": "人民币银行日记账。先查询公司及账户，可为获授权的公司创建缺少的账簿，再预览和提交。读操作要求 CN Cash Journal Entry 读取权限和公司权限；提交还要求创建权限，匹配已有流水时需要修改权限。示例使用虚构数据。"
   },
   "servers": [{"url": "https://deeplinkerp.com", "description": "DeepLinkERP"}],
   "security": [{"FrappeToken": []}],
@@ -12,7 +12,7 @@
       "get": {
         "operationId": "getJournalOptions",
         "summary": "列出可访问的公司和银行账簿",
-        "description": "按公司和账户名称定位同一条 books 记录，再使用其 name。查不到目标账簿时请财务确认。",
+        "description": "先从 companies 选择公司，再从该公司的 books 选择账户和账簿 ID。目标账户缺少账簿时，收集明确的期初资料后调用 createJournalBook。",
         "x-openai-isConsequential": false,
         "responses": {
           "200": {
@@ -22,6 +22,38 @@
                 "schema": {
                   "type": "object",
                   "properties": {"message": {"$ref": "#/components/schemas/Options"}},
+                  "required": ["message"]
+                }
+              }
+            }
+          },
+          "default": {"$ref": "#/components/responses/Failure"}
+        }
+      }
+    },
+    "/api/method/budget.api.bank_journal.create_book": {
+      "post": {
+        "operationId": "createJournalBook",
+        "summary": "创建指定公司的人民币银行日记账",
+        "description": "仅用于获授权的公司。使用银行原单或用户提供的账户名称、启用日期和该日交易前的期初余额。资料缺失时先补齐。已有同名账簿且期初设置相同会返回同一账簿，设置冲突时返回错误。用返回的 book 预览流水。",
+        "x-openai-isConsequential": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref": "#/components/schemas/CreateBookRequest"},
+              "example": {"company": "示例公司", "account": "示例银行基本户", "opening": "1000.00", "opening_date": "2026-11-01"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回新建或复用的账簿。",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {"message": {"$ref": "#/components/schemas/CreatedBook"}},
                   "required": ["message"]
                 }
               }
@@ -215,7 +247,28 @@
       }
     },
     "schemas": {
-      "BookId": {"type": "string", "minLength": 1, "description": "从 getJournalOptions 的 books[].name 原样复制的账簿 ID。"},
+      "BookId": {"type": "string", "minLength": 1, "description": "使用 getJournalOptions 的 books[].name 或 createJournalBook 返回的 book。"},
+      "CreateBookRequest": {
+        "type": "object",
+        "properties": {
+          "company": {"type": "string", "minLength": 1, "description": "getJournalOptions 的 companies 中选择的完整公司名称。"},
+          "account": {"type": "string", "minLength": 1, "maxLength": 140, "description": "在账簿中使用的银行账户名称。"},
+          "opening": {"$ref": "#/components/schemas/DecimalText", "description": "账簿启用日首笔交易前的人民币余额。明确为零时填写 0.00。"},
+          "opening_date": {"type": "string", "format": "date", "description": "有来源依据的账簿启用日。"}
+        },
+        "required": ["company", "account", "opening", "opening_date"],
+        "additionalProperties": false
+      },
+      "CreatedBook": {
+        "type": "object",
+        "properties": {
+          "name": {"$ref": "#/components/schemas/BookId"},
+          "book": {"$ref": "#/components/schemas/BookId"},
+          "company": {"type": "string"},
+          "account": {"type": "string"}
+        },
+        "required": ["name", "book", "company", "account"]
+      },
       "Month": {"type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$", "examples": ["2026-11"]},
       "DecimalText": {
         "type": "string",
