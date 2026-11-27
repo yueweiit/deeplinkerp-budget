@@ -40,7 +40,7 @@ def _current_month():
 	return str(today())[:7]
 
 
-def _read(filename, content_base64, mapping):
+def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=None):
 	if not isinstance(content_base64, str) or len(content_base64) > 4 * ((formats.MAX_BYTES + 2) // 3):
 		frappe.throw("请选择 6 MB 以内的银行流水文件")
 	if not isinstance(filename, str) or not filename or len(filename) > 255:
@@ -57,10 +57,18 @@ def _read(filename, content_base64, mapping):
 	if mapping is not None and (not isinstance(mapping, dict) or len(mapping) > len(formats.ALIASES)):
 		frappe.throw("列映射格式无效")
 	try:
-		parsed = formats.parse_statement(payload, filename, mapping)
+		parsed = formats.parse_statement(
+			payload,
+			filename,
+			mapping,
+			header_row=None if header_row == "" else header_row,
+			suggest_layout=suggest_layout,
+		)
 	except formats.StatementError as exc:
 		frappe.throw(str(exc))
-	return hashlib.sha256(payload).hexdigest(), parsed["mapping_used"], parsed
+	columns = parsed["mapping_used"]
+	binding = columns if parsed["header_row"] is None else [parsed["header_row"], columns]
+	return hashlib.sha256(payload).hexdigest(), binding, parsed
 
 
 def _sign(doc, input_type, content_hash, mapping, version):
@@ -101,9 +109,17 @@ def _preview(parsed, version, token):
 
 
 @frappe.whitelist(methods=["POST"])
-def preview_import(book, filename, content_base64, mapping=None):
-	doc = _store().authorize_book(book)
-	file_hash, mapping, parsed = _read(filename, content_base64, mapping)
+def preview_import(book, filename, content_base64, mapping=None, header_row=None, use_ai=None):
+	ai_requested = use_ai in (1, "1")
+	doc = _store().authorize_book(book, "create" if ai_requested else "read")
+	suggest_layout = None
+	if ai_requested:
+		from budget.services.bank_journal_ai import infer_layout
+
+		suggest_layout = infer_layout
+	file_hash, mapping, parsed = _read(
+		filename, content_base64, mapping, header_row=header_row, suggest_layout=suggest_layout
+	)
 	version = doc.revision
 	token = _sign(doc, Path(filename).suffix.lower(), file_hash, mapping, version) if _ready(parsed) else ""
 	return {
@@ -115,6 +131,10 @@ def preview_import(book, filename, content_base64, mapping=None):
 				"account_label",
 				"headers",
 				"suggested_mapping",
+				"mapping_used",
+				"header_row",
+				"mapping_source",
+				"ai_notice",
 				"needs_mapping",
 			)
 		},
@@ -124,10 +144,10 @@ def preview_import(book, filename, content_base64, mapping=None):
 
 @frappe.whitelist(methods=["POST"])
 def apply_import(
-	book, filename, content_base64, mapping=None, preview_id=None, version=None, request_id=None
+	book, filename, content_base64, mapping=None, preview_id=None, version=None, request_id=None, header_row=None
 ):
 	doc = _store().authorize_book(book)
-	file_hash, mapping, parsed = _read(filename, content_base64, mapping)
+	file_hash, mapping, parsed = _read(filename, content_base64, mapping, header_row=header_row)
 	if (
 		not _ready(parsed)
 		or version is None
