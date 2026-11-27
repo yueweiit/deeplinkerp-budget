@@ -94,7 +94,10 @@
   function readFilters(search) {
     let incoming;
     try {
-      incoming = JSON.parse(new URLSearchParams(search).get("expense_filters"));
+      incoming = new URLSearchParams(search).get("expense_filters");
+      // Native Desk anchor clicks serialize query values once more than bookmarks.
+      for (let depth = 0; depth < 2 && typeof incoming === "string"; depth++)
+        incoming = JSON.parse(incoming);
     } catch {
       /* Use defaults for malformed bookmarks. */
     }

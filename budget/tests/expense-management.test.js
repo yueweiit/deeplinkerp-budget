@@ -1,5 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
 global.frappe = {
   datetime: { get_today: () => "2026-11-24" },
   format: (value, options = {}) => ["Currency", "Float"].includes(options.fieldtype)
@@ -34,6 +37,46 @@ test("current month defaults and corrupt bookmarks cannot break the month picker
     );
   }
   assert.equal(readFilters("?expense_filters=%7Bbroken").company, "");
+});
+
+test("native Desk anchor navigation preserves all drilldown filters after route serialization", () => {
+  const expected = {month: "2026-10", company: "A & B + 中国", region: "cn", category: "salary",
+    source_category: "b".repeat(64), measure: "approved"};
+  let anchorClick;
+  const jquery = () => ({on: (event, selector, handler) => {anchorClick = handler;}});
+  jquery.isArray = Array.isArray;
+  jquery.isPlainObject = value => value != null && Object.prototype.toString.call(value) === "[object Object]";
+  jquery.map = (values, callback) => values.flatMap((value, index) => {
+    const result = callback(value, index);
+    return result == null ? [] : [result];
+  });
+  const context = {URLSearchParams, $: jquery, location: new URL("https://expense.test/desk/expense-analysis"),
+    frappe: {provide() {}, utils: {make_event_emitter() {}}, after_ajax: callback => callback()},
+    localStorage: {getItem: () => null}, addEventListener() {}, setTimeout: callback => callback()};
+  context.window = context;
+  context.history = {pushState: (_state, _title, url) => {context.location = new URL(url, context.location);}};
+  vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../../../frappe/frappe/public/js/frappe/router.js"), "utf8"), context);
+  context.frappe.router.route = () => {};
+  context.frappe.router.show_external_link_warning_if_needed = () => false;
+  const target = new URL("/desk/expense-details?expense_filters=" + encodeURIComponent(JSON.stringify(expected)), context.location);
+  anchorClick({currentTarget: {hostname: target.hostname, pathname: target.pathname, search: target.search, hash: "",
+    getAttribute: name => name === "href" ? target.href : null}, preventDefault() {}});
+  // Execute Frappe's actual click handler and router, rather than only checking
+  // the arguments passed to set_route. A native anchor encodes the JSON again.
+  const encoded = new URLSearchParams(context.location.search).get("expense_filters");
+  assert.equal(typeof JSON.parse(encoded), "string");
+  assert.deepEqual(readFilters(context.location.search), expected);
+});
+
+test("nested filter decoding stays bounded and rejects malformed or non-object input", () => {
+  const defaults = readFilters("");
+  for (const value of ["{broken", "[]", "null", "123", JSON.stringify("{broken"),
+    JSON.stringify(JSON.stringify(JSON.stringify({company: "Too deeply nested"})))]) {
+    assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(value)), defaults);
+  }
+  const value = JSON.stringify(JSON.stringify({company: "A", region: "mx", view: "review", amount: "999"}));
+  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(value)), {...defaults, company: "A", region: "mx"});
 });
 
 test("local amount preserves cents and unavailable currency is not zero", () => {
