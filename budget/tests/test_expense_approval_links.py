@@ -305,3 +305,26 @@ def test_source_preview_is_absent_from_public_rows_and_stored_reporting_payloads
 	assert "original_expense" not in expense_management.public(row)
 	assert "original_expense" not in expense_report_store.pack(row)["detail_json"]
 	assert "Private original" not in str(expense_report_store.pack(row))
+
+
+def test_current_automatic_unverified_source_amount_is_visible_but_not_eligible(monkeypatch, runtime):
+	entries = [{"region": "mx", "company": "MX", "line_key": "header", "amount": "6400.00", "assignment_mode": "automatic"}]
+	row, record, _lines = shared_source(monkeypatch, runtime, entries=entries)
+	record.state = "stale"
+	record.facts_json = [{"currency": "MXN"}, [{"line_key": "header", "table_id": "header", "amount": "6400.00",
+		"currency": "MXN", "base_issues": ["total"]}]]
+	record.source_json = {"form_component_values": [{"id": "DDSelectField_1FEAISH1BZ4W0", "componentType": "DDSelectField", "value": "墨西哥Mexico"}]}
+	record.template_json = {}
+	row.update(amount=None, currency="MXN", issues=["regional_allocation", "total"])
+	result = links.original_context(row, runtime, {})["original_expense"]
+	assert result["amount"] == "6400.00" and result["unverified"]
+	assert result["execution_region"] == "墨西哥Mexico"
+	assert row["amount"] is None and "total" in row["issues"]
+	row["allocation_modified"] = "old"
+	assert links.original_context(row, runtime, {})["original_expense"] is None
+	row["allocation_modified"] = str(record.modified)
+	entries[0]["source_available"] = False
+	assert links.original_context(row, runtime, {})["original_expense"] is None
+	entries[0].pop("source_available")
+	entries[0].pop("assignment_mode")
+	assert links.original_context(row, runtime, {})["original_expense"] is None

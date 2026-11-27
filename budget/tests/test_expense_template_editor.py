@@ -35,6 +35,7 @@ def mapped_allocation(currency="CNY"):
 def no_io(monkeypatch):
 	monkeypatch.setattr(frappe, "throw", lambda message, *a: (_ for _ in ()).throw(frappe.ValidationError(message)))
 	monkeypatch.setattr(editor, "_", lambda message: message)
+	monkeypatch.setattr(editor.preview, "_", lambda message: message)
 	monkeypatch.setattr("deeplinkerp_branding.services.operating_expense_contract._", lambda message: message)
 
 
@@ -250,7 +251,7 @@ def test_inspect_requires_global_manager_before_reading_oa(monkeypatch):
 
 
 @pytest.mark.parametrize("bad", ["invalid", "duplicate", "missing"])
-def test_configured_date_remains_blocked_in_preview(bad):
+def test_configured_date_falls_back_when_missing_but_keeps_invalid_and_duplicate_dates(bad):
 	config, raw, _rows = mapped_allocation()
 	mapping = json.loads(config["field_mapping"]); mapping["application_date"] = ["DDDateField_new"]
 	config["field_mapping"] = json.dumps(mapping)
@@ -259,4 +260,6 @@ def test_configured_date_remains_blocked_in_preview(bad):
 	if bad != "missing": fields.append(field)
 	if bad == "duplicate": fields.append(copy.deepcopy(field))
 	result = editor.sample_preview(raw, {"cn": config, "mx": config}, "Asia/Shanghai", 1)
-	assert cn.ISSUES["period"] in result["issues"]
+	assert (cn.ISSUES["period"] in result["issues"]) is (bad != "missing")
+	if bad == "missing":
+		assert not any("mapped field missing or ambiguous: Application date" in issue for issue in result["issues"])

@@ -27,8 +27,14 @@ def original_context(row, context, rules):
 	if not resolved:
 		return {"approval_url": "", "original_expense": None}
 	kind, source, selected = resolved
-	return {"approval_url": mx._dingtalk_url(source),
-		"original_expense": original_expense(kind, source, selected, row)}
+	original = original_expense(kind, source, selected, row)
+	result = {"approval_url": mx._dingtalk_url(source), "original_expense": original}
+	if kind == "regional" and original:
+		from .expense_amount_review import preview
+		reconciliation = preview(source, row)
+		if reconciliation:
+			result["amount_reconciliation"] = reconciliation
+	return result
 
 
 def authorized_source(row, context, rules):

@@ -85,11 +85,49 @@
       <p class="em-muted">${esc(split ? t("Allocated into {0} detail lines", [original.split_count])
         : t(original.origin === "header" ? "From approval header" : "From approval detail"))}</p><dl>
       ${field("Original expense amount", amount(original.currency, original.amount))}
+      ${original.unverified ? field("Amount verification", esc(t(row.amount_reviewed
+        ? "Approval amount confirmed for reporting; original detail differences are retained."
+        : "Source amount recognized; excluded from verified expenditure until review is resolved."))) : ""}
       ${split ? field("Current detail amount", amount(row.currency, row.amount)) : ""}
       ${field("Original expense description", esc(original.description || "—"))}
       ${original.source_entity ? field("Source entity", esc(original.source_entity)) : ""}
+      ${original.execution_region ? field("Execution Region", esc(original.execution_region)) : ""}
       ${original.table_label ? field("Source table", esc(original.table_label)) : ""}
       ${original.row_number ? field("Source row", esc(original.row_number)) : ""}</dl></section>`;
+  }
+  function amountReconciliation(data) {
+    if (!data) return "";
+    const value = amount => `${esc(data.currency || "—")} ${textMoney(amount)}`;
+    const confirmed = data.review?.state === "confirmed";
+    const reviewedAt = data.review?.reviewed_at;
+    const tables = (data.tables || []).map(table => `<section class="em-amount-table">
+      <h5>${esc(table.label || t("Approval details"))}</h5>
+      <dl><dt>${esc(t("Detail total"))}</dt><dd>${value(table.total)}</dd>
+      <dt>${esc(t("Calculated detail total"))}</dt><dd>${value(table.calculated_total)}</dd>
+      <dt>${esc(t("Detail total minus approval amount"))}</dt><dd class="em-warning">${value(table.difference)}</dd></dl>
+      <div class="em-amount-rows"><table class="table"><thead><tr>${[
+        "Source row", "Quantity", "Unit price", "Detail amount", "Quantity × unit price", "Row difference"
+      ].map(label => `<th>${esc(t(label))}</th>`).join("")}</tr></thead><tbody>${(table.rows || []).map(row =>
+        `<tr class="${row.difference != null && Number(row.difference) !== 0 ? "em-amount-mismatch" : ""}">
+        <td>${esc(row.row_number)}</td><td>${esc(row.quantity ?? "—")}</td><td>${esc(row.unit_price ?? "—")}</td>
+        <td>${textMoney(row.amount)}</td><td>${textMoney(row.calculated_amount)}</td><td>${textMoney(row.difference)}</td></tr>`
+      ).join("")}</tbody></table></div></section>`).join("");
+    return `<section class="em-amount-review"><h4>${esc(t("Amount reconciliation"))}</h4>
+      <dl><dt>${esc(t("Approval amount"))}</dt><dd><strong>${value(data.header_amount)}</strong></dd></dl>
+      <p class="em-muted">${esc(t("Row difference is the detail amount minus quantity × unit price. All amounts below are in the original currency."))}</p>
+      ${tables}${data.review ? `<div class="em-amount-decision"><strong>${esc(t(confirmed
+        ? "Approval amount confirmed" : "Source changed; the previous amount confirmation is no longer valid"))}</strong>
+        <dl><dt>${esc(t("Adopted approval amount"))}</dt><dd>${esc(data.review.currency || data.currency)} ${textMoney(data.review.amount)}</dd>
+        <dt>${esc(t("Reviewed By"))}</dt><dd>${esc(data.review.reviewed_by)}</dd>
+        <dt>${esc(t("Reviewed At"))}</dt><dd>${esc(reviewedAt && root.frappe.datetime?.str_to_user
+          ? root.frappe.datetime.str_to_user(reviewedAt) : reviewedAt)}</dd>
+        <dt>${esc(t("Review Note"))}</dt><dd class="em-review-note">${esc(data.review.note)}</dd></dl></div>` : ""}
+      ${data.can_confirm ? `<label class="em-amount-note"><span>${esc(t("Reason for adopting the approval amount"))} *</span>
+        <textarea class="form-control" data-amount-note rows="3" maxlength="1000" required></textarea></label>
+        <p class="em-muted">${esc(t("Confirmation uses the approval amount for expense reports and preserves the original approval and detail amounts."))}</p>
+        <button type="button" class="btn btn-primary btn-sm" data-confirm-amount>${esc(t("Confirm using approval amount"))}</button>`
+        : !confirmed && data.unavailable_reason ? `<p class="em-muted">${esc(t(data.unavailable_reason))}</p>` : ""}
+      <p class="text-danger" data-amount-error role="alert"></p></section>`;
   }
   function readFilters(search) {
     let incoming;
@@ -129,7 +167,7 @@
       number / 12
     )}-${String((number % 12) + 1).padStart(2, "0")}`;
   }
-  function errorMessage(error) {
+  function errorMessage(error, fallback = "Expense data could not be loaded. Retry or check the source workbenches.") {
     try {
       const response = error?.responseJSON;
       if (["ValidationError", "PermissionError"].includes(response?.exc_type)) {
@@ -141,9 +179,7 @@
     } catch {
       /* Do not expose tracebacks or raw server errors. */
     }
-    return t(
-      "Expense data could not be loaded. Retry or check the source workbenches."
-    );
+    return t(fallback);
   }
   function table(headers, rows, empty = "No records in this month", count = null) {
     return `<div class="em-table-scroll"><table class="em-table"><thead><tr>${headers
@@ -609,19 +645,24 @@
       body.textContent = t("Loading expense data…");
       dialog.show();
       try {
-        const { row, approval_url, original_expense } = await this.call("get_detail", { key, filters });
+        const { row, approval_url, original_expense, amount_reconciliation } = await this.call("get_detail", { key, filters });
         if (!this.current() || token !== this.detailSeq) return;
         const path = sourceLabels(row);
-        body.innerHTML = `<div class="em-detail">${money(row.amounts, row.display_currency)}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
+        const headline = original_expense?.unverified
+          ? `<span class="em-money"><strong><span class="em-currency">${esc(original_expense.currency)}</span> ${textMoney(original_expense.amount)}</strong></span><p class="em-warning">${esc(t("Original expense amount"))} · ${esc(t("Needs review"))}</p>`
+          : money(row.amounts, row.display_currency);
+        body.innerHTML = `<div class="em-detail">${headline}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
           companyLabel(row)
         )}</dd><dt>${esc(t("Approval number"))}</dt><dd>${esc(
           row.number
-        )}</dd><dt>${esc(t("Application date"))}</dt><dd>${esc(
+        )}</dd><dt>${esc(t("Reporting region"))}</dt><dd>${esc(t(
+          ({cn: "China", mx: "Mexico", group: "Group"})[row.region] || "Region not configured"
+        ))}</dd><dt>${esc(t("Application date"))}</dt><dd>${esc(
           row.application_date || "—"
         )}</dd><dt>${esc(t("Date source"))}</dt><dd>${esc(
           t(
             row.date_basis === "submission"
-              ? "OA submission date"
+              ? "Approval creation date"
               : row.date_basis === "budget"
               ? "Budget month"
               : "Application date"
@@ -645,12 +686,43 @@
                 )
                 .join("")}</ul>`
             : ""
-        }${originalExpense(original_expense, row)}<div class="em-detail-actions">${typeof approval_url === "string" && /^dingtalk:\/\/dingtalkclient\/page\/link\?url=/.test(approval_url)
+        }${originalExpense(original_expense, row)}${amountReconciliation(amount_reconciliation)}<div class="em-detail-actions">${typeof approval_url === "string" && /^dingtalk:\/\/dingtalkclient\/page\/link\?url=/.test(approval_url)
           ? `<a class="btn btn-primary btn-sm" href="${esc(approval_url)}" rel="noopener noreferrer">${esc(t("Open Original in DingTalk"))}</a>`
           : `<span class="text-muted">${esc(t("Original approval link is unavailable"))}</span>`}</div></div>`;
+        body.querySelector?.("[data-confirm-amount]")?.addEventListener("click", () =>
+          this.confirmAmount(key, amount_reconciliation, dialog, body));
+        body.querySelector?.("[data-amount-note]")?.addEventListener("input", () => {
+          body.querySelector("[data-amount-error]").textContent = "";
+        });
       } catch (error) {
         if (this.current() && token === this.detailSeq)
           body.textContent = errorMessage(error);
+      }
+    }
+    async confirmAmount(key, data, dialog, body) {
+      const submit = body.querySelector("[data-confirm-amount]"),
+        input = body.querySelector("[data-amount-note]"),
+        error = body.querySelector("[data-amount-error]");
+      if (!data?.can_confirm || !submit || submit.disabled || this.dialog !== dialog || !this.current()) return;
+      const note = input.value.trim();
+      error.textContent = "";
+      if (!note) {
+        error.textContent = t("A review note is required");
+        input.focus();
+        return;
+      }
+      submit.disabled = input.disabled = true;
+      try {
+        await this.call("confirm_approval_amount", {key, source_key: data.source_key,
+          expected_revision: data.revision, expected_fingerprint: data.fingerprint, note});
+        if (this.dialog === dialog) dialog.hide();
+        root.frappe.show_alert({message: t("Approval amount confirmed. Expense reports are being updated."), indicator: "green"});
+        if (this.current()) await this.load();
+      } catch (failure) {
+        if (this.current() && this.dialog === dialog)
+          error.textContent = errorMessage(failure, "Amount confirmation failed. Reload the approval and retry.");
+      } finally {
+        submit.disabled = input.disabled = false;
       }
     }
     policy() {
@@ -661,7 +733,7 @@
         "Expenses without a source name are reported under Group in CNY. Group is a reporting scope, not a Company record; original currencies are retained.",
         "Shares and comparisons are calculated within each region. Companies without a supported country are not included in regional totals.",
         "Approved expenses by application month; approval does not confirm payment.",
-        "MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.",
+        "Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.",
         "Only verified subsidiary or Group allocations and amounts enter approved expenditure. Invalid or undated expenses remain in Data Review.",
         "OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.",
         "CNY and MXN are converted independently from original amounts using the application month-start rate.",
@@ -771,5 +843,5 @@
       if (action === "retry") return this.load();
     }
   }
-  return { Workbench, money, readFilters, shiftMonth, errorMessage, sourceLabels, ROUTES };
+  return { Workbench, money, readFilters, shiftMonth, errorMessage, sourceLabels, amountReconciliation, ROUTES };
 });

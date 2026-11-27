@@ -17,6 +17,7 @@ const {
   money,
   readFilters,
   shiftMonth,
+  amountReconciliation,
 } = require("../public/js/expense_management.js");
 
 test("current month defaults and corrupt bookmarks cannot break the month picker", () => {
@@ -301,6 +302,7 @@ test("allocated detail distinguishes original expense from selected amount and e
   global.frappe.ui = {Dialog: class {
     constructor() {body = {}; this.fields_dict = {body: {$wrapper: [body]}};}
     show() {}
+    hide() {}
   }};
   try {
     const work = Object.create(Workbench.prototype);
@@ -316,6 +318,11 @@ test("allocated detail distinguishes original expense from selected amount and e
     assert.match(body.innerHTML, /Source row<\/dt><dd>4/);
     assert.match(body.innerHTML, /&lt;img/);
     assert.doesNotMatch(body.innerHTML, /<img/);
+    work.call = async () => ({row: {number: "approval", amount_reviewed: true,
+      amounts: {}, rates: {}, issues: []}, original_expense: {amount: "6400.00", currency: "MXN", unverified: true}});
+    await work.detail("reviewed");
+    assert.match(body.innerHTML, /Approval amount confirmed for reporting/);
+    assert.doesNotMatch(body.innerHTML, /excluded from verified expenditure/);
   } finally {global.frappe.ui = previous;}
 });
 
@@ -452,4 +459,96 @@ test("an obsolete response cannot clear a newer request's loading state", async 
   assert.equal(await second, true);
   assert.equal(work.loading, false);
   assert.equal(work.data.company, "A");
+});
+
+test("unverified source amount and execution location remain distinct from reporting region", async () => {
+  const previous = global.frappe.ui;
+  let body;
+  global.frappe.ui = {Dialog: class {
+    constructor() {body = {}; this.fields_dict = {body: {$wrapper: [body]}};}
+    show() {}
+  }};
+  try {
+    const work = Object.create(Workbench.prototype);
+    Object.assign(work, {detailSeq: 0, filters: {}, view: "review", options: {}, current: () => true,
+      call: async () => ({row: {number: "approval", company: "A", region: "cn", display_currency: "CNY",
+        amount: null, currency: "MXN", amounts: {CNY: null}, rates: {}, issues: ["total"]},
+        original_expense: {origin: "header", amount: "6400.00", currency: "MXN", split_count: 1,
+          unverified: true, execution_region: "Mexico<script>bad</script>"}})});
+    await work.detail("a");
+    assert.match(body.innerHTML, /Original expense amount<\/dt><dd>MXN 6,?400\.00/);
+    assert.match(body.innerHTML, /excluded from verified expenditure/);
+    assert.match(body.innerHTML, /Reporting region<\/dt><dd>China/);
+    assert.match(body.innerHTML, /Execution Region<\/dt><dd>Mexico&lt;script&gt;/);
+    assert.doesNotMatch(body.innerHTML, /<script>/);
+  } finally {global.frappe.ui = previous;}
+});
+
+function amountEvidence() {
+  return {source_key: "source", revision: "revision", fingerprint: "fingerprint", can_confirm: true,
+    currency: "MXN", header_amount: "6400.00", tables: [{label: '<img src=x onerror="bad()">', total: "6401.00",
+      calculated_total: "6400.00", difference: "1.00", rows: [
+        {row_number: "1", quantity: "4710", unit_price: "0.64", amount: "3015.00", calculated_amount: "3014.40", difference: "0.60"},
+        {row_number: "2", quantity: "1200", unit_price: "0.6400", amount: "768.00", calculated_amount: "768.00", difference: "0.00"}]}]};
+}
+
+test("amount reconciliation shows exact header, details and row differences with escaped evidence", () => {
+  const data = amountEvidence();
+  const html = amountReconciliation(data);
+  assert.match(html, /6,?400\.00/);
+  assert.match(html, /6,?401\.00/);
+  assert.match(html, /0\.60/);
+  assert.match(html, /0\.6400/);
+  assert.equal((html.match(/class="em-amount-mismatch"/g) || []).length, 1);
+  assert.match(html, /data-confirm-amount/);
+  assert.match(html, /maxlength="1000" required/);
+  assert.doesNotMatch(html, /<img/);
+  data.can_confirm = false;
+  data.review = {state: "confirmed", amount: "6400.00", currency: "MXN", note: "<script>unsafe</script>", reviewed_by: "Manager", reviewed_at: "2026-11-27"};
+  assert.doesNotMatch(amountReconciliation(data), /data-confirm-amount|<script>/);
+  assert.match(amountReconciliation(data), /Approval amount confirmed/);
+  data.review.state = "stale";
+  data.can_confirm = true;
+  assert.match(amountReconciliation(data), /Source changed; the previous amount confirmation is no longer valid/);
+  assert.match(amountReconciliation(data), /data-confirm-amount/);
+});
+
+test("confirmation requires a reason, sends only server identities and prevents duplicate clicks", async () => {
+  const request = pending(), calls = [], alerts = [];
+  const submit = {disabled: false}, input = {value: "   ", focus() {this.focused = true;}}, error = {};
+  const elements = {"[data-confirm-amount]": submit, "[data-amount-note]": input, "[data-amount-error]": error};
+  const body = {querySelector: key => elements[key]}, dialog = {hide() {this.hidden = true;}};
+  const work = Object.create(Workbench.prototype);
+  Object.assign(work, {dialog, current: () => true, load: async () => {work.reloaded = true;},
+    call: (method, args) => {calls.push({method, args}); return request.promise;}});
+  const oldAlert = global.frappe.show_alert;
+  global.frappe.show_alert = value => alerts.push(value);
+  try {
+    await work.confirmAmount("line", amountEvidence(), dialog, body);
+    assert.equal(calls.length, 0);
+    assert.equal(error.textContent, "A review note is required");
+    input.value = " Verified amount ";
+    const saving = work.confirmAmount("line", amountEvidence(), dialog, body);
+    assert(submit.disabled && input.disabled);
+    await work.confirmAmount("line", amountEvidence(), dialog, body);
+    assert.deepEqual(calls, [{method: "confirm_approval_amount", args: {key: "line", source_key: "source",
+      expected_revision: "revision", expected_fingerprint: "fingerprint", note: "Verified amount"}}]);
+    request.resolve({ok: true});
+    await saving;
+    assert(dialog.hidden && work.reloaded && alerts.length === 1);
+    assert(!submit.disabled && !input.disabled);
+  } finally {global.frappe.show_alert = oldAlert;}
+});
+
+test("failed confirmation preserves the reason and shows an error without a success message", async () => {
+  const submit = {disabled: false}, input = {value: "Checked the approval"}, error = {};
+  const elements = {"[data-confirm-amount]": submit, "[data-amount-note]": input, "[data-amount-error]": error};
+  const body = {querySelector: key => elements[key]}, dialog = {hide() {assert.fail("must stay open");}};
+  const work = Object.create(Workbench.prototype);
+  Object.assign(work, {dialog, current: () => true, call: async () => {throw {responseJSON: {
+    exc_type: "ValidationError", _server_messages: JSON.stringify([JSON.stringify({message: "Source changed"})])}};}});
+  await work.confirmAmount("line", amountEvidence(), dialog, body);
+  assert.equal(error.textContent, "Source changed");
+  assert.equal(input.value, "Checked the approval");
+  assert(!submit.disabled && !input.disabled);
 });

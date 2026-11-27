@@ -36,8 +36,8 @@ def test_both_adapters_use_one_bounded_sample_without_duplicate_counting_or_fina
 	assert [call.args[0] for call in preview.cn.call_args_list] == [call.args[0] for call in preview.mx.call_args_list]
 
 
-@pytest.mark.parametrize("value,issue", [(None, False), ("", True), ("invalid", True), ("2026-11-02", False)])
-def test_only_absent_application_date_can_use_submission_date(preview, value, issue):
+@pytest.mark.parametrize("value,issue", [(None, False), ("", False), ("invalid", True), ("2026-11-02", False)])
+def test_absent_or_blank_application_date_can_use_creation_date(preview, value, issue):
 	for row in preview.raw:
 		row["form_component_values"] = [] if value is None else [
 			{"id": "DDDateField_B0K470VSL0O0", "componentType": "DDDateField", "name": "申请日期", "value": value}]
@@ -75,7 +75,7 @@ def test_empty_sample_explains_disabled_first_workflow(preview):
 @pytest.mark.parametrize("fields,submitted,valid", [
 	([], "2026-11-01", True),
 	([], None, False),
-	([{"name": "申请日期", "value": ""}], "2026-11-01", False),
+	([{"name": "申请日期", "value": ""}], "2026-11-01", True),
 	([{"name": "申请日期", "value": "invalid"}], "2026-11-01", False),
 	([{"name": "申请日期", "value": "2026-11-01"},
 	  {"name": "申请日期", "value": "2026-10-01"}], "2026-11-01", False),
@@ -85,13 +85,15 @@ def test_shared_preview_uses_effective_date_policy_without_hiding_other_issues(p
 	preview.mx.return_value[0]["request_date"] = submitted
 	for raw in preview.raw:
 		raw["form_component_values"] = fields
+		raw["create_time"] = submitted + "T18:00:00Z" if submitted else None
 	result = s.preview(preview.row, "America/Mexico_City", ["corp"], processors)[0]
-	assert (s.contract.ISSUES["period"] in result["issues"]) is not (valid and "mx" in processors)
+	assert (s.contract.ISSUES["period"] in result["issues"]) is not valid
 	assert s.contract.ISSUES["currency"] in result["issues"]
 
 
 @pytest.mark.parametrize("kind", ["operating", "purchase"])
-def test_real_shared_parsers_accept_absent_application_date_with_oa_submission(monkeypatch, kind):
+@pytest.mark.parametrize("processors", [("cn",), ("cn", "mx")])
+def test_real_parsers_accept_absent_application_date_with_approval_creation(monkeypatch, kind, processors):
 	from test_mexico_expense_templates import sample
 	template, raw = sample(kind)
 	row = {key: template[key] for key in ("corp_id", "process_code", "approval_type", "template_name")}
@@ -99,7 +101,7 @@ def test_real_shared_parsers_accept_absent_application_date_with_oa_submission(m
 	read = Mock(return_value=([raw], {}))
 	monkeypatch.setattr(s.mx.http, "read_template_page", read)
 	assert "period" in s.contract.project(raw, template)["issues"]  # Original CN semantics stay strict.
-	result = s.preview(row, "America/Mexico_City", [row["corp_id"]], ("cn", "mx"))
+	result = s.preview(row, "America/Mexico_City", [row["corp_id"]], processors)
 	assert result[0]["count"] == 1
 	assert s.contract.ISSUES["period"] not in result[0]["issues"]
 	read.assert_called_once()

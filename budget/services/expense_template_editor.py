@@ -9,7 +9,7 @@ from frappe import _
 from deeplinkerp_branding.services import expense_template_mapping as bindings
 from deeplinkerp_branding.services import mexico_expense_templates as templates
 from . import expense_sync_preview as preview
-from deeplinkerp_branding.services.regional_expenses import application_date_info, management_date
+from deeplinkerp_branding.services.regional_expenses import application_date_info, management_date, management_application_date
 
 HEADER_LABELS = {
 	"entity": "Expense-bearing entity", "amount": "Total amount", "currency": "Currency",
@@ -79,6 +79,8 @@ def sample_preview(raw, configs, timezone, index):
 		if not applied: issues.add(preview.contract.ISSUES["period"])
 	if "cn" in configs:
 		cn = preview.contract.project(raw, configs["cn"])
+		if configs["cn"]["approval_type"] != "budget" and "mx" not in configs:
+			applied, _basis = management_application_date(raw, configs["cn"], timezone)
 		issues.update(preview.contract.ISSUES[key] for key in cn["issues"] if key != "period" or not applied)
 		if source is None:
 			source = {"total_amount": cn["amount"], "currency": cn["currency"]}
@@ -91,6 +93,8 @@ def sample_preview(raw, configs, timezone, index):
 		for key, ids in bindings.decode(config).items():
 			if key in bindings.RESERVED: continue
 			if not resolved.get(key):
+				if key == "application_date" and config["approval_type"] != "budget" and applied:
+					continue
 				issues.add(_("Sample {0}: mapped field missing or ambiguous: {1}").format(index, _(HEADER_LABELS.get(key, key))))
 		bound = {field.get("id"): key for key, field in resolved.items() if key.endswith("_table") and field}
 		for field in fields:

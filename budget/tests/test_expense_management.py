@@ -280,13 +280,14 @@ def test_unclassified_budget_keeps_amounts_without_comparisons_or_alerts(monkeyp
 	assert exported[5:] == [None, None]
 
 
-def test_export_regional_currency_and_formula_strings_remain_literal(monkeypatch):
+@pytest.mark.parametrize("basis,label", [("application", "Application date"), ("submission", "Approval creation date")])
+def test_export_regional_currency_and_formula_strings_remain_literal(monkeypatch, basis, label):
 	import base64
 	from io import BytesIO
 	from openpyxl import load_workbook
 	from budget.api import expenses as api
 	monkeypatch.setattr(api,"_",lambda value:value)
-	dataset(monkeypatch,[line("=TEST()")])
+	dataset(monkeypatch,[line("=TEST()", date_basis=basis)])
 	result=api.export_data({"view":"details"})
 	sheet=load_workbook(BytesIO(base64.b64decode(result["content"]))).active
 	rows=list(sheet.values)
@@ -296,7 +297,7 @@ def test_export_regional_currency_and_formula_strings_remain_literal(monkeypatch
 	assert row[header.index("Reported amount")] == 100
 	assert row[header.index("Reporting currency")] == "CNY"
 	assert "Amount in MXN" not in header
-	assert row[header.index("Date source")] == "Application date"
+	assert row[header.index("Date source")] == label
 
 
 def test_budget_export_is_company_matrix_and_preserves_missing_budget(monkeypatch):
@@ -425,12 +426,13 @@ def legacy_dataset(monkeypatch, *, snapshot=True, companies=("A", "B")):
 	return stored
 
 
-@pytest.mark.parametrize("value,expected", [("2026-10-14", "2026-10-14"), ("", None), (None, None)])
-def test_legacy_manual_rows_use_explicit_template_date_without_submission_fallback(monkeypatch, value, expected):
+@pytest.mark.parametrize("value,expected", [("2026-10-14", "2026-10-14"), ("", "2026-11-10"), (None, "2026-11-10"), ("invalid", None)])
+def test_legacy_manual_rows_use_application_date_or_creation_date(monkeypatch, value, expected):
 	import json
 	stored = legacy_dataset(monkeypatch)
 	source = frappe.get_all(mx.SOURCE, filters={"name": ["in", [stored[0].source]]})[0]
 	source.process_code = "PROC-custom"
+	source.request_date = "2026-11-10"
 	source.raw_json = json.dumps({"form_component_values": [] if value is None else [
 		{"id": "DDDateField_custom", "componentType": "DDDateField", "value": value}]})
 	monkeypatch.setattr(mx, "_templates", lambda settings: [{"corp_id": "corp", "process_code": "PROC-custom",
@@ -448,6 +450,42 @@ def test_legacy_date_mapping_never_crosses_corporations(monkeypatch):
 	monkeypatch.setattr(mx, "_templates", lambda settings: [{"corp_id": "foreign", "process_code": "PROC-custom",
 		"field_mapping": '{"application_date":["DDDateField_custom"]}'}])
 	assert all(row["application_date"] == source.request_date for row in s.load()[0])
+
+
+@pytest.mark.parametrize("kind", ["operating", "purchase"])
+@pytest.mark.parametrize("date_value", [None, "", "invalid", "2026-11-03"])
+@pytest.mark.parametrize("timezone,created_day", [("Asia/Shanghai", "2026-11-01"), ("America/Mexico_City", "2026-10-31")])
+def test_retained_native_expenses_use_creation_date_without_changing_snapshot(monkeypatch, kind, date_value, timezone, created_day):
+	from budget.services import cn_approval_contract as contract
+	from budget.tests.test_cn_approvals import sample, field
+	from deeplinkerp_branding.services import expense_template_mapping as bindings
+	raw, template = sample(kind)
+	raw["create_time"] = "2026-11-01T00:30:00Z"
+	fields = raw["form_component_values"]
+	fields[:] = [item for item in fields if item["id"] not in bindings.APPLICATION_DATE[0]]
+	if date_value is not None:
+		fields.append(field(bindings.APPLICATION_DATE[0][0], date_value, "DDDateField", "申请日期"))
+	native = contract.project(raw, template)
+	before = deepcopy(native)
+	monkeypatch.setattr(s.approvals, "require_reader", lambda: None)
+	monkeypatch.setattr(s.approvals, "access_context", lambda: {
+		"manager": True, "companies": {"A"}, "known_companies": {"A"}, "aliases": {}})
+	monkeypatch.setattr(automatic, "ensure_rebuild", lambda: False)
+	monkeypatch.setattr(automatic, "legacy_manual_identities", set)
+	monkeypatch.setattr(s.regional, "installed", lambda: True)
+	monkeypatch.setattr(s.regional, "management_projection", lambda *a, **k: (set(), []))
+	monkeypatch.setattr(cn_approval_history, "read_snapshot", lambda: {"rows": [native], "has_snapshot": True})
+	monkeypatch.setattr(s.settings, "management_rules", rules.defaults)
+	monkeypatch.setattr(mx, "_settings", lambda: frappe._dict(business_timezone=timezone, config_version="v1"))
+	monkeypatch.setattr(mx, "_templates", lambda _: [])
+	rows = s.load()[0]
+	expected = None if date_value == "invalid" else date_value or created_day
+	assert rows and all(row["application_date"] == expected for row in rows)
+	assert all(row["month"] == (expected[:7] if expected else None) for row in rows)
+	assert all(("period" in row["issues"]) is (expected is None) for row in rows)
+	if date_value in (None, ""):
+		assert all(row["date_basis"] == "submission" for row in rows)
+	assert native == before
 
 
 @pytest.mark.parametrize("mapped_company", ["A", "B"])

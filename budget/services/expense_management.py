@@ -33,7 +33,7 @@ ISSUES.pop("management_category", None)
 VIEWS = {"overview", "analysis", "budget", "details", "review"}
 PUBLIC = ("key", "company", "number", "application_date", "month", "kind", "status",
 	"management_category", "source_path", "source_category_key", "description", "line_label", "amount", "currency", "issues",
-	"amounts", "rates", "rate_date", "eligible", "budget_state", "date_basis", "is_group_expense")
+	"amounts", "rates", "rate_date", "eligible", "budget_state", "date_basis", "is_group_expense", "amount_reviewed")
 
 
 def filters(values=None):
@@ -69,10 +69,21 @@ def load():
 	templates = mx._templates(mx_settings)
 	group_sources = group_mappings.lookup(group_mappings.read(), {row.get("corp_id") for row in templates})
 	identities, allocated = regional.management_projection(context, include_legacy=False,
-		submission_fallback=True, management_rules=rules, group_unassigned=True, group_sources=group_sources)
+		submission_fallback=True, management_rules=rules, group_unassigned=True, group_sources=group_sources, amount_reviews=True)
 	legacy_ids = automatic.legacy_manual_identities()
 	native = [row for row in snapshot["rows"] if row["kind"] == "budget"
 		or (row["corp_id"], row["process_instance_id"]) not in identities | legacy_ids]
+	# Retained/native expenses follow the same policy as shared allocations.
+	# Work on copies; keep the stored approval and the old CN APIs unchanged.
+	for index, row in enumerate(native):
+		if row["kind"] == "budget" or row.get("application_date") or not row.get("_routing_source"):
+			continue
+		routing = row["_routing_source"]
+		applied, basis = regional.management_application_date(routing["row"], routing["template"],
+			mx_settings.business_timezone or "America/Mexico_City")
+		if applied:
+			native[index] = {**row, "application_date": applied, "month": applied[:7], "date_basis": basis,
+				"issues": [issue for issue in row["issues"] if issue != "period"]}
 	rows = management.analytical_lines(native, context, rules) + allocated
 	for row in rows:
 		if row["kind"] != "budget" and not row.get("regional_allocation"):
@@ -185,7 +196,7 @@ def normalize(row):
 	row["source_path"] = path
 	row["source_category_key"] = hashlib.sha256(json.dumps([row.get("kind"), path], ensure_ascii=False).encode()).hexdigest() if path else "missing"
 	# Financial-approval period is irrelevant to this view. It remains intact
-	# in the MX reconciliation API. The explicit application date is required.
+	# in the MX reconciliation API. The effective reporting date is required.
 	original = set(row.get("original_issues") or []) & (BLOCKING - {"period", "allocation", "organization"})
 	row["issues"] = sorted(set(row["issues"]) | original)
 	if not row.get("company") and not group:
