@@ -18,6 +18,11 @@ from budget.services import expense_reporting as reporting
 from budget.services import cn_approval_management_rules as rules
 
 
+@pytest.fixture(autouse=True)
+def group_settings(monkeypatch):
+	monkeypatch.setattr(legacy.group_mappings, "read", lambda **kwargs: [])
+
+
 def line(key, **values):
 	return legacy.normalize({"key": key, "source_key": key, "company": "A", "number": key,
 		"month": "2026-11", "application_date": "2026-11-10", "kind": "operating", "status": "approved",
@@ -292,6 +297,28 @@ def test_group_budget_is_missing_without_hiding_valid_spending(database, monkeyp
 	service = reporting if backend == "sql" else legacy
 	metrics = service.query({"company": legacy.regions.GROUP_COMPANY, "view": "budget"})["budgets"][0]["metrics"]["CNY"]
 	assert metrics["budget"] is None and metrics["approved"] == "60.00" and metrics["balance"] is None
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
+@pytest.mark.parametrize("manager", [True, False])
+def test_named_group_assignment_keeps_source_company_for_permissions_but_uses_group_for_reporting(database, monkeypatch, backend, manager):
+	seed, _ = database
+	seed([line("ordinary"), line("named-group", company="A", entity="CEO office", amount="60", _group_mapping=True)],
+		companies=("A",), manager=manager)
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	service = reporting if backend == "sql" else legacy
+	result = service.query()
+	assert result["summary"]["amounts"]["CNY"] == ("160.00" if manager else "100.00")
+	assert service.query({"company": "A", "view": "details"})["total"] == 1
+	assert service.query({"region": "cn", "view": "details"})["total"] == 1
+	if manager:
+		selected = service.query({"company": legacy.regions.GROUP_COMPANY, "view": "details"})
+		assert selected["total"] == 1 and selected["rows"][0]["company"] == "A"
+		assert selected["rows"][0]["display_currency"] == "CNY"
+		assert selected["rows"][0]["is_group_expense"] == 1
+		assert service.detail("named-group", {"company": legacy.regions.GROUP_COMPANY})["row"]["company"] == "A"
+		assert service.export_rows({"company": "A"})[0][0]["key"] == "ordinary"
 
 
 @pytest.mark.parametrize("backend", ["sql", "snapshot"])
@@ -734,6 +761,10 @@ def test_current_oa_corporation_scope_invalidates_published_reports(monkeypatch,
 		"settings_version": "cn-v1", "allocation_revision": "unchanged", "has_snapshot": True,
 		"status": "success", "allocation_rebuilding": False})
 	before = refresh.live_revision()
+	with monkeypatch.context() as group_change:
+		group_change.setattr(legacy.group_mappings, "read", lambda **kwargs: [{"match_kind": "organization", "corp_id": "corp-A", "source_name": "CEO"}])
+		changed = refresh.live_revision()
+		assert changed["policy"] != before["policy"] and changed["versions"] == before["versions"]
 	assert regional.records() == [record]
 	state = {"publication": "p1", "data_revision": before["data"], "policy_revision": before["policy"],
 		"rates_checked_at": datetime(2026, 11, 25, 10), "built_at": datetime(2026, 11, 25, 10), "fx_missing": 0,

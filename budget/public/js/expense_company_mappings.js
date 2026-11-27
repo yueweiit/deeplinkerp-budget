@@ -27,7 +27,7 @@
       this.candidates = new Map();
     }
     companies() {
-      return this.saved.companies;
+      return this.saved.mapping_targets || this.saved.companies;
     }
     items() {
       const current = new Map(this.rows.map(row => [key(row), row]));
@@ -116,7 +116,7 @@
         <div class="em-mapping-filters">
           <label><span>${esc(t("Search mappings"))}</span><input class="form-control" type="search" data-mapping-role="search" placeholder="${esc(t("Source name or subsidiary"))}"></label>
           <label><span>${esc(t("Source type"))}</span><select class="form-control" data-mapping-role="kind"><option value="">${esc(t("All source types"))}</option>${Object.entries(KINDS).map(([value, label]) => `<option value="${value}">${esc(t(label))}</option>`).join("")}</select></label>
-          <label><span>${esc(t("Subsidiary"))}</span><select class="form-control" data-mapping-role="company">${this.options([...this.saved.companies, GROUP_COMPANY], "", "All subsidiaries")}</select></label>
+          <label><span>${esc(t("Subsidiary"))}</span><select class="form-control" data-mapping-role="company">${this.options([...new Set([...this.model.companies(), GROUP_COMPANY])], "", "All subsidiaries")}</select></label>
         </div>
         <div data-mapping-part="results"></div>`;
       this.render();
@@ -180,8 +180,8 @@
       return this.model.items().filter(item => {
         const matchTab = this.tab === "changes" ? item.dirty : this.tab === "mapped" ? item.mapped : !item.mapped && !item.removed;
         return matchTab && (!this.kind || item.row.match_kind === this.kind) &&
-          (!this.company || (this.company === GROUP_COMPANY ? item.group : item.row.company === this.company)) &&
-          (!query || [item.row.source_name, item.row.company, item.group ? t("Group") : ""].some(value => String(value || "").toLocaleLowerCase().includes(query)));
+          (!this.company || (this.company === GROUP_COMPANY ? item.group || !item.removed && item.row.company === GROUP_COMPANY : item.row.company === this.company)) &&
+          (!query || [item.row.source_name, item.row.company, item.group || item.row.company === GROUP_COMPANY ? t("Group") : ""].some(value => String(value || "").toLocaleLowerCase().includes(query)));
       });
     }
     options(values, selected = "", empty = "Choose a subsidiary") {
@@ -206,7 +206,7 @@
       const error = Object.values(this.streams).some(stream => stream.error);
       const more = Object.values(this.streams).some(stream => !stream.done);
       const selectedRows = this.visible.filter(item => this.selected.has(item.key));
-      const choices = selectedRows.length ? this.saved.companies.filter(company => selectedRows.every(item => this.model.companies(item.row).includes(company))) : [];
+      const choices = selectedRows.length ? this.model.companies().filter(company => selectedRows.every(item => this.model.companies(item.row).includes(company))) : [];
       const disabled = this.isSaving() ? "disabled" : "";
       for (const role of ["search", "kind", "company"]) {
         const input = this.element.querySelector(`[data-mapping-role="${role}"]`);
@@ -289,9 +289,8 @@
           options: Object.entries(KINDS).map(([value, label]) => ({value, label: esc(t(label))})), formatter: value => esc(t(KINDS[value] || value))},
         {fieldname: "corp_id", label: t("Corporation ID"), fieldtype: "Select", reqd: 0, read_only: Boolean(item), default: row.corp_id, options: helpers.textOptions(this.saved.corporations), depends_on: "eval:doc.match_kind === 'organization'"},
         {fieldname: "source_name", label: t("Source name"), fieldtype: "Small Text", reqd: 1, read_only: Boolean(item), default: row.source_name},
-        {fieldname: "company", label: t("Subsidiary"), fieldtype: "Link", options: "Company", default: item?.removed ? "" : row.company,
-          // Native Link may validate its default while Dialog is constructing.
-          get_query: () => ({filters: {name: ["in", this.model.companies({match_kind: editor?.get_value("match_kind") || row.match_kind})]}})},
+        {fieldname: "company", label: t("Subsidiary"), fieldtype: "Select", default: item?.removed ? "" : row.company,
+          options: [{value: "", label: ""}, ...this.model.companies().map(value => ({value, label: esc(value === GROUP_COMPANY ? t("Group") : value)}))]},
         {fieldname: "advanced", label: t("Advanced settings"), fieldtype: "Section Break", collapsible: 1},
         {fieldname: "excluded", label: t("Keep outside legacy expense scope"), fieldtype: "Check", default: row.excluded, depends_on: "eval:doc.match_kind !== 'organization'"},
         {fieldname: "reason", label: t("Reason"), fieldtype: "Small Text", default: row.reason, depends_on: "eval:doc.excluded"},

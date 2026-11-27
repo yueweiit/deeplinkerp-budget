@@ -996,3 +996,4 @@ Regional totals use the subsidiary country; Group is reported separately. Missin
 Current period: {0} lines need review; {1} unverified lines excluded.,本期：{0} 条待核对，{1} 条未核实明细未计入。
 Previous period: {0} lines need review; {1} unverified lines excluded.,上期：{0} 条待核对，{1} 条未核实明细未计入。
 Some expenses in the comparison periods still need review.,比较期间仍有费用待核对。
+This source is assigned to Group. Change its ownership in Configure OA Synchronization.,此来源已归入集团，请在“配置 OA 同步”中修改归属。

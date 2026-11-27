@@ -53,6 +53,21 @@ test("candidate recommendations do not assign companies and duplicate pages cann
   assert.equal(rows[0].company, "MX 2");
 });
 
+
+test("named sources can use Group in batch, inline and manual editing without adding a Company", () => {
+  const targets={...saved,mapping_targets:[...saved.companies,"__expense_group__"]};
+  const rows=[row("CEO",{match_kind:"organization",corp_id:"corp-a"}),row("PMO",{match_kind:"department"})];
+  const model=new Model(rows,targets);
+  model.assign(rows.map(key),"__expense_group__");
+  assert(rows.every(item=>item.company==="__expense_group__"));
+  assert(model.items().every(item=>item.mapped&&!item.group));
+  model.put({match_kind:"entity",source_name:"Group costs",company:"__expense_group__"});
+  assert.equal(rows.length,3);
+  assert.deepEqual(saved.companies,["CN","MX","MX 2"]);
+  model.remove(key(rows[0]));model.undo(key(row("CEO",{match_kind:"organization",corp_id:"corp-a"})));
+  assert.equal(rows.find(item=>item.source_name==="CEO").company,"MX");
+});
+
 test("nameless source groups cannot partially apply a batch assignment", () => {
   for (const name of ["", "   ", null, undefined]) {
     const rows = [row("Existing")], before = structuredClone(rows), model = new Model(rows, saved);
@@ -352,14 +367,13 @@ test("readonly source kinds show translated labels while retaining stable form v
   } finally { global.frappe.ui = previous; global.__ = translate; }
 });
 
-test("native Link default validation can resolve company scope before the detail dialog is constructed", () => {
+test("native manual editor lists authorized reporting targets without resolving Group as a Company Link", () => {
   const previous = global.frappe.ui;
-  let initial, query;
+  let field;
   global.CNApprovalSettings = {textOptions: values => values};
   global.frappe.ui = {Dialog: class {
     constructor(options) {
-      query = options.fields.find(field => field.fieldname === "company").get_query;
-      initial = query();
+      field = options.fields.find(field => field.fieldname === "company");
     }
     get_value() { return "organization"; }
     show() {}
@@ -367,7 +381,8 @@ test("native Link default validation can resolve company scope before the detail
   try {
     const view = controller([row("Saved")]);
     view.edit(view.model.items()[0]);
-    assert.deepEqual(initial.filters.name, ["in", saved.companies]);
-    assert.deepEqual(query().filters.name, ["in", saved.companies]);
+    assert.equal(field.fieldtype, "Select");
+    assert.deepEqual(field.options.map(option=>option.value), ["", ...saved.companies]);
+    assert.equal(field.get_query, undefined);
   } finally { global.frappe.ui = previous; }
 });

@@ -58,6 +58,7 @@ def rate(currency, day):
 
 @pytest.fixture(autouse=True)
 def runtime(monkeypatch):
+	monkeypatch.setattr(s.group_mappings, "read", lambda **kwargs: [])
 	monkeypatch.setattr(s.regions, "company_regions", lambda context: {name: "mx" if name == "B" else "cn" for name in context["companies"]})
 	monkeypatch.setattr(s, "_", lambda value: value)
 	monkeypatch.setattr(s.regional, "_", lambda value: value)

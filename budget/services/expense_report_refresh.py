@@ -10,7 +10,7 @@ from frappe import _
 
 from . import expense_report_store as store
 
-VERSION = "expense-report-v7"
+VERSION = "expense-report-v9"
 JOB = "expense-report-refresh"
 TIMEOUT = 300
 
@@ -19,6 +19,7 @@ def live_revision():
 	from ..integrations import cn_approval_source as source, cn_approval_store as cn_store
 	from . import cn_approval_sync as cn, cn_approval_settings as settings
 	from .expense_sync import cn_revision
+	from . import expense_group_mappings
 	from deeplinkerp_branding.services import mexico_expenses as mx, regional_expense_automatic as automatic
 	url, templates = source.configuration()
 	# CN templates alone do not cover MX-only or retired corporations. A
@@ -34,6 +35,7 @@ def live_revision():
 	manual = frappe.db.sql("select max(reviewed_at) from `tabRegional Expense Allocation`")[0][0]
 	legacy = frappe.db.sql("select max(reviewed_at) from `tabMexico Expense Line`")[0][0]
 	policy = store.digest([VERSION, key, sorted(set(corps)), settings.version(), mx_settings.config_version,
+		expense_group_mappings.version(expense_group_mappings.read()),
 		automatic.configuration(mx_settings)["version"], str(manual or ""), str(legacy or "")])
 	line_version = frappe.db.sql("select max(modified), count(*) from `tabMexico Expense Line`")[0]
 	source_version = frappe.db.sql("select max(modified), count(*) from `tabMexico Expense Source`")[0]

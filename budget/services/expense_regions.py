@@ -2,8 +2,8 @@
 from decimal import Decimal
 
 import frappe
+from .expense_group_mappings import TARGET as GROUP_COMPANY
 
-GROUP_COMPANY = "__expense_group__"
 
 REGIONS = {
 	"cn": {"label": "China", "currency": "CNY", "country": "China"},
@@ -36,7 +36,7 @@ def allowed_company(company, context):
 
 
 def company_key(row):
-	return row.get("company") or (GROUP_COMPANY if row.get("is_group_expense") else "")
+	return GROUP_COMPANY if row.get("is_group_expense") else row.get("company") or ""
 
 
 def company_names(mapping, filters, groups=None):

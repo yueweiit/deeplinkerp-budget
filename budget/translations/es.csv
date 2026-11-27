@@ -996,3 +996,4 @@ Regional totals use the subsidiary country; Group is reported separately. Missin
 Current period: {0} lines need review; {1} unverified lines excluded.,Período actual: {0} líneas pendientes de revisión; {1} líneas no verificadas excluidas.
 Previous period: {0} lines need review; {1} unverified lines excluded.,Período anterior: {0} líneas pendientes de revisión; {1} líneas no verificadas excluidas.
 Some expenses in the comparison periods still need review.,Algunos gastos de los períodos comparados siguen pendientes de revisión.
+This source is assigned to Group. Change its ownership in Configure OA Synchronization.,Este origen está asignado al grupo. Cambie su asignación en Configurar sincronización de OA.
