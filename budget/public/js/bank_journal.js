@@ -498,6 +498,7 @@
             const primary=d.get_primary_btn();
             const showAction=(label,fn)=>{action(label,fn);primary.removeClass("hide");};
             let preview=null, data="", pendingBytes=null, revision=0, offset=0, readingOffset=null, selected=null, headerRow=null;
+            d.onhide=()=>{++revision;preview=null;};
             let edits={}, bookEdits={}, autoExclude=true;
             const bookFields=el.querySelector("[data-book-settings]");
             const bookInputs=Array.from(bookFields?.querySelectorAll("input[name],select[name]") || []);
@@ -525,16 +526,22 @@
             const newTarget=el.querySelector("[data-import-new]");
             newTarget?.addEventListener("click",()=>{check();d.hide();this.importDialog(true);});
             function showBookSettings(res) {
-                if(!bookFields)return;
+                if(!bookFields)return [];
                 bookFields.hidden=!res;
-                const issues=res?.book_issues||[];
+                const issues=[...(res?.book_issues||[])];
                 bookInputs.forEach(input=>{
                     const value=bookEdits[input.name] ?? res?.book_settings?.[input.name] ?? (input.name==="currency"?res?.currency:"") ?? "";
                     if(input.value!==String(value))input.value=String(value);
+                    if(input.name==="currency"){
+                        setOpeningUnit(bookFields,input.value);
+                        if(res && (!currencies.includes(input.value) || input.value!==res.currency) && !issues.some(issue=>issue.field==="currency")){
+                            issues.unshift({field:"currency",message:input.value?"请重新选择账簿币种。":"请选择账簿币种。"});
+                        }
+                    }
                     input.setAttribute("aria-invalid",String(issues.some(issue=>issue.field===input.name)));
-                    if(input.name==="currency")setOpeningUnit(bookFields,input.value);
                 });
                 bookFields.querySelector("[data-book-issues]").innerHTML=errorList(issues);
+                return issues;
             }
             if(bookFields){
                 const editBook=input=>{
@@ -546,6 +553,7 @@
                     if(!target.matches("select[name]"))return;
                     editBook(target);
                     setOpeningUnit(bookFields,target.value);
+                    return read(offset);
                 };
             }
             fileInput.onchange=()=>{
@@ -679,7 +687,6 @@
                     check();
                     headerRow=res.header_row ?? null;
                     selected=res.mapping_used || selected || res.suggested_mapping || null;
-                    showBookSettings(res);
                     if(autoExclude){
                         const proposed=res.excluded_source_rows || [];
                         if(res.excluded_count!=null && res.excluded_count!==proposed.length)throw Error("未取得完整的排除行号，请重试。");
@@ -717,6 +724,7 @@
                 const position=nextOffset===offset?[grid?.scrollTop||0,grid?.scrollLeft||0]:[0,0];
                 const rows=res.review_rows || [], total=res.review_total||0, pageSize=res.review_page_size||100;
                 const problems=res.error_count||0;
+                const bookIssues=showBookSettings(res);
                 const unit=newBook?bookFields.querySelector('[name="currency"]').value:currency;
                 const excludedCount=res.excluded_count??excludedRows.size;
                 const start=nextOffset+1, end=nextOffset+rows.length;
@@ -741,11 +749,24 @@
                     }
                 }
                 offset=nextOffset;
-                const confirmedCurrency=unit && unit===res.currency && (!newBook||currencies.includes(unit));
                 const replace=mode()==="replace_range";
-                if(confirmedCurrency && (!replace || res.impact) && !res.needs_mapping && !problems && !res.book_issues?.length && res.preview_id && res.row_count>0){
+                const issue=bookIssues.find(item=>item.field==="currency") || bookIssues[0];
+                const input=bookInputs.find(field=>field.name===issue?.field);
+                if(input){
+                    const labels={currency:"选择账簿币种",account:"核对银行账户名称",opening:"核对期初余额",opening_date:"核对启用日期"};
+                    showAction(labels[input.name],()=>input.focus());
+                }else if(res.needs_mapping || problems){
+                    const details=(res.needs_mapping?mappingBox:resultBox).querySelector("details");
+                    if(details)showAction(res.needs_mapping?"设置列对应":"查看需核对项",()=>{
+                        details.open=true;
+                        details.querySelector("summary").focus();
+                    });
+                }else if(unit && unit===res.currency && !bookIssues.length && (!replace || res.impact) && res.preview_id && res.row_count>0){
                     showAction(newBook?"建账并导入":replace?"确认覆盖这段日期":"确认新增流水",()=>apply(res));
-                }else showReadAction("重新校验");
+                }else{
+                    error(!res.row_count?"没有可导入的流水，请核对原表或已排除的行。":replace && !res.impact?
+                        "未取得覆盖范围，请核对文件或更换导入方式。":"无法确认导入预览，请重新选择文件。");
+                }
             }
             primary.addClass("hide");
         }

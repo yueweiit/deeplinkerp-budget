@@ -185,7 +185,9 @@ def book_settings(company, account, opening, opening_date, currency="CNY"):
 		issues.append({"field": "account", "message": "请填写银行账户的账簿名称。"})
 	account = account.strip() if isinstance(account, str) else ""
 	currency = currency.strip().upper() if isinstance(currency, str) else ""
-	if currency not in supported_currencies():
+	if not currency:
+		issues.append({"field": "currency", "message": "请选择账簿币种。"})
+	elif currency not in supported_currencies():
 		issues.append({"field": "currency", "message": "请选择 ERP 中已启用、使用两位小数的币种。"})
 	try:
 		amount = money(opening)
