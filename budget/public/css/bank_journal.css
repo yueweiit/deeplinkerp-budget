@@ -1,6 +1,6 @@
 .bj-workbench{color:var(--text-color,#383838);padding:8px 0 16px;font-size:var(--text-sm,13px);min-width:0}
 .bj-toolbar,.bj-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
-.bj-toolbar select,.bj-toolbar input,.bj-dialog :is(input:not([type=checkbox]),textarea,select){min-width:0;max-width:100%;padding:5px 9px;border:1px solid var(--border-color,#ededed);border-radius:var(--border-radius,6px);background:var(--control-bg,#f3f3f3);color:var(--text-color,#383838);font:inherit}
+.bj-toolbar select,.bj-toolbar input,.bj-dialog :is(input:not([type=checkbox],[type=radio]),textarea,select){min-width:0;max-width:100%;padding:5px 9px;border:1px solid var(--border-color,#ededed);border-radius:var(--border-radius,6px);background:var(--control-bg,#f3f3f3);color:var(--text-color,#383838);font:inherit}
 .bj-toolbar select{max-width:100%}.bj-actions>span{margin-inline-start:auto}
 .bj-totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--border-color,#ededed);border-radius:var(--border-radius,6px);padding:8px 0;margin:10px 0}
 .bj-totals>div{padding:0 12px;min-width:0}.bj-totals>div+div{border-left:1px solid var(--border-color,#ededed)}
@@ -44,12 +44,20 @@
 .bj-import-dialog .bj-import-file input{width:auto;max-width:100%;padding:3px 5px;background:transparent}
 .bj-import-file input::file-selector-button{padding:3px 8px;margin-inline-end:8px;border:0;border-radius:4px;background:var(--control-bg,#f3f3f3);color:var(--text-color,#383838);cursor:pointer}
 .bj-import-toolbar [data-mapping]:has(details[open]){width:100%}
+.bj-import-book{display:grid;grid-template-columns:minmax(160px,2fr) repeat(2,minmax(120px,1fr));gap:3px 12px;margin-bottom:8px}
+.bj-import-book[hidden],.bj-import-book [data-book-issues]:empty{display:none}
+.bj-import-book [data-book-issues]{grid-column:1/-1}
+.bj-import-book label{margin:0;font-size:var(--text-xs,11px)}
+.bj-import-book input{width:100%;height:29px}
+.bj-import-book [aria-invalid=true]{border-color:var(--red-300,#eeb9b9)}
+.bj-import-dialog:has(.bj-import-book:not([hidden])){--bj-import-book-space:60px}
+.bj-import-dialog:has(.bj-import-book .bj-error){--bj-import-book-space:100px}
 .bj-import-dialog :is(.bj-import-mapping,.bj-import-issues){margin:0;color:var(--text-muted,#525252)}
 .bj-import-mapping summary{padding:4px 7px;white-space:nowrap}
 .bj-import-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:6px 10px;padding:8px;border:1px solid var(--border-color,#ededed);border-radius:6px;background:var(--subtle-fg,#f8fafb)}
 .bj-import-columns label{gap:3px;margin:0;font-size:var(--text-xs,11px)}
 .bj-import-dialog .bj-import-columns select{width:100%;padding:4px;font-size:var(--text-sm,13px)}
-.bj-import-grid{max-height:max(146px,calc(100dvh - var(--bj-import-surrounding) - var(--bj-import-issue-space)));overflow:auto;scrollbar-width:thin;border:1px solid var(--border-color,#ededed);border-radius:6px}
+.bj-import-grid{max-height:max(146px,calc(100dvh - var(--bj-import-surrounding) - var(--bj-import-issue-space) - var(--bj-import-book-space,0px)));overflow:auto;scrollbar-width:thin;border:1px solid var(--border-color,#ededed);border-radius:6px}
 .bj-import-grid .bj-preview{margin:0}
 .bj-import-grid .bj-preview :is(th,td){height:31px;padding:2px 4px}
 .bj-import-grid .bj-preview thead th{position:sticky;top:0;z-index:1;font-weight:600;background:var(--subtle-fg,#f8fafb)}
@@ -76,6 +84,10 @@
  .bj-import-grid .bj-preview thead th:nth-child(n+4){width:68px}
 }
 @media(max-width:480px){
+ .bj-import-book{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 8px}
+ .bj-import-book label:first-child{grid-column:1/-1}
+ .bj-import-dialog:has(.bj-import-book:not([hidden])){--bj-import-book-space:112px}
+ .bj-import-dialog:has(.bj-import-book .bj-error){--bj-import-book-space:154px}
  .modal-dialog.bj-import-modal{width:calc(100% - 12px);margin:6px auto}
  .bj-import-modal .modal-content{max-height:calc(100dvh - 12px)}
  .bj-import-modal .modal-body{padding-inline:8px}
@@ -89,6 +101,12 @@
  .bj-import-dialog .bj-preview textarea:focus{height:46px;white-space:pre-wrap}
 }
 
+.bj-import-modes{display:flex;align-items:center;gap:6px 16px;flex-wrap:wrap;margin:4px 0 8px}
+.bj-import-modes label{display:inline-flex;flex-direction:row;align-items:center;gap:5px;margin:0;cursor:pointer;color:var(--text-color)}
+.bj-import-modes input[type=radio]{flex:none;margin:0}
+.bj-import-modes [data-import-new]{margin-inline-start:auto}
+.bj-range-notice{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px;padding:6px 8px;margin:4px 0;background:var(--alert-bg-warning,#fff7e8);color:var(--text-color);border-radius:4px}
+.bj-range-notice span{color:var(--text-muted);font-size:var(--text-xs,12px)}
 .bj-sync-dialog > :first-child{margin-top:0}
 .bj-sync-dialog > .bj-error:empty{display:none}
 .bj-sync-heading{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:10px 0 8px}

@@ -117,3 +117,36 @@ test("DingTalk inputs default to the cashier date and application amount", () =>
     assert.match(markup,/name="expense-2"[^>]*value="35.00"/);
     assert.doesNotMatch(markup,/\bchecked\b/);
 });
+
+test("a company without a bank book can open the common import preview", () => {
+    const {Workbench}=require("../public/js/bank_journal.js");
+    const app=Object.create(Workbench.prototype);
+    Object.assign(app,{el:{innerHTML:"",querySelector:()=>({})},opts:{can_create:true},
+        books:[],companies:["示例公司"],company:"示例公司",month:"2026-11",book:"",data:null});
+    app.render();
+    assert.match(app.el.innerHTML,/data-act="import-book"[^>]*>导入账簿/);
+    let opened=0;
+    app.importDialog=()=>{opened++;};
+    app.click({target:{closest:selector=>selector==="[data-act]"?{dataset:{act:"import-book"}}:null}});
+    assert.equal(opened,1);
+    app.opts.can_create=false;
+    app.render();
+    assert.doesNotMatch(app.el.innerHTML,/data-act="import-book"/);
+    app.opts.can_create=true;
+    app.company="";
+    app.render();
+    assert.doesNotMatch(app.el.innerHTML,/data-act="import-book"/);
+});
+
+test("selected books offer explicit append and date-range replacement in the same preview", () => {
+    const {Workbench, importModeFields, replacementNotice}=require("../public/js/bank_journal.js");
+    const app=Object.assign(Object.create(Workbench.prototype),{company:"A",book:"B",opts:{can_create:true},data:{},importDialog:newBook=>assert.equal(newBook,false)});
+    app.click({target:{closest:selector=>selector==="[data-act]"?{dataset:{act:"import-book"}}:null}});
+    const controls=importModeFields(true);
+    assert.match(controls,/value="append"/);assert.match(controls,/value="replace_range"/);
+    assert.doesNotMatch(controls,/\bchecked\b/);
+    assert.doesNotMatch(importModeFields(false),/value="replace_range"/);
+    const info=replacementNotice({start:"2026-11-05",end:"2026-11-20",old_count:3,new_count:2,
+        old_closing:"12.00",new_closing:"15.00",difference:"3.00"});
+    for(const value of ["2026-11-05","2026-11-20","3 笔","2 笔","12.00","15.00"])assert.ok(info.includes(value));
+});

@@ -112,3 +112,28 @@ def test_lock_retries_a_stale_snapshot_only_before_writing(monkeypatch, writes):
 		assert api._lock_current_snapshot(acquire) is existing
 		db.rollback.assert_called_once_with()
 		db.savepoint.assert_called_once_with("bank_journal_change")
+
+
+def test_replacement_impact_uses_inclusive_transaction_dates_and_prior_native_balance(monkeypatch):
+	from types import SimpleNamespace
+	from unittest.mock import Mock
+	import frappe
+	from budget.api import bank_journal as api
+
+	doc = SimpleNamespace(name="current")
+	old = [frappe._dict(name="a", direction="expense", amount=12)]
+	read = Mock(return_value=old)
+	prior = Mock(return_value=Decimal("90.00"))
+	monkeypatch.setattr(api, "_range_entries", read)
+	monkeypatch.setattr(api, "_prior", prior)
+	rows = [dict(date="2026-11-05", income="20.00", expense=None, balance=None, source_row=2),
+		dict(date="2026-11-20", income=None, expense="5.75", balance="104.25", source_row=3)]
+	impact, entries, issues = api.replacement_impact(doc, rows, None)
+	read.assert_called_once_with(doc, "2026-11-05", "2026-11-20")
+	prior.assert_called_once_with(doc, date(2026, 11, 5))
+	assert entries == old and not issues
+	assert impact == dict(start="2026-11-05", end="2026-11-20", old_count=1, new_count=2,
+		opening="90.00", old_closing="78.00", new_closing="104.25", difference="26.25")
+	rows[-1]["balance"] = "104.24"
+	assert api.replacement_impact(doc, rows, None)[2][0]["row"] == 3
+	assert api.replacement_impact(doc, rows, "0.00")[2][0]["field"] == "opening"

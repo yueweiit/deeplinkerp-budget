@@ -605,6 +605,33 @@ def _header_index(sheet, first, header_row):
 	return index
 
 
+def _statement_account(preamble):
+	# Only the bank's explicit own-account metadata above the transaction
+	# header is eligible. A counterparty column or a file name is not a book.
+	labels = {"银行账户名称": "name", "账簿名称": "name", "账户别名": "name", "开户银行": "bank",
+			  "开户行": "bank", "本方账号": "number", "银行账号": "number", "账号": "number"}
+	found = {"name": set(), "bank": set(), "number": set()}
+	for row in preamble:
+		for index, cell in enumerate(row):
+			if not isinstance(cell, str) or isinstance(cell, Formula):
+				continue
+			parts = re.split(r"[:：]", cell.strip(), maxsplit=1)
+			key = labels.get(parts[0].strip())
+			if key:
+				value = parts[1].strip() if len(parts) == 2 else ""
+				if not value:
+					value = _at(row, index + 1)
+				if isinstance(value, str) and not isinstance(value, Formula) and value.strip():
+					found[key].add(value.strip())
+	if any(len(values) > 1 for values in found.values()):
+		return ""
+	if found["name"]:
+		return next(iter(found["name"]))
+	if found["number"]:
+		return " ".join((*found["bank"], *found["number"]))
+	return ""
+
+
 def _check_prior_rows(sheet, first, header_index, cols):
 	for row in sheet[first:header_index]:
 		try:
@@ -698,7 +725,7 @@ def parse_statement(
 			except StatementError as exc:
 				result["ai_notice"] = str(exc)
 		header = [_str(c) for c in sheet[header_index]]
-		result.update(headers=header, suggested_mapping=suggested)
+		result.update(headers=header, suggested_mapping=suggested, account_label=_statement_account(sheet[first:header_index]))
 		# Bank reports may provide both the signed amount and the two direction columns.
 		if mapping is None and "amount" in suggested and ("income" in suggested or "expense" in suggested):
 			suggested = {k: v for k, v in suggested.items() if k not in ("amount", "direction")}

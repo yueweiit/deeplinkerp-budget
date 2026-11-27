@@ -61,6 +61,46 @@ def test_bad_rows_and_invalid_base64_cannot_be_applied(book):
 	store.apply_batch.assert_not_called()
 
 
+def test_file_replacement_preview_binds_mode_dates_edits_and_same_book(book):
+	store, _ = book
+	store.authorize_replacement = Mock()
+	store.replacement_impact = Mock(return_value=(
+		{"start": "2026-11-05", "end": "2026-11-20", "old_count": 3, "new_count": 2}, [], []
+	))
+	encoded = base64.b64encode("日期,摘要,收入\n2026-11-05,甲,2\n2026-11-20,乙,5".encode()).decode()
+	args = dict(book="book", filename="流水.csv", content_base64=encoded)
+	append = api.preview_import(**args, mode="append")
+	result = api.preview_import(**args, mode="replace_range")
+	assert result["impact"]["old_count"] == 3 and result["preview_id"] != append["preview_id"]
+	assert [r["date"] for r in store.replacement_impact.call_args.args[1]] == ["2026-11-05", "2026-11-20"]
+	confirm = dict(**args, version=4, request_id="replace-file-test")
+	for mode, token in (("replace_range", append["preview_id"]), ("append", result["preview_id"])):
+		with pytest.raises(ValueError, match="预览已变化"):
+			api.apply_import(**confirm, mode=mode, preview_id=token)
+	with pytest.raises(ValueError, match="预览已变化"):
+		api.apply_import(**confirm, mode="replace_range", preview_id=result["preview_id"], edits={"3":{"date":"2026-11-21"}})
+	store.apply_batch.assert_not_called()
+	api.apply_import(**confirm, mode="replace_range", preview_id=result["preview_id"])
+	assert store.apply_batch.call_args.kwargs["replace_range"] is True
+	assert store.authorize_replacement.called
+
+
+def test_replacement_requires_valid_target_and_clean_whole_file(book):
+	store, encoded = book
+	store.authorize_replacement = Mock()
+	store.replacement_impact = Mock(return_value=({}, [], [{"row":2,"field":"balance","message":"区间期初余额不符"}]))
+	with pytest.raises(ValueError, match="已有账簿"):
+		api.preview_import(filename="a.csv", company="A", content_base64=encoded, mode="replace_range")
+	with pytest.raises(ValueError, match="导入方式"):
+		api.preview_import("book", "a.csv", encoded, mode="replace_all")
+	result = api.preview_import("book", "a.csv", encoded, mode="replace_range")
+	assert not result["preview_id"] and result["error_count"] == 1
+	store.authorize_replacement.side_effect = PermissionError("没有覆盖权限")
+	with pytest.raises(PermissionError):
+		api.preview_import("book", "a.csv", encoded, mode="replace_range")
+	store.apply_batch.assert_not_called()
+
+
 def test_file_review_binds_corrected_cells_and_preserves_bank_movement_identity(book):
 	store, encoded = book
 	base = api.preview_import("book", "流水.csv", encoded, review_offset=0)
@@ -299,3 +339,100 @@ def test_unusable_ai_mapping_keeps_manual_preview_and_cannot_skip_transactions(b
 	with pytest.raises(ValueError, match="表头前"):
 		api.preview_import("book", "local.csv", encoded, header_row=3, mapping=model.return_value["columns"])
 	store.apply_batch.assert_not_called()
+
+
+@pytest.fixture
+def new_target(book):
+	from budget.api import bank_journal
+
+	store, _ = book
+	store.authorize_book_creation = Mock()
+	store.book_settings = bank_journal.book_settings
+	store.book_exists = Mock(return_value=False)
+	payload = base64.b64encode("银行账户名称,测试专户\n日期,摘要,支出,余额\n2026-11-05,服务费,8.25,91.75".encode()).decode()
+	return store, dict(company="示例公司", filename="银行.csv", content_base64=payload)
+
+
+def test_new_book_preview_bank_defaults_edit_and_bound_confirmation(new_target):
+	store, args = new_target
+	first = api.preview_import(**args, review_offset=0, use_ai=1)
+	assert first["book_settings"] == {"account": "测试专户", "opening": "100.00", "opening_date": "2026-11-05"}
+	assert first["review_rows"][0]["expense"] == "8.25" and first["preview_id"]
+	store.apply_batch.assert_not_called()
+	store.authorize_book_creation.assert_called_once_with("示例公司")
+	call = dict(version=0, preview_id=first["preview_id"], request_id="test-new-book")
+	for changed in ({"account": "另一专户"}, {"opening": "99.00"}, {"opening_date": "2026-11-04"},
+					{"company": "另一公司"}, {"edits": {"3": {"summary": "改过"}}}):
+		with pytest.raises(ValueError, match="预览已变化"):
+			api.apply_import(**{**args, **changed, **call})
+	store.apply_batch.assert_not_called()
+	result = api.apply_import(**args, **call)
+	assert result["book"] and result["added"] == 1
+	settings = store.apply_batch.call_args.kwargs["new_book"]
+	assert settings.company == "示例公司" and settings.opening == "100.00"
+	assert store.apply_batch.call_args.args[0] == result["book"]
+	assert store.apply_batch.call_args.args[1][0]["expense"] == "8.25"
+
+
+def test_incomplete_new_book_still_has_editable_rows_zero_is_explicit(new_target):
+	store, args = new_target
+	args["content_base64"] = base64.b64encode("对方账号,别人的账号\n日期,收入\n2026-11-05,8.25".encode()).decode()
+	incomplete = api.preview_import(**args, review_offset=0)
+	assert incomplete["preview_id"] == "" and len(incomplete["review_rows"]) == 1
+	assert {p["field"] for p in incomplete["book_issues"]} == {"account", "opening"}
+	good = dict(**args, account="手动账户", opening="0")
+	fixed = api.preview_import(**good, review_offset=0)
+	assert fixed["preview_id"] and fixed["book_settings"]["opening"] == "0.00"
+	late = api.preview_import(**good, opening_date="2026-12-05")
+	assert late["preview_id"] == "" and late["errors"][0]["row"] == 3
+	store.book_exists.return_value = True
+	existing = api.preview_import(**good)
+	assert existing["preview_id"] == "" and "已有账簿" in existing["book_issues"][0]["message"]
+	store.apply_batch.assert_not_called()
+
+
+def test_new_book_original_template_and_ai_layout_share_preview(new_target, monkeypatch):
+	from budget.tests.test_bank_journal_io import sample_journal
+	from budget.services import bank_journal_ai
+
+	store, args = new_target
+	template = api.preview_import(**{**args, "content_base64": base64.b64encode(sample_journal()).decode()}, review_offset=0)
+	assert template["preview_id"] and template["book_settings"] == {
+		"account": "示例银行", "opening": "1000.00", "opening_date": "2026-01-01"
+	}
+	raw = "过账日,资金流入额,业务说明,账面余款\n2026-11-01,8.00,示例,18.00"
+	model = Mock(return_value={"header_row": 1, "columns": {"date": 0, "income": 1, "summary": 2, "balance": 3}})
+	monkeypatch.setattr(bank_journal_ai, "request_layout", model)
+	args.update(content_base64=base64.b64encode(raw.encode()).decode(), account="测试银行")
+	ai = api.preview_import(**args, review_offset=0, use_ai=1)
+	assert ai["mapping_source"] == "deepseek" and ai["preview_id"] and ai["book_settings"]["opening"] == "10.00"
+	args.update(mapping=ai["mapping_used"], header_row=ai["header_row"], edits={"2": {"summary": "已校对"}})
+	edited = api.preview_import(**args, review_offset=0)
+	assert edited["review_rows"][0]["summary"] == "已校对" and edited["preview_id"] != ai["preview_id"]
+	model.assert_called_once()
+	store.apply_batch.assert_not_called()
+
+
+def test_new_book_authorizes_company_before_file_and_ai(new_target, monkeypatch):
+	store, args = new_target
+	reader = Mock()
+	monkeypatch.setattr(api, "_read", reader)
+	store.authorize_book_creation.side_effect = frappe.PermissionError()
+	with pytest.raises(frappe.PermissionError):
+		api.preview_import(**args, use_ai=1)
+	with pytest.raises(frappe.PermissionError):
+		api.apply_import(**args)
+	reader.assert_not_called()
+
+
+def test_new_book_uses_earliest_evidenced_balance_and_keeps_ambiguous_account_empty(new_target):
+	_, args = new_target
+	raw = ("开户银行,示例银行,本方账号,000123\n日期,摘要,收入,支出,余额\n"
+		   "2026-11-01,收入,20,,\n2026-11-02,支出,,5,115")
+	args["content_base64"] = base64.b64encode(raw.encode()).decode()
+	good = api.preview_import(**args)
+	assert good["preview_id"] and good["book_settings"]["opening"] == "100.00"
+	assert good["book_settings"]["account"] == "示例银行 000123"
+	args["content_base64"] = base64.b64encode(("本方账号,000456\n"+raw).encode()).decode()
+	proposed = api.preview_import(**args)
+	assert proposed["book_settings"]["account"] == "" and not proposed["preview_id"]

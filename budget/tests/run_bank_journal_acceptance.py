@@ -1,8 +1,85 @@
 """Native isolation scenario. Run with the bench env from its sites directory."""
 
+import base64
 from unittest.mock import patch
 
 import frappe
+
+
+def check_range_replacement(company):
+	from budget.api import bank_journal as api, bank_journal_files as files
+	from budget.services.bank_journal_schema import BOOK_FIELD, ENTRY
+
+	account = "Synthetic interval " + frappe.generate_hash(length=8)
+	book = api.create_book(company, account, "100.00", "2026-01-01")["name"]
+	def save(day, side, amount, **extra):
+		version = api.get_month(book, "2026-11")["version"]
+		return api.save_row(book, dict(date="2026-11-"+day, summary="Manual "+day, **{side:amount}, **extra),
+			version, "manual-before-"+day)
+
+	def source_state():
+		return frappe.get_all(api.ORIGIN, filters={"book":book}, fields=["name","entry","source_key","digest"],
+			order_by="name", limit_page_length=0)
+
+	save("04", "income", "10")
+	save("11", "expense", "4", refs=["QA-OA-001"], project="原项目")
+	save("20", "income", "1")
+	save("21", "expense", "5")
+	api.apply_batch(book, [dict(date="2026-11-11", expense="4", refs=["QA-OA-001"], source_key="qa-paid")],
+		"DingTalk", 4, "prior-paid-binding")
+	api.apply_batch(book, [dict(date="2026-11-05", income="9", bank_ref="QA-OLD-REF",
+		source_key=files.formats._record_key("bank-reference", "QA-OLD-REF"))], "Import", 5, "prior-bank-binding")
+	before = api.export_rows(book)
+	sources = source_state()
+	def csv(text):
+		return base64.b64encode(text.encode()).decode()
+	args = dict(book=book, filename="区间.csv", mode="replace_range", content_base64=csv(
+		"日期,摘要,收入,支出,余额,银行流水号\n2026-11-05,新一,20,,130,QA-OLD-REF\n2026-11-20,新二,,8,122,QA-NEW-REF"))
+	preview = files.preview_import(**args, review_offset=0)
+	expected = dict(start="2026-11-05", end="2026-11-20", old_count=3, new_count=2, opening="110.00",
+		old_closing="116.00", new_closing="122.00", difference="6.00")
+	assert preview["impact"] == expected and preview["preview_id"] and api.export_rows(book) == before
+	request = dict(**args, preview_id=preview["preview_id"], version=preview["version"], request_id="interval-apply")
+	saved_count = frappe.db.count(ENTRY, {BOOK_FIELD:book})
+	with patch.object(api, "_finish", side_effect=RuntimeError("after all writes")):
+		try:
+			files.apply_import(**request)
+		except RuntimeError as exc:
+			assert str(exc) == "after all writes"
+		else:
+			raise AssertionError("transaction failure was not injected")
+	assert source_state() == sources and api.export_rows(book) == before
+	assert frappe.db.count(ENTRY, {BOOK_FIELD:book}) == saved_count
+	receipt = files.apply_import(**request)
+	assert receipt["impact"] == expected and receipt["created"] == 2 and files.apply_import(**request) == receipt
+	assert api.known_source_keys(book, "oa", ["qa-paid"]) == {"qa-paid"}
+	current = api.export_rows(book)
+	assert [r["date"][-2:] for r in current["rows"]] == ["04","05","20","21"]
+	assert current["rows"][0] == before["rows"][0] and current["rows"][-1]["name"] == before["rows"][-1]["name"]
+	assert current["closing"] == "117.00" and api.get_month(book,"2026-12")["opening"] == "117.00"
+	assert api.get_month(book, "2026-11")["undo_range"] == expected
+	with patch.object(api, "is_import_user", return_value=True):
+		try:
+			files.apply_import(**request)
+		except frappe.PermissionError:
+			pass
+		else:
+			raise AssertionError("import token could replace a book")
+	later = save("22", "income", "1")
+	try:
+		api.undo(book, receipt["operation"], later["version"], "old-undo-blocked")
+	except frappe.ValidationError:
+		pass
+	else:
+		raise AssertionError("later changes were overwritten by undo")
+	popped = api.undo(book, later["operation"], later["version"], "undo-later-row")
+	restored = api.undo(book, receipt["operation"], popped["version"], "undo-interval")
+	assert restored == api.undo(book, receipt["operation"], popped["version"], "undo-interval")
+	after = api.export_rows(book)
+	assert after == dict(before, version=restored["version"]) and source_state() == sources
+	assert api.get_month(book, "2026-12")["opening"] == "111.00"
+	assert api.book_ref_rows(book, ["QA-OA-001"])[0]["links"]
+	assert files.apply_import(**request) == receipt and api.export_rows(book) == after
 
 
 def run():
@@ -157,6 +234,7 @@ def run():
 		"NATIVE PASS: company/roles, bound dates and monthly balances, native create/edit/void/restore, "
 		"same-key replay, rollback, manual and source associations, import export, alternate book isolation."
 	)
+	check_range_replacement(company)
 
 
 if __name__ == "__main__":
