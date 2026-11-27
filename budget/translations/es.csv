@@ -999,6 +999,8 @@ Some expenses in the comparison periods still need review.,Algunos gastos de los
 This source is assigned to Group. Change its ownership in Configure OA Synchronization.,Este origen está asignado al grupo. Cambie su asignación en Configurar sincronización de OA.
 Approval creation date,Fecha de creación de la aprobación
 Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.,Los gastos sin fecha de solicitud o con la fecha vacía utilizan la fecha de creación de la aprobación. Las fechas no válidas o contradictorias siguen requiriendo revisión.
+Expense categories come directly from the original approvals.,Las categorías de gasto proceden de las aprobaciones originales.
+Budget differences and execution rates are unavailable when filtering by expense category.,No se calculan las diferencias ni los porcentajes de ejecución del presupuesto al filtrar por categoría de gasto.
 Reporting region,Región de imputación
 Amount verification,Verificación del importe
 Source amount recognized; excluded from verified expenditure until review is resolved.,Importe original identificado; no se incluye en los gastos verificados hasta resolver la revisión.

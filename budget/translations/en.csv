@@ -405,6 +405,8 @@ Some expenses in the comparison periods still need review.,Some expenses in the 
 This source is assigned to Group. Change its ownership in Configure OA Synchronization.,This source is assigned to Group. Change its ownership in Configure OA Synchronization.
 Approval creation date,Approval creation date
 Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.,Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.
+Expense categories come directly from the original approvals.,Expense categories come directly from the original approvals.
+Budget differences and execution rates are unavailable when filtering by expense category.,Budget differences and execution rates are unavailable when filtering by expense category.
 Reporting region,Reporting region
 Amount verification,Amount verification
 Source amount recognized; excluded from verified expenditure until review is resolved.,Source amount recognized; excluded from verified expenditure until review is resolved.

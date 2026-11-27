@@ -909,7 +909,7 @@ Department or entity,部门或主体
 Detail amount,明细金额
 Detail note,明细备注
 Duplicate or unauthorized approval template,审批模板重复或未获授权
-Expense category,支出类别
+Expense category,费用类别
 Expense details,费用明细
 Header fields,表头字段
 Header total,表头合计
@@ -999,6 +999,8 @@ Some expenses in the comparison periods still need review.,比较期间仍有费
 This source is assigned to Group. Change its ownership in Configure OA Synchronization.,此来源已归入集团，请在“配置 OA 同步”中修改归属。
 Approval creation date,审批创建日期
 Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.,未设置申请日期或日期为空时，支出按审批创建日期统计；日期无效或存在冲突时仍需核对。
+Expense categories come directly from the original approvals.,费用类别直接使用审批原单中的分类。
+Budget differences and execution rates are unavailable when filtering by expense category.,按费用类别筛选时，预算差额和执行率不参与计算。
 Reporting region,统计归属地区
 Amount verification,金额核对
 Source amount recognized; excluded from verified expenditure until review is resolved.,已识别原单金额；核对问题解决前不计入已核实支出。

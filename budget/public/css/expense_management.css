@@ -69,21 +69,6 @@
   font-size: 13px;
   color: var(--text-muted);
 }
-.em-classification-options {
-  margin-top: 14px;
-  font-size: 13px;
-}
-.em-classification-options > summary {
-  cursor: pointer;
-  color: var(--text-muted);
-}
-.em-classification-options .em-filter {
-  max-width: 320px;
-  margin-top: 12px;
-}
-.em-classification-options p {
-  margin: 10px 0 0;
-}
 .em-category-note {
   margin: 0;
   padding: 0 22px 16px;

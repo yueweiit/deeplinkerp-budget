@@ -149,7 +149,7 @@
     };
     if (incoming && typeof incoming === "object" && !Array.isArray(incoming)) {
       for (const key of Object.keys(result))
-        if (typeof incoming[key] === "string") result[key] = incoming[key];
+        if (key !== "category" && typeof incoming[key] === "string") result[key] = incoming[key];
     }
     if (
       !/^\d{4}-(0[1-9]|1[0-2])$/.test(result.month) ||
@@ -327,10 +327,11 @@
         .then((result) => result.message);
     }
     requestFilters() {
-      return { ...this.filters, view: this.view };
+      return { ...this.filters, category: "", view: this.view };
     }
     syncURL() {
       if (!this.current()) return;
+      this.filters.category = "";
       const url = new URL(root.location.href);
       url.searchParams.set("expense_filters", JSON.stringify(this.filters));
       root.history.replaceState(
@@ -341,7 +342,7 @@
     }
     update(values) {
       if (Object.hasOwn(values, "company") && !Object.hasOwn(values, "region")) values = {...values, region: ""};
-      Object.assign(this.filters, values);
+      Object.assign(this.filters, values, { category: "" });
       this.start = 0;
       this.syncURL();
       this.controls();
@@ -350,7 +351,7 @@
     go(view, values = {}) {
       if (Object.hasOwn(values, "company") && !Object.hasOwn(values, "region")) values = {...values, region: ""};
       return root.frappe.set_route(ROUTES[view], {
-        expense_filters: { ...this.filters, measure: "", ...values },
+        expense_filters: { ...this.filters, measure: "", ...values, category: "" },
       });
     }
     shell() {
@@ -362,8 +363,7 @@
     controls() {
       if (!this.current()) return;
       this.picker?.destroy();
-      const f = this.filters,
-        categories = this.options.categories || {};
+      const f = this.filters;
       const select = (key, label, entries, empty) =>
         `<label class="em-filter"><span>${esc(
           t(label)
@@ -393,7 +393,7 @@
       )}</h2><div class="em-heading-actions">${
         this.view === "details" && f.source_category ? button("analysis", "Back to expense analysis", "", "em-back-link") : ""
       }${
-        f.company || f.region || f.category || f.source_category ? button("all", "All Subsidiaries") : ""
+        f.company || f.region || f.source_category ? button("all", "All Subsidiaries") : ""
       }${button(
         "policy",
         "Reporting policy"
@@ -422,18 +422,10 @@
         "All Subsidiaries"
       )}${select(
         "source_category",
-        "OA expense category",
+        "Expense category",
         sourceCategories,
         "All categories"
-      )}</div><details class="em-classification-options" ${f.category ? "open" : ""}><summary>${esc(t("Unified classification (optional)"))}</summary>${select(
-        "category",
-        "Management category (optional)",
-        [
-          ...Object.entries(categories).map(([key, value]) => [key, t(value)]),
-          ["unclassified", t("Unclassified")],
-        ],
-        "All categories"
-      )}<p class="em-muted">${esc(t("OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons."))}</p></details>`;
+      )}</div>`;
       const range = root.DeepLinkERPMexicoExpenseDateRange.wholeMonths(
         f.month,
         f.month
@@ -576,7 +568,7 @@
         const trend = region.trend || [];
         const max = Math.max(...trend.map((row) => Number(row.amounts[region.currency]) || 0), 1);
         return `<section class="em-regional-analysis"><h3 class="em-region-label">${esc(t(region.label))} · ${esc(region.currency)}</h3><div class="em-analysis"><section class="em-panel em-composition"><div class="em-panel-title"><h3>${esc(t("Expense composition"))}</h3></div>
-          ${table(["OA expense category", "Verified approved expenditure", "Detail lines"], rows)}</section>
+          ${table(["Expense category", "Verified approved expenditure", "Detail lines"], rows)}</section>
           <section class="em-panel"><div class="em-panel-title"><h3>${esc(t("Last six months"))}</h3></div><div class="em-trend">${trend.map((row) => `<button class="em-trend-row" data-action="trend" data-month="${esc(row.month)}" data-region="${esc(region.region)}"><span>${esc(row.month)}</span><i style="--share:${(Math.max(0, Number(row.amounts[region.currency]) || 0) / max) * 100}%"></i>${money(row.amounts, region.currency)}</button>`).join("")}</div></section></div></section>`;
       }).join("");
     }
@@ -605,7 +597,7 @@
       });
       return `<section class="em-panel"><div class="em-panel-title"><h3>${esc(
         t("Company budget execution")
-      )}</h3>${button("policy", "Budget policy")}</div>${this.filters.source_category ? `<p class="em-category-note">${esc(t("Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons."))}</p>` : ""}${table(["Subsidiary", "Effective budget", "Approved budget occupation", "Budget difference", "Budget execution rate"], rows)}</section>`;
+      )}</h3>${button("policy", "Budget policy")}</div>${this.filters.source_category ? `<p class="em-category-note">${esc(t("Budget differences and execution rates are unavailable when filtering by expense category."))}</p>` : ""}${table(["Subsidiary", "Effective budget", "Approved budget occupation", "Budget difference", "Budget execution rate"], rows)}</section>`;
     }
     details() {
       const d = this.data,
@@ -631,7 +623,7 @@
       ]);
       return `<section class="em-panel"><div class="em-panel-title"><h3>${esc(
         t(TITLES[this.view])
-      )}<span class="em-count">${d.total}</span></h3></div>${table(["Approval number", "Subsidiary", "Application date", "Approval status", "OA expense category", "Amount", "Review issues"], rows)}<div class="em-pagination">${button("page-prev", "Previous page", d.start <= 0 ? "disabled" : "")}<span>${esc(t("{0}–{1} of {2}", [d.total ? d.start + 1 : 0, Math.min(d.start + 50, d.total), d.total]))}</span>${button("page-next", "Next page", !d.has_more ? "disabled" : "")}</div></section>`;
+      )}<span class="em-count">${d.total}</span></h3></div>${table(["Approval number", "Subsidiary", "Application date", "Approval status", "Expense category", "Amount", "Review issues"], rows)}<div class="em-pagination">${button("page-prev", "Previous page", d.start <= 0 ? "disabled" : "")}<span>${esc(t("{0}–{1} of {2}", [d.total ? d.start + 1 : 0, Math.min(d.start + 50, d.total), d.total]))}</span>${button("page-next", "Next page", !d.has_more ? "disabled" : "")}</div></section>`;
     }
     async detail(key) {
       const token = ++this.detailSeq,
@@ -675,7 +667,7 @@
           t("Exchange rate")
         )}</dt><dd>${esc(row.display_currency || "—")} ${esc(row.rates[row.display_currency] || "—")}</dd><dt>${esc(
           t("Detail item")
-        )}</dt><dd>${esc(row.line_label || row.description || "—")}</dd><dt>${esc(t("OA expense category"))}</dt><dd>${esc(path[0] || t("Category not provided"))}</dd><dt>${esc(t("OA expense subcategory"))}</dt><dd>${esc(path.slice(1).join(" / ") || "—")}</dd></dl>${
+        )}</dt><dd>${esc(row.line_label || row.description || "—")}</dd><dt>${esc(t("Expense category"))}</dt><dd>${esc(path[0] || t("Category not provided"))}</dd><dt>${esc(t("OA expense subcategory"))}</dt><dd>${esc(path.slice(1).join(" / ") || "—")}</dd></dl>${
           row.issues.length
             ? `<ul>${row.issues
                 .map(
@@ -735,7 +727,7 @@
         "Approved expenses by application month; approval does not confirm payment.",
         "Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.",
         "Only verified subsidiary or Group allocations and amounts enter approved expenditure. Invalid or undated expenses remain in Data Review.",
-        "OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.",
+        "Expense categories come directly from the original approvals.",
         "CNY and MXN are converted independently from original amounts using the application month-start rate.",
         "Missing exchange rates are shown as unavailable; no partial currency total is presented.",
         "Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.",
@@ -805,11 +797,6 @@
         return this.go("review", { company: item.dataset.company });
       if (action === "budget-company")
         return this.go("budget", { company: item.dataset.company });
-      if (action === "category")
-        return this.go("details", {
-          category: item.dataset.category,
-          measure: "approved",
-        });
       if (action === "source-category")
         return this.go("details", {
           source_category: item.dataset.category,

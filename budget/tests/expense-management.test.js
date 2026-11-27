@@ -41,7 +41,7 @@ test("current month defaults and corrupt bookmarks cannot break the month picker
 });
 
 test("native Desk anchor navigation preserves all drilldown filters after route serialization", () => {
-  const expected = {month: "2026-10", company: "A & B + 中国", region: "cn", category: "salary",
+  const expected = {month: "2026-10", company: "A & B + 中国", region: "cn", category: "",
     source_category: "b".repeat(64), measure: "approved"};
   let anchorClick;
   const jquery = () => ({on: (event, selector, handler) => {anchorClick = handler;}});
@@ -60,7 +60,7 @@ test("native Desk anchor navigation preserves all drilldown filters after route 
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../../../frappe/frappe/public/js/frappe/router.js"), "utf8"), context);
   context.frappe.router.route = () => {};
   context.frappe.router.show_external_link_warning_if_needed = () => false;
-  const target = new URL("/desk/expense-details?expense_filters=" + encodeURIComponent(JSON.stringify(expected)), context.location);
+  const target = new URL("/desk/expense-details?expense_filters=" + encodeURIComponent(JSON.stringify({...expected, category: "salary"})), context.location);
   anchorClick({currentTarget: {hostname: target.hostname, pathname: target.pathname, search: target.search, hash: "",
     getAttribute: name => name === "href" ? target.href : null}, preventDefault() {}});
   // Execute Frappe's actual click handler and router, rather than only checking
@@ -220,15 +220,67 @@ test("month navigation crosses years correctly", () => {
   assert.equal(shiftMonth("2026-12", 1), "2027-01");
 });
 
-test("source category bookmarks and drilldowns retain exact scope alongside optional legacy filters", () => {
+test("source category bookmarks discard the retired management filter while retaining the visible scope", () => {
   const filters = {month: "2026-10", company: "A", source_category: "a".repeat(64), category: "service"};
-  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters))), {...filters, region: "", measure: ""});
+  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters))), {...filters, category: "", region: "", measure: ""});
   const work = Object.create(Workbench.prototype);
   work.filters = filters;
   let target;
   work.go = (view, values) => {target = {view, values};};
   work.click({target: {closest: () => ({dataset: {action: "source-category", category: "b".repeat(64)}})}});
   assert.deepEqual(target, {view: "details", values: {source_category: "b".repeat(64), measure: "approved", region: ""}});
+});
+
+test("unified controls offer one original expense category selector without a second classification section", () => {
+  const previous = global.DeepLinkERPMexicoExpenseDateRange;
+  const panel = {}, key = "a".repeat(64), work = Object.create(Workbench.prototype);
+  global.DeepLinkERPMexicoExpenseDateRange = {wholeMonths: () => ({}), MonthPicker: class {destroy() {}}};
+  Object.assign(work, {view: "details", current: () => true,
+    filters: {month: "2026-11", company: "A", region: "cn", category: "salary", source_category: key},
+    options: {companies: ["A"], categories: {salary: "Salaries"},
+      source_categories: [{key, source_path: ["Services", "Rent"]}]},
+    host: {querySelector: selector => selector === ".em-controls" ? panel : {}}});
+  try {
+    work.controls();
+    assert.equal((panel.innerHTML.match(/data-filter="source_category"/g) || []).length, 1);
+    assert.match(panel.innerHTML, /Expense category/);
+    assert.match(panel.innerHTML, /Services \/ Rent/);
+    assert.doesNotMatch(panel.innerHTML, /data-filter="category"|Unified classification|Management category|em-classification-options/);
+  } finally {global.DeepLinkERPMexicoExpenseDateRange = previous;}
+});
+
+test("stale page state cannot carry the retired management filter into queries exports URLs or drilldowns", () => {
+  const work = Object.create(Workbench.prototype), source = "a".repeat(64);
+  const previous = {location: global.location, history: global.history, setRoute: global.frappe.set_route};
+  let writtenURL, routed;
+  Object.assign(work, {filters: {month: "2026-10", company: "A", region: "cn", category: "salary",
+    source_category: source, measure: "approved"}, current: () => true, controls() {}, load() {}});
+  global.location = new URL("https://expense.test/desk/expense-details?sidebar=Expense%20Management#keep");
+  global.history = {state: null, replaceState: (_state, _title, url) => {writtenURL = new URL(url, global.location);}};
+  global.frappe.set_route = (route, options) => {routed = {route, options};};
+  try {
+    // Every query, detail and export sends this same normalized filter payload.
+    for (const view of ["overview", "analysis", "budget", "details", "review"]) {
+      work.view = view;
+      assert.deepEqual(work.requestFilters(), {...work.filters, category: "", view});
+    }
+    work.go("details", {category: "office"});
+    assert.equal(routed.options.expense_filters.category, "");
+    assert.equal(routed.options.expense_filters.source_category, source);
+    work.syncURL();
+    assert.equal(work.filters.category, "");
+    assert.equal(JSON.parse(writtenURL.searchParams.get("expense_filters")).category, "");
+    assert.equal(writtenURL.searchParams.get("sidebar"), "Expense Management");
+    assert.equal(writtenURL.hash, "#keep");
+    work.update({month: "2026-09", category: "tax"});
+    assert.equal(work.filters.category, "");
+    assert.equal(work.filters.source_category, source);
+    assert.equal(work.filters.month, "2026-09");
+  } finally {
+    global.location = previous.location;
+    global.history = previous.history;
+    global.frappe.set_route = previous.setRoute;
+  }
 });
 
 test("composition has one keyboard entry per row and keeps exact filters when returning to analysis", () => {
@@ -247,7 +299,7 @@ test("composition has one keyboard entry per row and keeps exact filters when re
     const dataset = Object.fromEntries([...attrs.matchAll(/data-([a-z]+)="([^"]*)"/g)].map(([, key, value]) => [key, value]));
     work.click({target: {closest: () => ({dataset})}});
   }
-  const filters = {...work.filters, source_category: selected, region: "cn", measure: "approved"};
+  const filters = {...work.filters, category: "", source_category: selected, region: "cn", measure: "approved"};
   assert.deepEqual(routes, [{route: "expense-details", options: {expense_filters: filters}}]);
   work.filters = readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters)));
   work.click({target: {closest: () => ({dataset: {action: "analysis"}})}});
@@ -268,7 +320,7 @@ test("expense composition and detail tables use escaped OA paths without requiri
   const analysis = work.analysis(), details = work.details();
   assert.match(analysis, /data-action="source-category"/);
   assert.match(analysis, /Services &lt;source&gt; \/ Payroll/);
-  assert.match(details, /OA expense category/);
+  assert.match(details, /Expense category/);
   assert.match(details, /Services &lt;source&gt; \/ Payroll/);
   assert.doesNotMatch(details, /Unclassified|Needs review/);
   work.data.rows[0].source_path = [];
@@ -289,7 +341,7 @@ test("native expense detail displays source category and subcategory separately"
         amount: "990", currency: "MXN", amounts: {CNY: "346.50", MXN: "990"}, rates: {CNY: "0.35", MXN: "1"},
         issues: [], description: "Original approval text"}})});
     await work.detail("a");
-    assert.match(body.innerHTML, /OA expense category<\/dt><dd>Services/);
+    assert.match(body.innerHTML, /Expense category<\/dt><dd>Services/);
     assert.match(body.innerHTML, /OA expense subcategory<\/dt><dd>Payroll/);
     assert.match(body.innerHTML, /Original approval text/);
     assert.doesNotMatch(body.innerHTML, /Management category|Needs review/);
