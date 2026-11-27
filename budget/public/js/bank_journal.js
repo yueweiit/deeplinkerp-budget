@@ -435,7 +435,7 @@
                 nativeLoad(wrapper);wrapper.cashJournal?.page?.add_menu_item("银行日记账",()=>switchClassic(false));
                 return;
             }
-            root.frappe.require("/assets/budget/css/bank_journal.css?v=20261127",()=>{wrapper.budgetBankJournal=new Workbench(wrapper)});
+            root.frappe.require("/assets/budget/css/bank_journal.css",()=>{wrapper.budgetBankJournal=new Workbench(wrapper)});
         };
         page.on_page_show=wrapper=>{
             const app=wrapper.budgetBankJournal;
