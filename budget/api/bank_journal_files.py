@@ -178,6 +178,15 @@ def _file_target(book, company, permission, settings, mode):
 	return _store().authorize_book(book, permission)
 
 
+def _without_company_prefix(name, company, abbr):
+	for prefix in (company, abbr):
+		if prefix and name.startswith(prefix):
+			rest = name[len(prefix):]
+			if prefix == company or re.search(r"[\u3400-\u9fff]$", prefix) or rest[:1] in {" ", "-", "_"}:
+				return rest.strip(" ._-")
+	return name
+
+
 def _filename_account(filename, company, abbr):
 	"""Suggest a display name only. The caller must confirm it before creating a book."""
 	if not isinstance(filename, str) or len(filename) > 255:
@@ -188,13 +197,7 @@ def _filename_account(filename, company, abbr):
 		r"(?:[\s_.-]*(?:(?:银行)?日记[账帐]|银行流水|(?:银行)?对账单|bank[ _-]*statement|"
 		r"(?:19|20)\d{2}[-.年]\d{1,2}(?:[-.月]\d{1,2}日?)?))+$", "", name, flags=re.I,
 	).strip(" ._-")
-	for prefix in (company, abbr):
-		if prefix and name.startswith(prefix):
-			rest = name[len(prefix):]
-			if prefix == company or re.search(r"[\u3400-\u9fff]$", prefix) or rest[:1] in {" ", "-", "_"}:
-				name = rest.strip(" ._-")
-				break
-	return name[:140] or "银行账户"
+	return _without_company_prefix(name, company, abbr)[:140] or "银行账户"
 
 
 def _bank_account_currencies(company, account, own_number):
@@ -228,6 +231,8 @@ def _file_book_defaults(company, filename, edited_account):
 	file_account = _filename_account(filename, company, company_info.abbr)
 	scopes = frappe.conf.get("bank_journal_currency_defaults") or {}
 	preferred = scopes.get(company, {}) if isinstance(scopes, dict) else {}
+	if not isinstance(preferred, dict):
+		preferred = {}
 
 	def suggest_currency(source_account, own_number, tokens):
 		enabled = set(supported_currencies())
@@ -235,10 +240,15 @@ def _file_book_defaults(company, filename, edited_account):
 			enabled.intersection_update(formats.AMBIGUOUS_SYMBOLS.get(token, {token}))
 		account = edited_account if isinstance(edited_account, str) else source_account or file_account
 		account = account.strip()
-		confirmed = preferred.get(account) if isinstance(preferred, dict) else None
+		preference_name = account
+		if account not in preferred:
+			preference_name = _without_company_prefix(account, company, company_info.abbr)
+		confirmed = preferred.get(preference_name) if preference_name else None
 		if account != source_account:
 			own_number = ""
 		native = _bank_account_currencies(company, account, own_number) if account else None
+		if native is None and confirmed and preference_name != account:
+			native = _bank_account_currencies(company, preference_name, own_number)
 		if native is not None:
 			enabled.intersection_update(native)
 		if isinstance(confirmed, str) and confirmed:
@@ -349,8 +359,10 @@ def preview_import(
 		review_offset = int(review_offset)
 	permission = "create" if ai_requested or edits or review_offset is not None else "read"
 	doc = _file_target(book, company, permission, (account, opening, opening_date), mode)
-	currency = _file_currency(doc, currency)
 	file_defaults = doc is None and suggest_book_defaults in (1, "1")
+	# Omitting a currency requests a suggestion. Clearing the selector requests a pending preview.
+	suggest_book_currency = file_defaults and currency is None
+	currency = _file_currency(doc, currency)
 	file_account, suggest_currency = _file_book_defaults(company, filename, account) if file_defaults else ("", None)
 	suggest_layout = None
 	if ai_requested:
@@ -366,10 +378,10 @@ def preview_import(
 		edits=edits,
 		review_offset=review_offset,
 		currency=currency, excluded_rows=excluded_rows,
-		suggest_currency=suggest_currency,
+		suggest_currency=suggest_currency if suggest_book_currency else None,
 		auto_exclude=auto_exclude in (1, "1"),
 	)
-	if file_defaults and currency is None:
+	if suggest_book_currency:
 		currency = parsed.get("effective_currency")
 	ledger_book = _marked_book(doc, parsed)
 	if doc and mode == "append" and _ready(parsed):

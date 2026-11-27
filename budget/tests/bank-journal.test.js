@@ -257,9 +257,14 @@ test("creating a movement submits the selected book currency with its numeric am
 function importDialogFixture(t, reply, newBook=true) {
     const {Workbench}=require("../public/js/bank_journal.js");
     const classList={add(){},toggle(){}};
-    const region=()=>({classList,innerHTML:"",querySelector:()=>null,replaceChildren(){this.innerHTML="";}});
+    const region=()=>{
+        const summary={focus(){this.focused=true;}},details={open:false,querySelector:s=>s==="summary"?summary:null};
+        return {classList,innerHTML:"",replaceChildren(){this.innerHTML="";},
+            querySelector(s){return s==="details" && this.innerHTML.includes("<details")?details:null;}};
+    };
     const fields=Object.fromEntries(["account","currency","opening","opening_date"].map(name=>[name,{
-        name,value:"",setAttribute(){},matches:selector=>selector.includes(name==="currency"?"select":"input"),
+        name,value:"",setAttribute(key,value){this[key]=value;},focus(){view.focused=name;},
+        matches:selector=>selector.includes(name==="currency"?"select":"input"),
     }]));
     const file={files:[]}, mapping=region(), result=region(), settings=region();
     const issues=region(),openingLabel=region(),mode={value:"append"};
@@ -276,7 +281,7 @@ function importDialogFixture(t, reply, newBook=true) {
         if(s===".bj-import-modes")return newBook?null:modes;
         return null;
     }};
-    const view={calls:[],fields,result,settings,openingLabel,
+    const view={calls:[],fields,result,settings,issues,mapping,openingLabel,
         chooseFile(name="estado.xlsx",size=100){file.files=name?[{name,size}]:[];return file.onchange();},
         pickMode(value){mode.value=value;return modes.change();},
         map(key,index){mapping.onchange({target:{value:String(index),dataset:{map:key},matches:s=>s==="[data-map]"}});},
@@ -296,7 +301,9 @@ function importDialogFixture(t, reply, newBook=true) {
         openDialog(_title,html){
             view.html=html;settings.hidden=/<div[^>]*data-book-settings[^>]* hidden[^>]*>/.test(html);
             let busy=false;
-            return {d:{hide(){},get_primary_btn:()=>primary},el,check(){},error(text){view.error=text;},
+            const d={hide(){this.onhide?.();},get_primary_btn:()=>primary};
+            view.close=()=>d.hide();
+            return {d,el,check(){},error(text){view.error=text;},
                 action:(label,run)=>{
                     view.label=label;view.primaryHidden=false;
                     view.submit=async()=>{
@@ -312,7 +319,7 @@ function importDialogFixture(t, reply, newBook=true) {
     view.edit=(name,value)=>{
         const target=fields[name];
         target.value=value;
-        (name==="currency"?settings.onchange:settings.oninput)({target});
+        return (name==="currency"?settings.onchange:settings.oninput)({target});
     };
     view.sourceRow=(number,values)=>{
         const tr={dataset:{sourceRow:String(number)},classList};
@@ -335,6 +342,32 @@ const bankDefaults={account:"识别账户",opening:"120.00",opening_date:"2023-0
 const filePreview={review_rows:[{source_row:5,date:"2023-01-01",income:"5.00"}],review_total:1,row_count:1,
     mapping_used:{year:0,month:1,day:2,income:3,balance:4},header_row:4,headers:["年","月","日","收入","余额"],
     version:0,currency:"MXN",book_settings:bankDefaults,excluded_source_rows:[],preview_id:"verified"};
+
+test("a missing currency focuses the selector and selecting it validates before a separate import confirmation",async t=>{
+    const view=importDialogFixture(t,(method,args)=>{
+        if(method==="apply_import")return {book:"B",created:270};
+        const currency=args.currency || "";
+        return {...filePreview,row_count:270,currency,book_settings:{...bankDefaults,currency},
+            book_issues:currency?[]:[{field:"currency",message:"请选择账簿币种。"}],preview_id:currency?"chosen-"+currency:""};
+    });
+    await view.chooseFile();
+    assert.match(view.issues.innerHTML,/请选择账簿币种/);
+    assert.equal(view.fields.currency["aria-invalid"],"true");
+    assert.equal(view.label,"选择账簿币种");
+    await view.submit();
+    assert.equal(view.focused,"currency");
+    assert.equal(view.calls.length,1);
+    await view.edit("currency","MXN");
+    assert.deepEqual(view.calls.map(({name})=>name),["preview_import","preview_import"]);
+    assert.equal(view.calls[1].args.currency,"MXN");
+    assert.equal(view.issues.innerHTML,"");
+    assert.equal(view.fields.currency["aria-invalid"],"false");
+    assert.equal(view.openingLabel.textContent,"期初余额（MXN）");
+    assert.equal(view.label,"建账并导入");
+    await view.submit();
+    assert.equal(view.calls.at(-1).name,"apply_import");
+    assert.equal(view.calls.at(-1).args.preview_id,"chosen-MXN");
+});
 
 test("choosing a file reveals four editable defaults and its first signed preview can be confirmed directly",async t=>{
     const view=importDialogFixture(t,method=>method==="apply_import"?{book:"B",created:270}:
@@ -381,12 +414,12 @@ test("incomplete book settings are editable and typing during validation keeps t
     await view.chooseFile();
     assert.equal(view.fields.currency.value,"");
     assert.doesNotMatch(view.label,/建账并导入/);
-    view.edit("currency","MXN");
     view.edit("opening","125.00");
-    assert.equal(view.openingLabel.textContent,"期初余额（MXN）");
     delay=true;
-    const pending=view.submit();
+    const pending=view.edit("currency","MXN");
+    assert.equal(view.openingLabel.textContent,"期初余额（MXN）");
     await Promise.resolve();
+    assert.equal(typeof resolvePreview,"function");
     view.edit("account","最终账户");
     resolvePreview({...filePreview,book_settings:{account:"过时账户",opening:"1.00"},preview_id:"stale-token"});
     await pending;
@@ -412,15 +445,16 @@ test("selecting another file discards old edits and a late preview cannot replac
     let resolveFirst;
     const view=importDialogFixture(t,(method,args)=>{
         if(method==="apply_import")return {book:"B",created:1};
-        if(args.filename==="first.csv" && args.account==="手工账户")return new Promise(resolve=>{resolveFirst=resolve;});
+        if(args.filename==="first.csv" && args.currency==="USD")return new Promise(resolve=>{resolveFirst=resolve;});
         return {...filePreview,preview_id:args.filename,book_settings:{...bankDefaults,account:args.filename},
             excluded_source_rows:args.filename==="first.csv"?[275]:[]};
     });
     await view.chooseFile("first.csv");
     view.edit("account","手工账户");
     view.sourceRow(5,{income:"5.00",expense:""}).edit("income","7.00");
-    const pending=view.submit();
+    const pending=view.edit("currency","USD");
     await Promise.resolve();
+    assert.equal(typeof resolveFirst,"function");
     await view.chooseFile("second.csv");
     assert.equal(view.fields.account.value,"second.csv");
     const args=view.calls.at(-1).args;
@@ -441,7 +475,36 @@ test("a signed replacement must show its range impact before confirmation",async
     const view=importDialogFixture(t,()=>filePreview,false);
     await view.pickMode("replace_range");
     await view.chooseFile();
-    assert.doesNotMatch(view.label,/确认/);
+    assert.equal(view.primaryHidden,true);
+    assert.match(view.error,/覆盖范围/);
+});
+
+test("other invalid book fields direct the operator to the input without rerunning the same preview",async t=>{
+    const view=importDialogFixture(t,()=>({...filePreview,preview_id:"",
+        book_issues:[{field:"opening",message:"请提供明确的账簿期初余额。"}]}));
+    await view.chooseFile();
+    assert.match(view.label,/期初余额/);
+    await view.submit();
+    assert.equal(view.focused,"opening");
+    assert.equal(view.calls.length,1);
+    view.edit("opening","5.00");
+    assert.equal(view.label,"重新校验");
+});
+
+test("mapping and row problems open the relevant details without resubmitting unchanged inputs",async t=>{
+    const issue={row:5,field:"date",message:"流水日期无效"};
+    const view=importDialogFixture(t,(_method,args)=>({...filePreview,preview_id:"",
+        needs_mapping:args.filename==="mapping.csv",error_count:1,errors:[issue],review_errors:[issue]}),false);
+    for(const [filename,region,label] of [["mapping.csv",view.mapping,"设置列对应"],["rows.csv",view.result,"查看需核对项"]]){
+        await view.chooseFile(filename);
+        const reads=view.calls.length;
+        assert.equal(view.label,label);
+        await view.submit();
+        const details=region.querySelector("details");
+        assert.equal(details.open,true);
+        assert.equal(details.querySelector("summary").focused,true);
+        assert.equal(view.calls.length,reads);
+    }
 });
 
 test("manual currency survives remapping while the server can still propose defaults for the other fields",async t=>{
@@ -526,16 +589,39 @@ test("correcting the first movement refreshes inferred date and opening, while e
     }
 });
 
-test("clearing the currency keeps the empty override and still requests defaults for the other fields",async t=>{
-    const view=importDialogFixture(t,()=>filePreview);
+test("clearing the currency rejects a late signed result and keeps an empty override against suggested defaults",async t=>{
+    let resolveUSD;
+    const view=importDialogFixture(t,(_method,args)=>args.currency==="USD"?new Promise(resolve=>{resolveUSD=resolve;}):filePreview);
     await view.chooseFile();
-    view.edit("currency","");
-    await view.submit();
+    const pending=view.edit("currency","USD");
+    assert.equal(typeof resolveUSD,"function");
+    await view.edit("currency","");
+    resolveUSD({...filePreview,currency:"USD",preview_id:"stale-USD"});
+    await pending;
     const reviewed=view.calls.at(-1).args;
     assert.equal(reviewed.suggest_book_defaults,1);
     assert.equal(reviewed.currency,"");
     assert.equal(view.fields.currency.value,"");
-    assert.doesNotMatch(view.label,/建账并导入/);
+    assert.equal(view.fields.currency["aria-invalid"],"true");
+    assert.match(view.issues.innerHTML,/请选择账簿币种/);
+    assert.equal(view.label,"选择账簿币种");
+    await view.submit();
+    assert.equal(view.calls.length,3);
+    assert.equal(view.focused,"currency");
+});
+
+test("closing the dialog during currency validation discards its response",async t=>{
+    let finish;
+    const view=importDialogFixture(t,(_method,args)=>args.currency?new Promise(resolve=>{finish=resolve;}):filePreview);
+    await view.chooseFile();
+    const pending=view.edit("currency","USD");
+    assert.equal(typeof finish,"function");
+    assert.equal(view.primaryHidden,true);
+    view.close();
+    finish({...filePreview,currency:"USD",preview_id:"closed"});
+    await pending;
+    assert.equal(view.primaryHidden,true);
+    assert.ok(view.calls.every(({name})=>name==="preview_import"));
 });
 
 test("a failed file read offers a retry and clearing the chooser removes the old action and defaults",async t=>{

@@ -667,3 +667,57 @@ def test_named_foreign_account_with_optional_or_conflicting_account_number(file_
 	args["content_base64"] = statement("银行账户名称,出口户\n本方账号,000123\n日期,收入\n2026-07-23,10")
 	result = api.preview_import(**args)
 	assert result["book_settings"]["currency"] == expected and bool(result["preview_id"]) == bool(expected)
+
+
+@pytest.mark.parametrize("label", ["拉丁购万里汇", "拉丁购国际电子商务（东莞）有限公司 - 万里汇"])
+def test_confirmed_currency_accepts_own_company_prefix_without_renaming_book(file_first, label):
+	store, args = file_first
+	args.update(account=label, content_base64=statement("日期,收入,余额\n2026-07-23,$10,$10"))
+	result = api.preview_import(**args)
+	assert result["book_settings"]["account"] == label
+	assert result["currency"] == "MXN" and result["preview_id"]
+	store.book_exists.return_value = True
+	existing = api.preview_import(**args)
+	assert existing["currency"] == "MXN" and not existing["preview_id"]
+	assert [issue["field"] for issue in existing["book_issues"]] == ["account"]
+
+
+def test_currency_preference_preserves_exact_named_account_and_company_boundaries(file_first):
+	_, args = file_first
+	prefs = frappe.conf["bank_journal_currency_defaults"][args["company"]]
+	prefs["拉丁购万里汇"] = "USD"
+	args["content_base64"] = statement("日期,收入\n2026-07-23,$10")
+	assert api.preview_import(**args, account="拉丁购万里汇")["currency"] == "USD"
+	for target in ({"account":"拉丁购万里汇二号"}, {"account":"其他公司万里汇"},
+				   {"account":"拉丁购万里汇", "company":"另一家公司"}):
+		unknown = api.preview_import(**{**args, **target})
+		assert not unknown["preview_id"] and not unknown["book_settings"]["currency"]
+		assert unknown["book_issues"] == [{"field":"currency", "message":"请选择账簿币种。"}]
+
+
+def test_prefixed_currency_preference_checks_the_bank_master_for_the_short_name(file_first):
+	_, args = file_first
+	frappe.db.sql.side_effect = lambda _query, params: [("USD", None)] if params["account"] == "万里汇" else []
+	args.update(account="拉丁购万里汇", content_base64=statement("日期,收入\n2026-07-23,$10"))
+	conflict = api.preview_import(**args)
+	assert not conflict["preview_id"] and not conflict["book_settings"]["currency"]
+	assert conflict["book_issues"] == [{"field":"currency", "message":"请选择账簿币种。"}]
+
+
+def test_prefixed_account_from_file_keeps_its_bank_number_when_checking_the_short_name(file_first):
+	_, args = file_first
+	frappe.db.sql.side_effect = lambda _query, params: [("MXN", "000999")] if params["account"] == "万里汇" else []
+	args["content_base64"] = statement("银行账户名称,拉丁购万里汇\n本方账号,000123\n日期,收入\n2026-07-23,$10")
+	preview = api.preview_import(**args)
+	assert not preview["preview_id"] and not preview["book_settings"]["currency"]
+
+
+def test_cleared_currency_stays_pending_until_operator_selects_a_currency(file_first):
+	_, args = file_first
+	args["content_base64"] = statement("日期,收入\n2026-07-23,$10")
+	assert api.preview_import(**args)["currency"] == "MXN"
+	missing = api.preview_import(**args, currency="")
+	assert not missing["preview_id"] and not missing["book_settings"]["currency"]
+	assert missing["book_issues"] == [{"field":"currency", "message":"请选择账簿币种。"}]
+	selected = api.preview_import(**args, currency="USD")
+	assert selected["currency"] == "USD" and selected["preview_id"]
