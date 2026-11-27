@@ -26,6 +26,9 @@ TERMS = {
 }
 LABEL = re.compile("|".join(re.escape(term) for term in sorted(TERMS, key=lambda term: (-len(term), term))))
 
+# DeepSeek counts reasoning and the final JSON against the same response limit.
+LAYOUT_RESPONSE_TOKENS = 2048
+
 PROMPT = """你负责识别银行流水的表头。下面是候选行的列序号和银行术语，均为脱敏结构。
 识别可能的表头和列对应，严格返回 JSON，例如
 {"header_row":2,"columns":{"date":0,"income":1,"expense":2,"balance":3,"summary":4}}。
@@ -52,6 +55,7 @@ def request_layout(candidates):
 				{"role": "system", "content": PROMPT},
 				{"role": "user", "content": json.dumps(candidates, ensure_ascii=False)},
 			],
+			max_tokens=LAYOUT_RESPONSE_TOKENS,
 		)
 	except model_client.DeepSeekError as exc:
 		raise formats.StatementError(str(exc)) from None

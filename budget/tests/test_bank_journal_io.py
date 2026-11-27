@@ -639,3 +639,20 @@ def test_later_header_cannot_skip_dated_money_under_an_unrecognized_prior_amount
 		["Deposit", "description", "Date"], ["2", "later", "20261102"]])
 	safe = journal.parse_statement(preamble, "example.csv", mapping, header_row=3)
 	assert not safe["errors"] and len(safe["rows"]) == 1
+
+
+def test_reasoning_model_can_finish_the_layout_json_after_reasoning_tokens(monkeypatch):
+	import sys
+	from types import ModuleType, SimpleNamespace
+	from budget.services import bank_journal_ai
+	columns = {"header_row": 2, "columns": {"year": 0, "month": 1, "day": 2, "income": 3}}
+	def request(config, messages, *, max_tokens=700):
+		# Observed on the split-date workbook: 825 reasoning tokens before the JSON response.
+		if max_tokens < 1000:
+			raise ValueError("truncated response")
+		assert max_tokens <= 4096
+		return columns
+	module = ModuleType("ai_assistant.ai_assistant")
+	module.model_client = SimpleNamespace(get_deepseek_config=lambda: {}, request_deepseek_json=request, DeepSeekError=ValueError)
+	monkeypatch.setitem(sys.modules, "ai_assistant.ai_assistant", module)
+	assert bank_journal_ai.request_layout([{"header_row": 2, "columns": {"0": ["year"]}}]) == columns
