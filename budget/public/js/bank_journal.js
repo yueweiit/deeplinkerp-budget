@@ -169,26 +169,56 @@
         el.classList.add("bj-dialog"); el.innerHTML=html+'<p class="bj-error" role="alert"></p>';
         const message=el.lastElementChild;
         const error=text=>{message.textContent=text};
-        function action(label, fn) {
-            d.set_primary_action(label, async()=>{
-                if (d.__busy) return;
-                d.__busy=true;
-                const button=d.get_primary_btn();button.prop("disabled",true);error("");
-                try {await fn();} catch(e){error(reason(e));}
-                finally {d.__busy=false;button.prop("disabled",false);}
-            });
+        async function run(fn) {
+            if (d.__busy) return;
+            d.__busy=true;
+            const button=d.get_primary_btn();button.prop("disabled",true);error("");
+            try {await fn();} catch(e){error(reason(e));}
+            finally {d.__busy=false;button.prop("disabled",false);}
         }
+        const action=(label,fn)=>d.set_primary_action(label,()=>run(fn));
         d.set_secondary_action(()=>{if(!d.__busy)d.hide()});d.set_secondary_action_label("取消");
-        d.show();return {d,el,action,error};
+        d.show();return {d,el,action,error,run};
     }
-    function previewTable(rows,fields) {
-        const head=fields.map(([,title])=>'<th>'+esc(title)+'</th>').join("");
-        const body=rows.map(r=>'<tr>'+fields.map(([k,title])=>'<td data-label="'+esc(title)+'">'+esc(Array.isArray(r[k])?r[k].join("\n"):r[k]??"—")+'</td>').join("")+'</tr>').join("");
-        return '<table class="bj-preview"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table>';
+    const importFields=[["date","日期"],["summary","摘要"],["income","收入"],["expense","支出"],["balance","余额"]];
+    function importMapping(preview, mapping, signed=mapping.amount!=null, open=false) {
+        if (!preview.headers?.length || (!preview.needs_mapping && preview.mapping_used===null)) return "";
+        const choices=[["","未使用"],...preview.headers.map((header,i)=>[i,(i+1)+" · "+header])];
+        const fields=signed ? [...importFields.slice(0,2),["amount","交易金额"],["direction","收支方向"],importFields[4]] : [...importFields];
+        for (const [key,label] of [["bank_ref","银行流水号"],["currency","币种"],["refs","钉钉单号"]]) {
+            if (preview.errors?.some(issue=>issue.field===key)) fields.push([key,label]);
+        }
+        return '<details class="bj-import-mapping"'+(open?' open':'')+'><summary>列对应'+(preview.needs_mapping?' · 待设置':'')+'</summary>'+
+            '<div class="bj-import-columns"><label>收支列形式<select data-layout>'+[
+                ["split","收入、支出分列"],["signed","收支同列"]].map(([value,label])=>
+                '<option value="'+value+'"'+((value==="signed")===signed?' selected':'')+'>'+label+'</option>').join("")+
+            '</select></label>'+fields.map(([key,label])=>'<label>'+esc(label)+'<select data-map="'+key+'">'+choices.map(([index,name])=>
+                '<option value="'+esc(index)+'"'+(String(mapping[key]??"")===String(index)?' selected':'')+'>'+esc(name)+'</option>').join("")+
+            '</select></label>').join("")+'</div></details>';
     }
-    const mappingFields=[["date","交易日期"],["summary","摘要"],["income","收入"],["expense","支出"],["amount","交易金额（收支同列）"],
-        ["direction","收支方向"],["balance","余额"],["currency","币种"],["refs","钉钉单号"],["bank_ref","银行流水号"],["category","类别"],["level2","二级明细"],
-        ["level3","三级明细"],["project","所属项目"],["dept","归属部门"],["invoice","发票寄送信息"]];
+    function importTable(rows, errors) {
+        const issues=new Map();
+        for (const issue of errors || []) {
+            if (!issues.has(issue.row)) issues.set(issue.row,[]);
+            issues.get(issue.row).push(issue);
+        }
+        const head='<th scope="col">原行</th>'+importFields.map(([,label])=>'<th scope="col">'+label+'</th>').join("");
+        const body=rows.map(row=>{
+            const problems=issues.get(row.source_row)||[];
+            const cells=importFields.map(([key,label])=>{
+                const value=row[key]??"";
+                const issue=problems.find(item=>item.field===key || (["income","expense"].includes(key) && ["amount","direction"].includes(item.field)));
+                const attrs='data-field="'+key+'" aria-label="原表第 '+esc(row.source_row)+' 行 '+label+'" title="'+esc(issue?.message || value)+'"'+
+                    (issue?' aria-invalid="true"':'');
+                return '<td>'+(key==="summary"?'<textarea rows="1" maxlength="12000" '+attrs+'>'+esc(value)+'</textarea>':
+                    '<input type="text" maxlength="80" '+(key==="date"?'':'inputmode="decimal" ')+attrs+' value="'+esc(value)+'">')+'</td>';
+            }).join("");
+            const note=problems.map(issue=>issue.message).join("；");
+            return '<tr data-source-row="'+esc(row.source_row)+'"><th scope="row"'+(note?' class="bj-import-row-issue" title="'+esc(note)+'"':'')+'>'+esc(row.source_row)+'</th>'+cells+'</tr>';
+        }).join("");
+        return '<div class="bj-import-grid" tabindex="0" role="region" aria-label="银行流水预览"><table class="bj-preview"><thead><tr>'+head+
+            '</tr></thead><tbody>'+body+'</tbody></table></div>';
+    }
     function errorList(errors) {
         if (!errors?.length) return "";
         return '<div class="bj-error">'+errors.slice(0,40).map(e=>esc(typeof e==="string"?e:((e.row?"第 "+e.row+" 行 · ":"")+(e.message||e.reason||"资料有误")))).join("<br>")+(errors.length>40?"<br>另有 "+(errors.length-40)+" 项":"")+'</div>';
@@ -389,53 +419,116 @@
         }
         importDialog() {
             const book=this.book,receipt={};
-            const {d,el,action}=this.openDialog("导入银行流水",'<label>选择 CSV 或 XLSX 文件<input type="file" accept=".csv,.xlsx" name="statement"></label>'+
-                '<div data-mapping></div><div data-result aria-live="polite"></div>');
-            const fileInput=el.querySelector("[name=statement]"),mappingBox=el.querySelector("[data-mapping]"),resultBox=el.querySelector("[data-result]");
-            let preview=null,data="",revision=0,changedMapping=false,headerRow=null;
-            function mapping(){
-                if(!changedMapping)return null;
-                return Object.fromEntries([...mappingBox.querySelectorAll("[data-map]")].filter(e=>e.value!=="").map(e=>[e.dataset.map,Number(e.value)]));
+            const {d,el,action,error,check,run}=this.openDialog("导入银行流水",'<div class="bj-import-toolbar">'+
+                '<label class="bj-import-file"><input type="file" accept=".csv,.xlsx" name="statement" aria-label="选择 CSV 或 XLSX 文件"></label>'+
+                '<div data-mapping></div></div><div data-result></div>');
+            el.classList.add("bj-import-dialog");
+            el.closest(".modal-dialog")?.classList.add("bj-import-modal");
+            const fileInput=el.querySelector("[name=statement]");
+            const mappingBox=el.querySelector("[data-mapping]"),resultBox=el.querySelector("[data-result]");
+            let preview=null, data="", revision=0, offset=0, selected=null, headerRow=null, edits={};
+            let layoutPreview=null;
+            const validate=()=>read(offset);
+            const invalidate=label=>{
+                ++revision;
+                preview=null;
+                error("");
+                const status=resultBox.querySelector("[data-validation]");
+                if(status)status.textContent=label;
+                action("重新校验",validate);
+            };
+            fileInput.onchange=()=>{
+                ++revision;
+                data=""; preview=null; layoutPreview=null; selected=null; headerRow=null; offset=0; edits={};
+                error("");
+                mappingBox.replaceChildren();
+                resultBox.replaceChildren();
+                action("预览流水",validate);
+            };
+            mappingBox.onchange=event=>{
+                const input=event.target;
+                if(input.matches("[data-layout]")){
+                    selected={...selected};
+                    const signed=input.value==="signed";
+                    for(const field of signed?["income","expense"]:["amount","direction"])delete selected[field];
+                    mappingBox.innerHTML=importMapping(layoutPreview,selected,signed,true);
+                    mappingBox.querySelector("[data-layout]").focus();
+                }else if(input.matches("[data-map]")){
+                    selected={...selected};
+                    if(input.value==="")delete selected[input.dataset.map];
+                    else selected[input.dataset.map]=Number(input.value);
+                }else return;
+                invalidate("列对应尚未校验");
+            };
+            resultBox.oninput=event=>{
+                const input=event.target;
+                if(!input.matches("[data-field]"))return;
+                const tr=input.closest("[data-source-row]"),key=input.dataset.field;
+                const edited=edits[tr.dataset.sourceRow] ||= {};
+                edited[key]=input.value;
+                if(key==="income" || key==="expense"){
+                    const other=key==="income"?"expense":"income";
+                    edited[other]=tr.querySelector('[data-field="'+other+'"]').value;
+                }
+                input.classList.add("bj-import-edited");
+                invalidate("修改尚未校验");
+            };
+            resultBox.onclick=event=>{
+                const button=event.target.closest("[data-review-offset]");
+                if(button)run(async()=>{check();await read(Number(button.dataset.reviewOffset));});
+            };
+            function fileArgs(file){
+                return {book,filename:file.name,content_base64:data,edits:JSON.stringify(edits)};
             }
-            function invalidate(){++revision;preview=null;resultBox.replaceChildren();action("预览导入",read);}
-            fileInput.onchange=()=>{data="";headerRow=null;mappingBox.replaceChildren();changedMapping=false;invalidate();};
-            mappingBox.addEventListener("change",()=>{changedMapping=true;invalidate();});
             const apply=async()=>{
-                if(!preview)throw Error("请重新预览文件。");
-                const args={book,filename:fileInput.files[0].name,content_base64:data,mapping:preview.mapping_used,
-                    header_row:preview.header_row,preview_id:preview.preview_id,version:preview.version};
-                await call("apply_import",{...args,request_id:retryKey(receipt,{book,preview_id:preview.preview_id,version:preview.version})});
+                if(!preview?.preview_id)throw Error("请先重新校验流水。");
+                const args={...fileArgs(fileInput.files[0]),mapping:preview.mapping_used,header_row:preview.header_row,
+                    preview_id:preview.preview_id,version:preview.version};
+                const controls=Array.from(el.querySelectorAll("input,textarea,select,button")).filter(input=>!input.disabled);
+                controls.forEach(input=>input.disabled=true);
+                try{
+                    await call("apply_import",{...args,request_id:retryKey(receipt,{book,preview_id:preview.preview_id,version:preview.version})});
+                }finally{controls.forEach(input=>input.disabled=false);}
                 d.hide();await this.load();root.frappe.show_alert({message:"流水已导入",indicator:"green"});
             };
-            async function read(){
+            async function read(nextOffset){
                 const file=fileInput.files[0];
                 if(!file)throw Error("请先选择银行流水文件。");
                 if(file.size>6*1024*1024)throw Error("请选择 6 MB 以内的银行流水文件。");
                 const v=++revision,bytes=data||await fileData(file);if(v!==revision)return;
                 data=bytes;
-                const selected=mapping();
-                const res=await call("preview_import",{book,filename:file.name,content_base64:bytes,mapping:selected,
-                    header_row:headerRow,use_ai:!changedMapping&&headerRow===null?1:0});if(v!==revision)return;
+                const res=await call("preview_import",{...fileArgs(file),mapping:selected,header_row:headerRow,
+                    use_ai:layoutPreview===null?1:0,review_offset:nextOffset});
+                if(v!==revision)return;
                 headerRow=res.header_row ?? null;
-                const headers=res.headers || [], map=res.mapping_used || selected || res.suggested_mapping || {};
-                if(headers.length&&!res.account_label){
-                    const choices=[["","未使用"],...headers.map((h,i)=>[i,(i+1)+" · "+h])];
-                    mappingBox.innerHTML='<details '+(res.needs_mapping||res.mapping_source==="deepseek"?"open":"")+'><summary>银行列与日记账字段对应</summary><div class="bj-form">'+mappingFields.map(([key,label])=>'<label>'+
-                        esc(label)+'<select data-map="'+key+'">'+optionsList(choices)+'</select></label>').join("")+'</div></details>';
-                    mappingBox.querySelectorAll("select").forEach(s=>s.value=map[s.dataset.map]??"");
-                }
+                selected=res.mapping_used || selected || res.suggested_mapping || null;
+                const mappingOpen=mappingBox.querySelector("details")?.open;
+                const signed=selected?.amount!=null || (res.needs_mapping && mappingBox.querySelector("[data-layout]")?.value==="signed");
+                mappingBox.innerHTML=importMapping(res,selected||{},signed,mappingOpen);
+                layoutPreview=res;
                 preview=res;
-                const rows=res.rows || [],total=res.row_count ?? res.total ?? rows.length;
-                resultBox.innerHTML='<h5>导入预览 · '+esc(total)+' 笔</h5>'+
-                    (res.mapping_source==="deepseek"?'<p class="text-muted">DeepSeek 已识别列对应。请核对收支方向和金额。</p>':"")+
-                    (res.ai_notice?'<p class="text-muted">'+esc(res.ai_notice)+'</p>':"")+errorList(res.errors)+
-                    (res.needs_mapping?'<p>请核对上方列对应关系，再次预览。</p>':"")+
-                    previewTable(rows.slice(0,25),[["date","日期"],["summary","摘要"],["income","收入"],["expense","支出"],["balance","余额"]])+
-                    (total>25?'<p class="text-muted">此处显示前 25 笔。</p>':"");
-                if(!res.needs_mapping&&!res.errors?.length&&res.preview_id&&total>0)action("确认导入",apply);
-                else action("重新预览",read);
+                const grid=resultBox.querySelector(".bj-import-grid");
+                const position=nextOffset===offset?[grid?.scrollTop||0,grid?.scrollLeft||0]:[0,0];
+                const rows=res.review_rows || [], total=res.review_total||0, pageSize=res.review_page_size||100;
+                const problems=res.error_count||0;
+                const start=nextOffset+1, end=nextOffset+rows.length;
+                const paging=total>pageSize?'<nav aria-label="流水预览分页"><button type="button" class="btn btn-default btn-xs" data-review-offset="'+
+                    Math.max(0,nextOffset-pageSize)+'" '+(nextOffset===0?'disabled':'')+'>上一页</button> '+
+                    '<span>'+start+'–'+end+' / '+total+'</span> <button type="button" class="btn btn-default btn-xs" data-review-offset="'+
+                    (nextOffset+pageSize)+'" '+(end>=total?'disabled':'')+'>下一页</button></nav>':"";
+                resultBox.innerHTML=(rows.length?importTable(rows,res.review_errors):'<p class="text-muted">'+
+                    esc(res.needs_mapping?"展开列对应，设置日期和收支列。":"没有可预览的流水。")+'</p>')+
+                    '<div class="bj-import-footer"><div class="bj-import-stats" role="status">'+
+                    (total?total+' 笔 · 收入 '+esc(amountText(res.income_total))+' · 支出 '+esc(amountText(res.expense_total)):"")+
+                    '<span data-validation>'+(rows.length?(problems?"请核对标记行":"可直接编辑单元格"):"")+'</span></div>'+paging+'</div>'+
+                    (problems?'<details class="bj-import-issues"><summary>'+problems+' 处需核对</summary>'+errorList(res.errors)+'</details>':"")+
+                    (res.needs_mapping&&res.ai_notice?'<p class="text-muted">'+esc(res.ai_notice)+'</p>':"");
+                resultBox.querySelector(".bj-import-grid")?.scrollTo({top:position[0],left:position[1]});
+                offset=nextOffset;
+                if(!res.needs_mapping&&!problems&&res.preview_id&&rows.length)action("确认导入",apply);
+                else action("重新校验",validate);
             }
-            action("预览导入",read);
+            action("预览流水",validate);
         }
         async syncDialog(){
             const {book,month}=this,receipt={};
@@ -502,5 +595,5 @@
             else if(wrapper.cashJournal&&nativeShow)nativeShow(wrapper);
         };
     }
-    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,syncPreview,extractRefs,retryKey,scopeBooks,Workbench,install};
+    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,syncPreview,importMapping,importTable,extractRefs,retryKey,scopeBooks,Workbench,install};
 });
