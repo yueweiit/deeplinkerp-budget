@@ -25,6 +25,15 @@
 
 用户需有目标公司的访问权限和 `CN Cash Journal Entry` 的读取权限，确认导入还需创建权限。若需关联、补充已有流水，还需对应记录的写权限。预览和确认使用同一个 ERP 用户。账簿列表为空时，由财务在日记账页面选公司并建立银行账簿。
 
+## 在 AI 工作流里选择公司和账户
+
+1. 在支持 OpenAPI 的工具中导入本文的 OpenAPI 文件。给工具配置自定义认证请求头，名称填写 `Authorization`，值填写 `token <API_KEY>:<API_SECRET>`。认证信息放在工具的凭据设置中。
+2. 每次导入先调用 `getJournalOptions`。第一级用 `message.books[].company` 去重生成公司选项。用户选公司后，用同一公司下的 `account` 映射出第二级选项，并保存对应的 `name` 作为账簿标识。公司改变时重新选择账户。若只有一个选项，也展示公司和账户供用户确认。
+3. CSV 或 XLSX 调用 `previewJournalFile`，从其他格式提取的结构化明细调用 `previewJournalRows`。显示选定的公司、银行账户、笔数和收支合计。用户确认后再调用对应的 `applyJournalFile` 或 `applyJournalRows`，并保留原请求和回执。
+4. 某公司没有可选账户时，先由财务在 ERP 日记账建立对应银行账簿。接入用户取得该公司的授权后，重新调用 `getJournalOptions` 即可加载新选项。
+
+专用接入用户通过 `Bank Journal Import API` 角色限制到本页列出的接口。管理员用 ERP 的 `User Permission` 逐一授权目标公司，选择 `Company`，启用「适用于所有单据类型」和「隐藏下级」，再核对该公司的可用账簿。
+
 ## JSON 明细的请求
 
 取 `get_options` 返回的 `message.books`，按用户选择的 **公司全称＋银行账户名称** 精确匹配。用匹配项的 `name` 作 `book`，并把其 `company` 和 `account` 原样传给接口。不同公司可能使用同名账户，禁止取列表第一项作为默认账簿。

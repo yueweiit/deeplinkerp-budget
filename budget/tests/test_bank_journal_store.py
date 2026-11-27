@@ -41,3 +41,45 @@ def test_receipt_binds_payload_independent_of_mapping_order():
 	assert journal.batch_digest({"income": "1", "refs": ["1"], "balance": "22"}) != journal.batch_digest(
 		{"income": "2", "refs": ["1"], "balance": "22"}
 	)
+
+
+def test_service_role_can_only_use_the_import_routes(monkeypatch):
+	import frappe
+	from types import SimpleNamespace
+	from budget.services.bank_journal_access import restrict_import_request
+
+	forms = {}
+	req = SimpleNamespace(path="/api/method/budget.api.bank_journal.get_options", method="GET")
+	monkeypatch.setattr(frappe, "session", SimpleNamespace(user="journal-ai@example.invalid"))
+	monkeypatch.setattr(frappe, "get_roles", lambda *_: ["Bank Journal Import API"])
+	monkeypatch.setattr(frappe, "request", req, raising=False)
+	monkeypatch.setattr(frappe, "form_dict", forms, raising=False)
+	monkeypatch.setattr(frappe, "get_request_header", lambda *_: "token example:example")
+	monkeypatch.setattr(frappe, "throw", lambda message, exc: (_ for _ in ()).throw(exc(message)))
+	restrict_import_request()
+	forms["cmd"] = "budget.api.bank_journal.save_row"
+	with pytest.raises(frappe.PermissionError):
+		restrict_import_request()
+	forms.clear()
+	req.method = "POST"
+	req.path = "/api/method/budget.api.bank_journal_files.apply_rows"
+	restrict_import_request()
+	req.path = "/api/method/budget.api.bank_journal.save_row"
+	with pytest.raises(frappe.PermissionError):
+		restrict_import_request()
+	monkeypatch.setattr(frappe, "get_roles", lambda *_: ["Accounts User"])
+	restrict_import_request()
+
+
+def test_service_role_has_no_company_access_without_explicit_grants(monkeypatch):
+	import frappe
+	from types import SimpleNamespace
+	from budget.services import bank_journal_access as access
+
+	monkeypatch.setattr(frappe, "session", SimpleNamespace(user="journal-ai@example.invalid"))
+	monkeypatch.setattr(frappe, "get_roles", lambda *_: ["Bank Journal Import API"])
+	monkeypatch.setattr(access, "allowed_companies", lambda: {"A", "B"})
+	monkeypatch.setattr(frappe, "get_all", lambda *a, **kw: [])
+	assert access.journal_companies() == set()
+	monkeypatch.setattr(frappe, "get_all", lambda *a, **kw: ["B", "not visible"])
+	assert access.journal_companies() == {"B"}

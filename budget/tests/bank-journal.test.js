@@ -36,3 +36,14 @@ test("companies with the same bank label retain independent receipt and import t
     assert.deepEqual(scopeBooks(books,"B").map(x=>x.name),["B1"]);
     assert.deepEqual(scopeBooks(books,"C"),[]);
 });
+test("imported movements have a visible row editor with a calculated balance and an explicit read-only state", () => {
+    const row = {name:"ROW-1",date:"2026-11-16",source:"Import",summary:"原始摘要",expense:"20.15",balance:"79.85",refs:["202611161336000427210"]};
+    const display = rowMarkup(row, {canEdit:true});
+    assert.match(display, /data-edit="ROW-1"[^>]*>编辑<\/button>/);
+    assert.doesNotMatch(rowMarkup(row, {canEdit:false}), /data-edit=/);
+    const edit = rowMarkup(row, {canEdit:true, editing:true});
+    for (const name of ["date","income","expense","summary","refs"]) assert.match(edit,new RegExp('name="'+name+'"'));
+    assert.match(edit, /data-act="save-edit"[^>]*>保存<\/button>/);
+    assert.match(edit, /data-act="cancel-edit"[^>]*>取消<\/button>/);
+    assert.doesNotMatch(edit, /name="balance"/);
+});

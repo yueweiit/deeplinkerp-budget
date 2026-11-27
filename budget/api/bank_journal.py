@@ -25,7 +25,8 @@ from budget.services.bank_journal_contract import (
 	month_bounds,
 )
 from budget.services.bank_journal_schema import BOOK_FIELD, ENTRY, EXTRA, SEQ, VOID, managed
-from budget.services.cn_approval_workbench import allowed_companies
+from budget.services.bank_journal_access import is_import_user
+from budget.services.bank_journal_access import journal_companies as allowed_companies
 
 BOOK = "CN Bank Journal Book"
 OP = "CN Bank Journal Operation"
@@ -68,6 +69,8 @@ def get_options():
 		kind: bool(frappe.has_permission(ENTRY, ptype=kind))
 		for kind in ("create", "write", "delete", "export")
 	}
+	if is_import_user():
+		perms["write"] = False
 	books = (
 		frappe.get_all(
 			BOOK,
