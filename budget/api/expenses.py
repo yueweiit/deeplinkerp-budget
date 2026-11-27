@@ -151,7 +151,7 @@ def export_budget(filters):
 		[_("OA expense category"), source_filter_label(result["filters"], result["metadata"])],
 		[_("Management category"), _(service.management.rules_service.CATEGORIES.get(result["filters"]["category"], "Unclassified" if result["filters"]["category"] else "All"))],
 		[_("Budgets keep their budget month. The latest approved budget per subsidiary is used; a missing budget is not zero.")],
-		*([[_("Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.")]] if result["filters"]["source_category"] else []),
+		*([[_("Budget differences and execution rates are unavailable when filtering by expense category.")]] if result["filters"]["source_category"] else []),
 		[_("Snapshot complete"), _("Yes") if result["metadata"]["complete"] else _("No")], [],
 		[_(label) for label in ("Subsidiary", "Region", "Reporting currency", "Effective budget", "Approved budget occupation", "Budget difference", "Budget execution rate")]]
 	for row in result["budgets"]:
