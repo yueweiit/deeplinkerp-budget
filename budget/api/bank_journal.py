@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from contextlib import contextmanager
+from datetime import date, timedelta
 from decimal import Decimal
 
 import frappe
@@ -75,6 +76,25 @@ def book_currency(doc):
 	return (doc.get("currency") if isinstance(doc, dict) else getattr(doc, "currency", None)) or "CNY"
 
 
+def _bank_offset(doc, ledger_book=None):
+	if ledger_book:
+		if ledger_book != doc.name:
+			frappe.throw("此文件的账面余额来自其他账簿。")
+		return Decimal(0)
+	return Decimal(str(getattr(doc, "bank_balance_offset", 0) or 0))
+
+
+def _initial_bank_offset(settings, review):
+	if not review or "file_opening" not in review:
+		return "0.00"
+	if money(review["book_opening"]) != money(settings.opening) or review["currency"] != book_currency(settings):
+		frappe.throw("确认的期初调整与目标账簿不符。")
+	difference = Decimal(money(settings.opening)) - Decimal(money(review["file_opening"]))
+	if "difference" in review and Decimal(str(review["difference"])) != difference:
+		frappe.throw("确认的期初差额与银行和账簿期初余额不符。")
+	return format(difference, ".2f")
+
+
 def _supported_currency(row):
 	return is_currency(row.name) and get_currency_precision(row.name) == 2 and row.fraction_units in (None, 0, 100)
 
@@ -130,7 +150,7 @@ def get_options():
 	)
 	return {
 		"companies": companies,
-		"books": [{**book, "currency": book_currency(book)} for book in books],
+		"books": [frappe._dict(book, currency=book_currency(book)) for book in books],
 		"currencies": supported_currencies(),
 		"month": frappe.utils.today()[:7],
 		"legacy_count": int(legacy[0]["n"] or 0) if legacy else 0,
@@ -195,7 +215,8 @@ def _insert_book(settings):
 		frappe.throw("账簿币种已停用或精度不受支持，请刷新后重新选择。")
 	frappe.get_doc(dict(
 		doctype=BOOK, company=settings.company, account=settings.account, currency=currency, opening=settings.opening,
-		opening_date=settings.opening_date, revision=0, next_sequence=0,
+		bank_balance_offset=format(_bank_offset(settings), ".2f"), opening_date=settings.opening_date,
+		revision=0, next_sequence=0,
 	)).insert(ignore_permissions=True, set_name=settings.name)
 
 
@@ -321,7 +342,8 @@ def get_month(book, month=None):
 
 def export_rows(book, month=None):
 	doc = authorize_book(book, "export")
-	return {**_period(doc, month, full=month is None), "template": _json(doc.template_json)}
+	return {**_period(doc, month, full=month is None), "template": _json(doc.template_json),
+		"bank_balance_offset": format(_bank_offset(doc), ".2f")}
 
 
 def book_ref_rows(book, refs):
@@ -606,6 +628,19 @@ def _matching_entry(book, source, row, claimed):
 	frappe.throw(f"{row['date']} 的流水与已有流水使用相同单号，但日期或金额无法唯一核实。")
 
 
+def _legacy_import_issue(row):
+	return {"row": row["source_row"], "field": "summary",
+		"message": f"原表第 {row['source_row']} 行与旧版导入回执相符；请核对已有流水，需替换时选择按日期覆盖。"}
+
+def legacy_import_issues(book, rows):
+	keys = list(dict.fromkeys(row["_legacy_source_key"] for row in rows if row.get("_legacy_source_key")))
+	existing = set()
+	for offset in range(0, len(keys), 500):
+		existing.update(frappe.get_all(ORIGIN, filters={"book": book.name, "source": "Import",
+			"source_key": ["in", keys[offset:offset + 500]]}, pluck="source_key", limit_page_length=0))
+	return [_legacy_import_issue(row) for row in rows if row.get("_legacy_source_key") in existing]
+
+
 def _source_record(book, source, key):
 	name = _source_id(book.name, source, key)
 	return name, frappe.db.get_value(ORIGIN, name, ["entry", "digest"], as_dict=True, for_update=True)
@@ -626,8 +661,31 @@ def _range_entries(doc, start, end):
 	return entries
 
 
-def replacement_impact(doc, rows, opening):
+def ledger_export_matches(doc, rows):
+	"""Check the complete exported date range without changing existing bank source bindings."""
+	if not rows:
+		return False
+	first = as_date(min(row["date"] for row in rows))
+	last = as_date(max(row["date"] for row in rows))
+	native = _rows(doc, first, last + timedelta(days=1) if last < date.max else None)
+	if len(native) != len(rows):
+		return False
+	prior = _prior(doc, first)
+	for stored, raw in zip(native, rows, strict=True):
+		prior += Decimal(stored["income"] or 0) - Decimal(stored["expense"] or 0)
+		if raw.get("balance") is None or prior != Decimal(raw["balance"]):
+			return False
+		values = clean_row(raw)
+		if any(stored.get(key) != values.get(key) for key in ("date", "income", "expense", "refs")):
+			return False
+		if any((stored.get(key) or "") != (values.get(key) or "") for key in TEXT):
+			return False
+	return True
+
+
+def replacement_impact(doc, rows, opening, *, ledger_book=None):
 	"""Use reviewed transaction dates, including both ends and intervening empty file days."""
+	offset = _bank_offset(doc, ledger_book)
 	start = min(row["date"] for row in rows)
 	end = max(row["date"] for row in rows)
 	entries = _range_entries(doc, start, end)
@@ -635,11 +693,11 @@ def replacement_impact(doc, rows, opening):
 	old = prior + sum(Decimal(str(r.amount)) * (1 if r.direction == "income" else -1) for r in entries)
 	running = prior
 	issues = []
-	if opening is not None and Decimal(opening) != prior:
+	if opening is not None and Decimal(opening) + offset != prior:
 		issues.append({"row": rows[0]["source_row"], "field": "opening", "message": "文件期初余额与覆盖日前的账簿余额不符。"})
 	for row in rows:
 		running += Decimal(row["income"] or 0) - Decimal(row["expense"] or 0)
-		if row.get("balance") is not None and running != Decimal(row["balance"]):
+		if row.get("balance") is not None and running != Decimal(row["balance"]) + offset:
 			issues.append({"row": row["source_row"], "field": "balance", "message": "文件余额与按覆盖日前余额重算的结果不符。"})
 	return dict(start=start, end=end, old_count=len(entries), new_count=len(rows),
 		opening=format(prior, ".2f"), old_closing=format(old, ".2f"), new_closing=format(running, ".2f"),
@@ -711,6 +769,7 @@ def apply_batch(
 	new_book=None,
 	replace_range=False,
 	import_review=None,
+	ledger_book=None,
 ):
 	source = _source(source)
 	if not isinstance(rows, list) or len(rows) > MAX_BATCH:
@@ -722,6 +781,8 @@ def apply_batch(
 	payload = [rows, opening, str(opening_date or ""), template] if request_facts is None else request_facts
 	if import_review is not None:
 		payload = [payload, import_review]
+	if ledger_book:
+		payload = [payload, ledger_book]
 	kind = source
 	if replace_range:
 		if source != "Import" or new_book is not None or not rows:
@@ -738,8 +799,10 @@ def apply_batch(
 			if existing:
 				_check_currency(existing, book_currency(new_book))
 			else:
+				new_book.bank_balance_offset = _initial_bank_offset(new_book, import_review)
 				_insert_book(new_book)
 		doc, ident, fp, done = _begin(book, "create", version, request_id, kind, payload, replay_only=replay_only)
+		offset = _bank_offset(doc, ledger_book) if source == "Import" else Decimal(0)
 		if source == "DingTalk":
 			require_oa_currency(doc)
 		if done:
@@ -755,14 +818,22 @@ def apply_batch(
 				_check_currency(doc, raw["currency"])
 			if "ledger_balance" in raw and (source != "Import" or new_book is None):
 				frappe.throw("仅可按已确认的新账簿期初余额重算流水余额。")
-		lookup = list(dict.fromkeys(ref for row in clean for ref in row["refs"]))
-		all_links = _links(doc.company, lookup)
+			if "ledger_balance" in raw and Decimal(money(raw["ledger_balance"])) != Decimal(money(raw["balance"])) + offset:
+				frappe.throw("流水余额与账簿的期初调整不一致。")
 		if replace_range:
-			impact, entries, issues = replacement_impact(doc, rows, opening)
+			impact, entries, issues = replacement_impact(doc, rows, opening, ledger_book=ledger_book)
 			if issues:
 				frappe.throw(issues[0]["message"])
-			_retire_entries(doc, entries, changes)
 			counts["impact"] = impact
+		if ledger_book and ledger_export_matches(doc, rows):
+			counts["skipped"] = len(rows)
+			return _finish(doc, ident, fp, kind, [], result=counts)
+		if ledger_book and not replace_range:
+			frappe.throw("账面导出与现有流水不同，请核对或选择按日期覆盖。")
+		if replace_range:
+			_retire_entries(doc, entries, changes)
+		lookup = list(dict.fromkeys(ref for row in clean for ref in row["refs"]))
+		all_links = _links(doc.company, lookup)
 		# Never fabricate an approval identity. Historic imports preserve the
 		# literal number even if its matching OA instance is no longer available.
 		if opening is not None and clean:
@@ -770,7 +841,7 @@ def apply_batch(
 			if first >= as_date(str(doc.opening_date)) and not any(
 				r.get("balance") is not None for r in rows
 			):
-				if _prior(doc, first) != Decimal(opening):
+				if _prior(doc, first) != Decimal(opening) + offset:
 					frappe.throw("文件列示的期初余额与账簿不一致。")
 		for raw, row in zip(rows, clean, strict=True):
 			key = raw.get("source_key")
@@ -780,6 +851,10 @@ def apply_batch(
 			if len(row["bank_ref"]) > 140:
 				frappe.throw("银行流水号过长。")
 			origin_id, receipt = _source_record(doc, source, key)
+			if not receipt and not replace_range and source == "Import" and raw.get("_legacy_source_key"):
+				_, old_receipt = _source_record(doc, source, raw["_legacy_source_key"])
+				if old_receipt:
+					frappe.throw(_legacy_import_issue(raw)["message"])
 			fingerprint = batch_digest(row)
 			review = raw.get("file_review") if source == "Import" else None
 			if source == "Import" and raw.get("balance") not in (None, "") and (
@@ -838,10 +913,9 @@ def apply_batch(
 			changes.append(dict(entry=current.name, before=before, origin=origin_id))
 			_register(doc, source, key, origin_id, current.name, fingerprint)
 			if raw.get("balance") not in (None, ""):
-				# The bank balance above remains the source fingerprint. A confirmed
-				# opening on a new book affects only its native balance check.
-				ledger_balance = money(raw.get("ledger_balance", raw["balance"]))
-				checks.append((as_date(row["date"]), current.name, Decimal(ledger_balance)))
+				# Source identity uses the bank's original balance. Only the
+				# comparison to the native ledger uses its confirmed opening offset.
+				checks.append((as_date(row["date"]), current.name, Decimal(money(raw["balance"])) + offset))
 		_import_balances(doc, checks)
 		if template and not doc.template_json and not replace_range:
 			changes.append({"template_before": doc.template_json})

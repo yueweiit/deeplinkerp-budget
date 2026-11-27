@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -79,6 +80,8 @@ ALIASES = {
 		"账务日期",
 		"交易年月日",
 		"bookingdate",
+		"postingdate",
+		"transactiondate",
 		"date",
 		"fecha",
 	),
@@ -106,6 +109,8 @@ ALIASES = {
 		"收入人民币",
 		"creditamount",
 		"abonos",
+		"abono", "income", "credit", "credits", "deposit", "deposits", "depósito", "depósitos",
+		"deposito", "depositos", "crédito", "créditos", "存款金额", "存入金额",
 	),
 	"expense": (
 		"支出",
@@ -118,6 +123,8 @@ ALIASES = {
 		"支出人民币",
 		"debitamount",
 		"cargos",
+		"cargo", "expense", "debit", "debits", "withdrawal", "withdrawals", "retiro", "retiros",
+		"débito", "débitos", "取款金额", "取出金额",
 	),
 	"amount": ("交易金额", "发生金额", "发生额", "金额", "交易金额人民币", "amount"),
 	"direction": ("收支方向", "收支类型", "交易方向", "收付方向", "direction"),
@@ -142,6 +149,7 @@ ALIASES = {
 	"dept": ("归属部门", "部门"),
 }
 MONEY = re.compile(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\Z", re.ASCII)
+LEDGER_MARKER = "DeepLinkERP/bank-journal/ledger-balance/v1:"
 CURRENCY_NAMES = {
 	"人民币": "CNY", "人民币元": "CNY", "RMB": "CNY", "156": "CNY",
 	"美元": "USD", "美金": "USD", "US$": "USD", "840": "USD",
@@ -388,19 +396,23 @@ def _normal(value):
 	return re.sub(r"[\s_()（）]", "", str(value or "")).lower()
 
 
+def _qualified_header(part):
+	match = re.fullmatch(r"(.+?)(?:\s*[（(\[]\s*([^()（）\[\]]+?)\s*[）)\]]|[\s/]+([A-Z]{3}))", part.strip())
+	if match:
+		try:
+			return match[1], _currency_token(match[2] or match[3])
+		except StatementError:
+			pass
+	return part, None
+
+
 def _header_terms(value):
 	if not isinstance(value, str) or isinstance(value, Formula):
 		return set()
 	parts = [value, *value.splitlines()]
 	terms = {_normal(part) for part in parts}
 	for part in parts:
-		match = re.fullmatch(r"(.+?)[（(]\s*([^()（）]+?)\s*[）)]", part.strip())
-		if match:
-			try:
-				_currency_token(match[2])
-			except StatementError:
-				continue
-			terms.add(_normal(match[1]))
+		terms.add(_normal(_qualified_header(part)[0]))
 	return terms
 
 
@@ -623,6 +635,33 @@ def _order_and_validate(result, supplied_opening):
 			balance = stated
 
 
+# In earlier CNY import receipts these columns determined the bank-movement key.
+# Reconstruct the historical key to recognize those receipts without changing them.
+def _legacy_columns(header, cols):
+	aliases = (
+		("摘要", "交易摘要", "业务摘要", "交易说明", "交易用途", "用途", "附言", "备注", "description", "memo"),
+		("余额", "账户余额", "交易余额", "账面余额", "本次余额", "balance"),
+	)
+	names = [re.sub(r"[\s_()（）]", "", str(cell or "")).lower() for cell in header]
+	indices = []
+	for choices in aliases:
+		matches = [i for i, name in enumerate(names) if name in choices]
+		indices.append(matches[0] if len(matches) == 1 else None)
+	current = [cols.get("summary", cols.get("remark")), cols.get("balance")]
+	return indices if indices != current else None
+
+
+def _legacy_key(raw, source, columns, occurrences):
+	summary, balance = columns
+	try:
+		old_balance = _money(_at(raw, balance), "balance", currency="CNY")
+	except StatementError:
+		return None
+	identity = (source["date"], source["income"], source["expense"], old_balance, _str(_at(raw, summary)).strip())
+	occurrences[identity] += 1
+	return _record_key("bank-movement", *identity, occurrences[identity])
+
+
 def _append_row(result, row, row_number, occurrences, seen_ids, *, source=None, repaired_key=None):
 	if row["bank_ref"]:
 		if row["bank_ref"] in seen_ids:
@@ -774,6 +813,9 @@ class _SourceColumns:
 	money: set[int]
 	currencies: set[int]
 	references: set[int]
+	explained: set[int]
+	omitted_amounts: dict[int, str]
+	omitted_balances: set[int]
 
 
 def _source_columns(header, mapping):
@@ -786,7 +828,65 @@ def _source_columns(header, mapping):
 		return result | {i for i, labels in enumerate(terms) if labels & aliases}
 
 	amounts = indices("income", "expense", "amount")
-	return _SourceColumns(amounts, amounts | indices("balance"), indices("currency"), indices("bank_ref", "refs"))
+	movement_keys = ("income", "expense", "amount")
+	safe_names = {name for key, aliases in ALIASES.items() if key not in movement_keys for name in aliases}
+	explained = {i for i, labels in enumerate(terms) if labels & safe_names}
+	explained.update(mapping[k] for k in ("date", *DATE_PARTS, *movement_keys) if k in mapping)
+	# A model can recognize a nonstandard balance/reference header. Retain its
+	# source semantics when numeric values could otherwise be receipts.
+	for key, words in (("balance", ("余款", "结余", "余额", "balance", "saldo")),
+					   ("bank_ref", ("编号", "流水号", "序号", "reference", "ref", "número", "folio"))):
+		if key in mapping and any(word in _normal(_at(header, mapping[key])) for word in words):
+			explained.add(mapping[key])
+	omitted = {}
+	for key in movement_keys:
+		for i, labels in enumerate(terms):
+			if labels.intersection(ALIASES[key]) and mapping.get(key) != i:
+				omitted[i] = key
+	balances = indices("balance")
+	return _SourceColumns(amounts, amounts | balances, indices("currency"), indices("bank_ref", "refs"),
+						  explained, omitted, balances - {mapping.get("balance")})
+
+
+def _possible_money(value):
+	if isinstance(value, (Formula, int, float, Decimal)):
+		return True
+	text = str(value).strip()
+	if text.startswith("=") or any(unicodedata.category(char) == "Sc" for char in text):
+		return True
+	if not any(char.isdigit() for char in text):
+		return False
+	text = re.sub(r"\s+[A-Za-z]{3}$", "", text)
+	text = MONEY_PREFIX.sub("", text.lstrip("(").strip(), count=1)
+	return bool(re.fullmatch(r"[+\-−]?[\d.,][\d.,\s'’]*(?:[eE][+-]?\d+)?\)?", text.strip()))
+
+
+def _check_source_amounts(raw, cols, evidence, currency):
+	for index in evidence.omitted_balances:
+		value = _at(raw, index)
+		if _blank(value):
+			continue
+		selected = _at(raw, cols.get("balance"))
+		if _blank(selected) or _money(value, "balance", currency=currency) != _money(selected, "balance", currency=currency):
+			raise StatementError(f"第 {index + 1} 列含有未经核对的余额，请检查余额列映射", "mapping")
+	for index, key in evidence.omitted_amounts.items():
+		value = _at(raw, index)
+		if _blank(value):
+			continue
+		# A report can show a signed amount alongside its split presentation.
+		# It may be left unmapped only if the two independently agree.
+		if index not in cols.values() and ((key == "amount" and ("income" in cols or "expense" in cols))
+				or (key in ("income", "expense") and "amount" in cols)):
+			income, expense = _file_amounts(lambda k: _at(raw, cols.get(k)), cols, currency)
+			expected = {"income": Decimal(income or 0), "expense": Decimal(expense or 0)}
+			expected["amount"] = expected["income"] - expected["expense"]
+			stated = _money(value, key, currency=currency)
+			if stated is not None and Decimal(stated) == expected[key] and (income is not None or expense is not None):
+				continue
+		raise StatementError(f"第 {index + 1} 列含有收支金额，请核对金额列映射", "mapping")
+	for index, value in enumerate(raw):
+		if index not in evidence.explained and index not in evidence.omitted_amounts and not _blank(value) and _possible_money(value):
+			raise StatementError(f"第 {index + 1} 列含有可能的金额，请核对并映射该列", "mapping")
 
 
 def _row_currency_tokens(raw, evidence):
@@ -820,11 +920,10 @@ def _metadata_currencies(preamble, header, evidence):
 		label = str(_at(header, index) or "")
 		if "人民币" in label:
 			yield "CNY"
-		for token in re.findall(r"[（(]\s*([^()（）]+?)\s*[）)]", label):
-			try:
-				yield _currency_token(token)
-			except StatementError:
-				continue
+		for part in (label, *label.splitlines()):
+			_, token = _qualified_header(part)
+			if token:
+				yield token
 
 
 def _statement_currency(result, sheet, start, evidence, metadata, selected):
@@ -919,12 +1018,17 @@ def _exclusions(values):
 
 
 def _check_prior_rows(sheet, first, header_index, cols):
+	layouts = [cols]
 	for row in sheet[first:header_index]:
-		try:
-			_date(_file_date(lambda k: _at(row, cols.get(k)), cols))
-		except StatementError:
-			continue
-		raise StatementError("所选表头前已有疑似流水，请核对表头行", "date")
+		for layout in layouts:
+			try:
+				_date(_file_date(lambda k: _at(row, layout.get(k)), layout))
+			except StatementError:
+				continue
+			raise StatementError("所选表头前已有疑似流水，请核对表头行或按表拆分", "date")
+		prior = _suggest(row)
+		if _usable(prior):
+			layouts.append(prior)
 
 
 def _preferred_mapping(known, proposal):
@@ -1008,6 +1112,7 @@ def parse_statement(
 		ai_notice="",
 		opening_date=None,
 		suggested_currency=None,
+		ledger_book=None,
 		errors=[],
 		review_rows=[],
 		review_total=0,
@@ -1024,7 +1129,13 @@ def parse_statement(
 		title, header, carry = sheet[first : first + 3]
 		width = len(header)
 		has_remark = native_width == 15
-		if any(any(c not in ("", None) for c in row[native_width:]) for row in sheet):
+		marker = _at(title, 15)
+		if isinstance(marker, str) and re.fullmatch(re.escape(LEDGER_MARKER) + r"[0-9a-f]{64}", marker):
+			result["ledger_book"] = marker[len(LEDGER_MARKER):]
+		if any(not _blank(cell)
+			for row_index, row in enumerate(sheet)
+			for column, cell in enumerate(row[native_width:], native_width)
+			if not (row_index == first and column == 15 and result["ledger_book"])):
 			raise StatementError(f"原表 {native_width} 个字段后还有内容，请核对额外列")
 		result["account_label"] = _str(_at(title, 0)).strip()
 		cols = {key: index for index, key in enumerate(KEYS)}
@@ -1099,6 +1210,8 @@ def parse_statement(
 		evidence = _source_columns(header, cols)
 		metadata = set(_metadata_currencies(sheet[first:header_index], header, evidence))
 		currency = _statement_currency(result, sheet, start, evidence, metadata, currency)
+	legacy_cols = _legacy_columns(header, cols) if not original and currency == "CNY" else None
+	legacy_counts = Counter()
 	occurrences = Counter()
 	seen_ids = set()
 	edits = edits or {}
@@ -1121,6 +1234,7 @@ def parse_statement(
 		try:
 			_resolve_balance(sheet, i - 1, cols, currency)
 			if not original and _is_carry(raw, cols, evidence):
+				_check_source_amounts(raw, cols, evidence, currency)
 				if result["review_total"] or result["opening"] is not None:
 					raise StatementError("期初余额行重复或不在流水开始位置", "opening")
 				for token in _row_currency_tokens(raw, evidence):
@@ -1150,6 +1264,7 @@ def parse_statement(
 			earliest = min(earliest, day) if earliest else day
 			for token in _row_currency_tokens(raw, evidence):
 				_check_currency(token, currency)
+			_check_source_amounts(raw, cols, evidence, currency)
 			excludable = _can_exclude(raw, cols, original, currency, evidence, previous_balance)
 			if i in excluded:
 				if not excludable:
@@ -1158,6 +1273,10 @@ def parse_statement(
 			else:
 				row, source, repaired_key = _reviewed_movement(raw, cols, original, currency, changes, i, file_hash)
 				_append_row(result, row, i, occurrences, seen_ids, source=source, repaired_key=repaired_key)
+				if legacy_cols and not row["bank_ref"] and not repaired_key:
+					previous_key = _legacy_key(raw, source or row, legacy_cols, legacy_counts)
+					if previous_key and previous_key != row["source_key"]:
+						row["_legacy_source_key"] = previous_key
 				if row["balance"] is not None:
 					previous_balance = row["balance"]
 				elif previous_balance is not None:
@@ -1247,7 +1366,7 @@ def _export_cell(row, currency, has_remark):
 	return cells
 
 
-def export_journal(rows, *, opening, account_label, template=None, month=None, currency="CNY"):
+def export_journal(rows, *, opening, account_label, template=None, month=None, currency="CNY", ledger_book=None):
 	"""Emit the CSV layout used by Excel, preserving untouched raw cell representations."""
 	template = template or {}
 	rows = list(rows)
@@ -1255,6 +1374,8 @@ def export_journal(rows, *, opening, account_label, template=None, month=None, c
 		raise StatementError("请选择账簿币种的三位货币代码", "currency")
 	has_remark = template.get("remark_column") or any(r.get("remark") for r in rows)
 	headers = [*HEADERS, "备注"] if has_remark else list(HEADERS)
+	if ledger_book is not None and (not isinstance(ledger_book, str) or not re.fullmatch(r"[0-9a-f]{64}", ledger_book)):
+		raise StatementError("账面余额的账簿标识无效", "ledger_book")
 	opening = _money(opening if opening is not None else "0", "opening", currency=currency)
 	end = _money(rows[-1]["balance"], "balance", currency=currency) if rows else opening
 	if end is None:
@@ -1276,6 +1397,8 @@ def export_journal(rows, *, opening, account_label, template=None, month=None, c
 	if not _keep_currency_format(carry[11], currency) or _money(carry[11], "opening", currency=currency) != opening:
 		carry[11] = _currency_amount(opening, currency)
 	title = [_excel_text(v) if i != 12 else v for i, v in enumerate(title)]
+	if ledger_book:
+		title += [""] * (15 - len(title)) + [LEDGER_MARKER + ledger_book]
 	carry = [_excel_text(v) if i != 11 else v for i, v in enumerate(carry)]
 	footer = [""] * len(headers)
 	original_closing = template.get("closing_row")
@@ -1283,7 +1406,7 @@ def export_journal(rows, *, opening, account_label, template=None, month=None, c
 		footer[11] = original_closing
 	else:
 		footer[11] = _currency_amount(end, currency)
-	width = max(len(headers), min(MAX_COLS, int(template.get("width", 42))))
+	width = max(len(title), len(headers), min(MAX_COLS, int(template.get("width", 42))))
 	saved_rows = max(0, min(MAX_ROWS, int(template.get("total_rows", 2225))))
 	preamble = max(0, min(40, int(template.get("start_empty", 0))))
 	buf = io.StringIO(newline="")

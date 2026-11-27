@@ -166,6 +166,7 @@ def test_options_only_offer_enabled_standard_two_decimal_currencies_and_show_leg
 	options = api.get_options()
 	assert options["currencies"] == ["CNY", "MXN", "USD"]
 	assert [book["currency"] for book in options["books"]] == ["CNY", "MXN"]
+	assert [book.name for book in options["books"]] == ["old", "foreign"]
 
 
 def test_creation_requires_enabled_currency_and_locks_account_identity_across_currencies(monkeypatch):
@@ -210,6 +211,8 @@ def test_native_book_schema_keeps_currency_on_historical_books():
 	assert currency.get("default") == "CNY" and currency.get("set_only_once") == 1
 	assert currency["options"] == "Currency" and fields["opening"]["options"] == "currency"
 	assert "budget.patches.add_bank_journal_currency" in (package / "patches.txt").read_text().splitlines()
+	assert fields["bank_balance_offset"]["set_only_once"] == 1
+	assert fields["bank_balance_offset"]["default"] == "0"
 
 
 def test_new_book_rechecks_enabled_currency_before_insert(monkeypatch):
@@ -331,6 +334,7 @@ def test_import_checks_rebased_ledger_preserves_bank_fingerprint_and_operation_r
 		file_opening="50.00", book_opening="100.00")
 	result = api.apply_batch(book.name, [raw], "Import", 0, "import-test", new_book=book, import_review=review)
 	assert result["created"] == 1 and result["import_review"] == review
+	assert Decimal(str(book.bank_balance_offset)) == 50
 	assert entry.currency == api._wire(entry)["currency"] == "MXN" and api._wire(entry)["remark"] == "Nota"
 	assert json.loads(entry.get(api.EXTRA))["file_review"]["confirmed_by"] == "Operator"
 	balance_check.assert_called_once_with(book, [(date(2024, 1, 5), entry.name, Decimal("87.75"))])
@@ -344,6 +348,90 @@ def test_import_checks_rebased_ledger_preserves_bank_fingerprint_and_operation_r
 		api.apply_batch(book.name, [dict(same_source, currency="USD")], "Import", 1, "other-currency")
 	with pytest.raises(ValueError, match="新账簿"):
 		api.apply_batch(book.name, [raw], "Import", 1, "existing-offset")
+
+	# A later original from the same bank still uses its original bank balance.
+	monkeypatch.setattr(api, "_source_record", lambda *args: ("second", None))
+	later = dict(date="2024-02-01", income="1.00", bank_ref="MX-02", source_key="second", balance="38.75")
+	api.apply_batch(book.name, [later], "Import", 1, "bank-followup", opening="37.75")
+	balance_check.assert_called_with(book, [(date(2024, 2, 1), entry.name, Decimal("88.75"))])
+	expected = journal.digest([journal.batch_digest({**journal.clean_row(later), "bank_ref": "MX-02"}), "38.75"])
+	assert register.call_args.args[-1] == expected
+	# A file with only a carry-forward balance still gets exactly one offset.
+	monkeypatch.setattr(api, "_prior", lambda *args: Decimal("88.75"))
+	later = {**later, "date": "2024-02-02", "balance": None}
+	api.apply_batch(book.name, [later], "Import", 2, "opening-followup", opening="38.75")
+	with pytest.raises(ValueError, match="期初余额"):
+		api.apply_batch(book.name, [later], "Import", 2, "incorrect-opening", opening="38.74")
+
+
+def test_range_checks_source_or_ledger_balances_in_the_matching_book(foreign_ledger, monkeypatch):
+	api, book, _, _ = foreign_ledger
+	book.bank_balance_offset = "-80.00"
+	monkeypatch.setattr(api, "_range_entries", lambda *args: [])
+	monkeypatch.setattr(api, "_prior", lambda *args: Decimal("20.00"))
+	bank_rows = [dict(date="2024-02-01", income="2.25", expense=None, balance="102.25", source_row=3)]
+	ledger_rows = [dict(bank_rows[0], balance="22.25")]
+	bank_impact, _, issues = api.replacement_impact(book, bank_rows, "100.00")
+	assert not issues and bank_impact["new_closing"] == "22.25"
+	own_impact, _, issues = api.replacement_impact(book, ledger_rows, "20.00", ledger_book=book.name)
+	assert not issues and own_impact == bank_impact
+	assert api.replacement_impact(book, bank_rows, "100.01")[2][0]["field"] == "opening"
+	assert api.replacement_impact(book, [dict(bank_rows[0], balance="102.26")], "100.00")[2][0]["field"] == "balance"
+	with pytest.raises(ValueError, match="其他账簿"):
+		api.replacement_impact(book, ledger_rows, "20.00", ledger_book="different-book")
+
+
+def test_undoing_first_import_retains_book_opening_and_its_bank_offset(foreign_ledger, monkeypatch):
+	import frappe
+	api, book, entry, finish = foreign_ledger
+	monkeypatch.setattr(api, "_lock_company_book", lambda *args: None)
+	monkeypatch.setattr(api, "_lock_current_snapshot", lambda acquire: acquire())
+	monkeypatch.setattr(api, "_insert_book", Mock())
+	monkeypatch.setattr(api, "_source_record", lambda *args: ("origin", None))
+	monkeypatch.setattr(api, "_matching_entry", lambda *args: None)
+	monkeypatch.setattr(api, "_register", Mock())
+	monkeypatch.setattr(api, "_import_balances", Mock())
+	review = {"file_opening": "120.00", "book_opening": "100.00", "difference": "-20.00", "currency": "MXN"}
+	row = dict(date="2024-01-01", income="3.00", balance="123.00", source_key="first")
+	api.apply_batch(book.name, [row], "Import", 0, "new-book", new_book=book, import_review=review)
+	book.last_operation = "created"
+	op = frappe._dict(actor="Operator", book=book.name, operation="Import", prior_operation="",
+		changes=json.dumps(finish.call_args.args[4]))
+	monkeypatch.setattr(frappe, "get_doc", lambda dt, name, **kw: op if dt == api.OP else entry)
+	monkeypatch.setattr(frappe, "db", SimpleNamespace(delete=Mock()), raising=False)
+	api.undo(book.name, "created", 1, "undo-import")
+	assert entry.get(api.VOID) == 1 and Decimal(str(book.bank_balance_offset)) == -20
+	assert book.opening == "100.00"
+
+
+def test_own_export_append_is_idempotent_for_uncoded_rows_and_changes_require_replace(foreign_ledger, monkeypatch):
+	api, book, entry, _ = foreign_ledger
+	book.bank_balance_offset = "-80.00"
+	api.save_row(book.name, dict(date="2024-02-01", income="2.25", summary="Depósito", remark="original"), 0, "manual")
+	native = api._wire(entry)
+	monkeypatch.setattr(api, "_prior", lambda *args: Decimal("20.00"))
+	monkeypatch.setattr(api, "_rows", lambda *args: [native])
+	monkeypatch.setattr(api, "_range_entries", lambda *args: [entry])
+	monkeypatch.setattr(api, "authorize_replacement", Mock())
+	retire, register = Mock(), Mock()
+	monkeypatch.setattr(api, "_retire_entries", retire)
+	monkeypatch.setattr(api, "_register", register)
+	rows = [{**native, "balance": "22.25", "source_key": "from-ledger-balance", "source_row": 3}]
+	assert api.ledger_export_matches(book, rows)
+	for replace_range in (False, True):
+		result = api.apply_batch(book.name, rows, "Import", 1, "own-export", opening="20.00",
+			ledger_book=book.name, replace_range=replace_range)
+		assert result["created"] == 0 and result["skipped"] == 1
+		if replace_range:
+			assert result["impact"]["new_closing"] == "22.25"
+	retire.assert_not_called()
+	register.assert_not_called()
+	changed = [dict(rows[0], remark="modificado")]
+	assert not api.ledger_export_matches(book, changed)
+	with pytest.raises(ValueError, match="按日期覆盖"):
+		api.apply_batch(book.name, changed, "Import", 1, "own-edited", ledger_book=book.name)
+	with pytest.raises(ValueError, match="其他账簿"):
+		api.apply_batch(book.name, rows, "Import", 1, "wrong-export", ledger_book="different-book")
 
 
 def test_month_and_export_show_ledger_currency_with_original_amounts(foreign_ledger, monkeypatch):

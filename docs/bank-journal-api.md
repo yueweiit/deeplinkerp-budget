@@ -155,7 +155,7 @@ jq '.message | {operation,version,created,matched,skipped}' "$work/receipt.json"
 
 `preview_import` 的请求体包含 `book`、带扩展名的 `filename` 和 `content_base64`。可选 `mapping` 形如 `{"date":0,"summary":2,"expense":5}`，整数为从 0 开始的列序号。传原始文件字节的标准 Base64，保留编码和换行。来源表明确标有账户时，核对预览中的 `account_label` 与选定的账户。通用流水可能没有这个字段的值，应以银行原单和用户选择为准。
 
-导入新账簿时，传 `company` 并省略 `book`。传 `use_ai=1` 可为陌生表头启用 DeepSeek，传 `review_offset=0` 读取首屏可编辑的流水。新账簿需明确传 `currency` 才可确认。`suggested_currency` 是文件中有明确依据的建议，单独的 `$` 需要用户选择。已有账簿直接用其币种。`book_settings` 提供账户、币种、文件期初及启用日的建议值。可在预览中修改 `opening_date`、`opening` 后重新校验。调整期初会显示 `opening_adjustment`，原表余额用于核对，账簿余额按确认的差额计算。缺项集中在 `book_issues`。需要修改流水时，通过 `edits` 按原表行号提交修改，收支两列一起传。提交确认沿用同一公司、文件、账簿参数、修改值及返回的 `header_row`、`mapping_used`（作为 `mapping`）。确认成功后，`message.book` 是新账簿编号。取消预览即可放弃本次建账。
+导入新账簿时，传 `company` 并省略 `book`。传 `use_ai=1` 可为陌生表头启用 DeepSeek，传 `review_offset=0` 读取首屏可编辑的流水。新账簿需明确传 `currency` 才可确认。`suggested_currency` 是文件中有明确依据的建议，单独的 `$` 需要用户选择。已有账簿直接用其币种。`book_settings` 提供账户、币种、文件期初及启用日的建议值。可在预览中修改 `opening_date`、`opening` 后重新校验。调整期初会显示 `opening_adjustment`，包含文件期初、确认期初、差额及调整后的期末。后续在本账簿追加或覆盖银行原单时继续使用该差额核对银行余额。该账簿导出的 CSV 使用账面余额，可在同一账簿预览和核对。缺项集中在 `book_issues`。需要修改流水时，通过 `edits` 按原表行号提交修改，收支两列一起传。提交确认沿用同一公司、文件、账簿参数、修改值及返回的 `header_row`、`mapping_used`（作为 `mapping`）。确认成功后，`message.book` 是新账簿编号。取消预览即可放弃本次建账。
 
 可以复用上例的 `work/target.json` 和 `post` 函数。下面的 `FILE` 是本地文件路径。
 

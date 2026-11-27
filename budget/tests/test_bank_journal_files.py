@@ -15,6 +15,7 @@ def book(monkeypatch):
 	)
 	store = SimpleNamespace(
 		authorize_book=Mock(return_value=doc), apply_batch=Mock(return_value={"added": 1}),
+		legacy_import_issues=Mock(return_value=[]),
 		book_currency=lambda value: getattr(value, "currency", None) or "CNY",
 	)
 	monkeypatch.setattr(api, "_store", lambda: store)
@@ -469,8 +470,8 @@ def test_edited_opening_keeps_source_balance_and_previews_ledger_balance(new_tar
 	}
 	api.apply_import(**args, preview_id=info["preview_id"], version=0, request_id="opening-edit")
 	call = store.apply_batch.call_args
-	assert (call.kwargs["opening"], call.kwargs["opening_date"]) == ("120.00", "2026-10-01")
-	assert call.args[1][0]["balance"] == "91.75" and call.args[1][0]["ledger_balance"] == "111.75"
+	assert (call.kwargs["opening"], call.kwargs["new_book"].opening, call.kwargs["opening_date"]) == ("100.00", "120.00", "2026-10-01")
+	assert call.args[1][0]["balance"] == "91.75" and "ledger_balance" not in call.args[1][0]
 	assert call.kwargs["import_review"]["file_opening"] == "100.00"
 
 
@@ -501,3 +502,31 @@ def test_explicit_exclusions_are_bound_to_file_and_audited(new_target):
 		api.apply_import(**args, excluded_rows=[3], **confirm)
 	api.apply_import(**args, excluded_rows="[4,3]", **confirm)
 	assert store.apply_batch.call_args.kwargs["import_review"]["excluded_source_rows"] == [3, 4]
+
+
+def test_legacy_ambiguous_summary_receipt_blocks_duplicating_an_existing_import(book):
+	from budget.services import bank_journal_io as fmt
+	store, _ = book
+	content = "日期,摘要,备注,收入\n2026-11-01,电商入账,订单123,100\n2026-11-01,另一收款,订单456,100"
+	args = dict(book="book", filename="old.csv", content_base64=base64.b64encode(content.encode()).decode())
+	keys = [fmt._record_key("bank-movement", "2026-11-01", "100.00", None, None, "", n) for n in (1, 2)]
+	def existing(book_doc, rows):
+		assert [row["_legacy_source_key"] for row in rows] == keys
+		return [{"row": 2, "field": "summary", "message": "原行已按旧版摘要或余额导入"}]
+	store.legacy_import_issues = Mock(side_effect=existing)
+	report = api.preview_import(**args)
+	assert not report["preview_id"] and report["errors"][0]["row"] == 2
+	assert "_legacy_source_key" not in report["rows"][0]
+	store.legacy_import_issues.return_value = []
+	store.legacy_import_issues.side_effect = None
+	ready = api.preview_import(**args)
+	assert ready["preview_id"]
+
+
+def test_ledger_export_uses_site_marker_only_for_the_original_existing_book(book):
+	store, _ = book
+	marker = api._ledger_marker("book")
+	assert api._marked_book(store.authorize_book.return_value, {"ledger_book": marker}) == "book"
+	assert api._marked_book(store.authorize_book.return_value, {}) is None
+	with pytest.raises(ValueError, match="其他账簿|对应的账簿"):
+		api._marked_book(store.authorize_book.return_value, {"ledger_book": api._ledger_marker("elsewhere")})

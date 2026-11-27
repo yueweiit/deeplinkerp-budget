@@ -220,6 +220,19 @@ def _file_currency(doc, requested):
 	return code
 
 
+def _ledger_marker(book):
+	return hmac.new(_secret(), ("bank-journal:ledger-balance:v1:" + book).encode(), hashlib.sha256).hexdigest()
+
+
+def _marked_book(doc, parsed):
+	marker = parsed.get("ledger_book")
+	if not marker or doc is None:
+		return None
+	if not hmac.compare_digest(marker, _ledger_marker(doc.name)):
+		frappe.throw("这份账面余额导出属于其他账簿，请选择对应的账簿。")
+	return doc.name
+
+
 def _file_scope(filename, mapping, new_book, mode):
 	if new_book is None:
 		prefix = "replace-range/v1:" if mode == "replace_range" else ""
@@ -235,7 +248,7 @@ def _preview(parsed, version, token):
 		"error_count": len(parsed["errors"]),
 		"errors": parsed["errors"][:MAX_PREVIEW_ROWS],
 		"rows": [
-			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof", "file_review")}
+			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof", "file_review", "_legacy_source_key")}
 			for row in rows[:MAX_PREVIEW_ROWS]
 		],
 		"income_total": format(sum((Decimal(r["income"] or 0) for r in rows), Decimal(0)), ".2f"),
@@ -276,6 +289,13 @@ def preview_import(
 		review_offset=review_offset,
 		currency=currency, excluded_rows=excluded_rows,
 	)
+	ledger_book = _marked_book(doc, parsed)
+	if doc and mode == "append" and _ready(parsed):
+		if ledger_book and not _store().ledger_export_matches(doc, parsed["rows"]):
+			parsed["errors"].append({"field": "balance", "row": parsed["rows"][0]["source_row"],
+				"message": "这份账面导出与当前流水有差异。请核对或选择按文件日期覆盖。"})
+		elif not ledger_book and any(row.get("_legacy_source_key") for row in parsed["rows"]):
+			parsed["errors"].extend(_store().legacy_import_issues(doc, parsed["rows"]))
 	book_issues, target = [], {}
 	if doc is None:
 		doc, book_issues, adjustment = _new_file_book(company, parsed, account, opening, opening_date, currency)
@@ -287,7 +307,9 @@ def preview_import(
 		}
 	_check_opening_date(doc, parsed)
 	if mode == "replace_range" and _ready(parsed):
-		impact, _, issues = _store().replacement_impact(doc, parsed["rows"], parsed["opening"])
+		impact, _, issues = _store().replacement_impact(
+			doc, parsed["rows"], parsed["opening"], **({"ledger_book": ledger_book} if ledger_book else {})
+		)
 		target["impact"] = impact
 		parsed["errors"].extend(issues)
 	review = {}
@@ -338,6 +360,7 @@ def apply_import(
 		filename, content_base64, mapping, header_row=header_row, edits=edits,
 		currency=currency, excluded_rows=excluded_rows,
 	)
+	ledger_book = _marked_book(doc, parsed)
 	issues, adjustment = [], None
 	if doc is None:
 		doc, issues, adjustment = _new_file_book(company, parsed, account, opening, opening_date, currency)
@@ -365,20 +388,15 @@ def apply_import(
 			file_sha256=file_hash, currency=currency, excluded_source_rows=parsed["excluded_source_rows"],
 			**(adjustment or {}),
 		)
-	if adjustment:
-		# Preserve the file balance for evidence and duplicate detection. Only
-		# the check against the new ledger uses the confirmed opening offset.
-		delta = Decimal(adjustment["difference"])
-		for row in parsed["rows"]:
-			if row["balance"] is not None:
-				row["ledger_balance"] = format(Decimal(row["balance"]) + delta, ".2f")
+	if ledger_book:
+		options["ledger_book"] = ledger_book
 	result = _store().apply_batch(
 		doc.name,
 		parsed["rows"],
 		"Import",
 		version,
 		request_id,
-		opening=parsed["opening"] if book else doc.opening,
+		opening=adjustment["file_opening"] if adjustment else parsed["opening"],
 		opening_date=parsed["opening_date"] if book else doc.opening_date,
 		template=parsed["template"],
 		**options,
@@ -477,6 +495,7 @@ def export_journal(book, month=None):
 		template=data.get("template"),
 		month=period,
 		currency=data.get("currency", "CNY"),
+		ledger_book=_ledger_marker(book) if Decimal(str(data.get("bank_balance_offset") or 0)) else None,
 	)
 	label = re.sub(r'[/\\:*?"<>|\x00-\x1f]', "_", str(data["account"]))[:128]
 	return {

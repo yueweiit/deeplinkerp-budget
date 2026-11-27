@@ -524,3 +524,83 @@ def test_disclosed_money_in_a_native_looking_extra_column_is_checked():
 	res = journal.parse_statement(raw, "bank.csv", currency="MXN")
 	assert not res["errors"] and res["suggested_currency"] == "MXN" and res["rows"][0]["income"] == "4.00"
 	assert journal.parse_statement(raw, "bank.csv", currency="USD")["errors"][0]["field"] == "currency"
+
+
+@pytest.mark.parametrize("label", ["Deposit", "Depósitos", "Credit", "存款金额"])
+def test_common_receipt_label_next_to_withdrawals_is_imported_and_cannot_be_hidden(label):
+	raw = csv_bytes([["日期", "支出", label, "备注"], ["20261101", "3", "", "1"],
+		["20261102", "", "10.50", "2"]])
+	good = journal.parse_statement(raw, "example.csv")
+	assert not good["errors"] and good["rows"][1]["income"] == "10.50"
+	for mapping in ({"date": 0, "expense": 1}, {"date": 0, "expense": 1, "summary": 2},
+					{"date": 0, "expense": 1, "balance": 2}):
+		view = journal.parse_statement(raw, "example.csv", mapping, review_offset=0, edits={3: {"income": "1", "expense": ""}})
+		assert any(x["row"] == 3 and x["field"] == "mapping" for x in view["errors"])
+		assert not view["review_rows"][1]["excludable"]
+		with pytest.raises(journal.StatementError, match="排除"):
+			journal.parse_statement(raw, "example.csv", mapping, excluded_rows=[3])
+
+
+@pytest.mark.parametrize("unknown", ["172.61", "$ 9,117.60", "0", "EUR 12.6", "12.00 USD", "=SUM(A2:A3)"])
+def test_amount_like_unknown_cells_require_mapping_with_or_without_another_amount(unknown):
+	raw = csv_bytes([["日期", "支出", "other", "备注"], ["20261101", "", unknown, "1"], ["20261102", "2", unknown, "2"],
+					 ["20261103", "", "", "123.54"]])
+	for mapping in (None, {"date": 0, "expense": 1, "remark": 2}):
+		result = journal.parse_statement(raw, "example.csv", mapping, review_offset=0, currency="USD")
+		assert [(x["row"], x["field"]) for x in result["errors"]][:2] == [(2, "mapping"), (3, "mapping")]
+		assert [r["excludable"] for r in result["review_rows"]] == [False, False, True]
+		with pytest.raises(journal.StatementError, match="排除"):
+			journal.parse_statement(raw, "example.csv", mapping, currency="USD", excluded_rows=[2])
+
+
+def test_numeric_unknown_column_can_be_resolved_as_money_and_explicit_nonfinancial_fields_are_safe():
+	raw = csv_bytes([["日期", "支出", "opaque", "备注", "银行流水号"], ["20261101", "", "14", "123.00", "000123"]])
+	result = journal.parse_statement(raw, "example.csv", {"date": 0, "expense": 1, "income": 2, "remark": 3, "bank_ref": 4})
+	assert not result["errors"] and result["rows"][0]["income"] == "14.00" and result["rows"][0]["bank_ref"] == "000123"
+
+
+def test_foreign_currency_in_separate_header_qualifier_is_mandatory():
+	raw = csv_bytes([["日期", "ABONOS USD", "CARGOS USD", "SALDO [USD]"], ["20261101", "2", "", "2"]])
+	data = journal.parse_statement(raw, "example.csv", currency=None)
+	assert not data["needs_mapping"] and not data["errors"] and data["suggested_currency"] == "USD"
+	foreign = journal.parse_statement(raw, "example.csv", {"date": 0, "income": 1}, currency="MXN")
+	assert any(x["field"] == "currency" for x in foreign["errors"])
+
+
+def test_marked_native_export_identifies_ledger_balance_and_only_trusts_the_template_slot():
+	rows = [{"date": "2026-11-02", "income": "11", "balance": "21", "remark": "原表备注"}]
+	kwargs = {"opening": "10", "account_label": "测试账簿", "currency": "MXN"}
+	plain = journal.export_journal(rows, **kwargs)
+	marker = "a8" * 32
+	encoded = journal.export_journal(rows, **kwargs, ledger_book=marker)
+	first = journal.parse_statement(encoded, "bank.csv", currency="MXN")
+	assert first["ledger_book"] == marker
+	assert journal.parse_statement(plain, "bank.csv", currency="MXN")["ledger_book"] is None
+	with pytest.raises(journal.StatementError):
+		journal.export_journal(rows, **kwargs, ledger_book="not-a-digest")
+	# A previous export template must not copy a stale book identifier to a different export.
+	assert journal.parse_statement(journal.export_journal(rows, **kwargs, template=first["template"]), "bank.csv", currency="MXN")["ledger_book"] is None
+
+
+@pytest.mark.parametrize("early", [
+	[["交易日期", "收入", "摘要"], ["20261101", "7.00", "earlier"]],
+	[["Month", "Deposit", "Year", "Day"], ["11", "7.00", "2026", "1"]],
+])
+def test_an_ai_or_explicit_header_cannot_skip_a_statement_with_a_different_date_column(early):
+	raw = csv_bytes([*early, ["支出", "附言", "日期", "other"], ["2", "later", "20261102", ""]])
+	mapping = {"expense": 0, "summary": 1, "date": 2}
+	with pytest.raises(journal.StatementError, match="表头前"):
+		journal.parse_statement(raw, "example.csv", mapping, header_row=3)
+	parsed = journal.parse_statement(raw, "example.csv", suggest_layout=lambda *_: (3, mapping))
+	assert parsed["errors"] or parsed["needs_mapping"]
+
+
+def test_duplicate_source_balance_cannot_hide_a_change_on_an_amountless_row():
+	raw = csv_bytes([["日期", "支出", "余额", "余额"], ["20261101", "2", "8", "8"], ["20261102", "", "8", "19"]])
+	for mapping in (None, {"date": 0, "expense": 1, "balance": 2}):
+		view = journal.parse_statement(raw, "bank.csv", mapping, review_offset=0)
+		assert not view["review_rows"][1]["excludable"] and any(e["row"] == 3 for e in view["errors"])
+		with pytest.raises(journal.StatementError, match="排除"):
+			journal.parse_statement(raw, "bank.csv", mapping, excluded_rows=[3])
+	fixed = raw.replace(b",8,19", b",8,8")
+	assert not journal.parse_statement(fixed, "bank.csv", {"date": 0, "expense": 1, "balance": 2}, excluded_rows=[3])["errors"]
