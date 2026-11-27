@@ -5,6 +5,8 @@ app_description = "预算与费用审批：钉钉开放平台接口 + OA 只读�
 app_email = "308642281@qq.com"
 app_license = "mit"
 
+auth_hooks = ["budget.services.bank_journal_access.restrict_import_request"]
+
 boot_session = ["budget.setup.boot_session", "budget.expense_navigation.boot"]
 
 page_js = {"china-cash-journal": "public/js/bank_journal.js"}

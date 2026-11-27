@@ -37,17 +37,38 @@
             return "dingtalk://dingtalkclient/page/link?url="+encodeURIComponent(mobile)+"&pc_slide=true";
         } catch { return ""; }
     }
-    function rowMarkup(row) {
-        return '<tr>'+columns.map(([key,label])=>{
+    function editCell(key, label, row) {
+        const input = (name, title, value, type = "text") =>
+            '<input name="'+name+'" aria-label="'+esc(title)+'" type="'+type+'" value="'+esc(value)+'" '+
+            (["income","expense"].includes(name)?'inputmode="decimal"':'')+'>';
+        const textarea = (name, title, value) =>
+            '<textarea name="'+name+'" aria-label="'+esc(title)+'" rows="2">'+esc(value)+'</textarea>';
+        if (key === "date") return input("date","日期",row.date,"date")+
+            textarea("refs","钉钉单号",(row.refs || []).join("\n"));
+        if (key === "summary") return textarea("summary",label,row.summary)+
+            '<div class="bj-edit-actions"><button type="button" class="btn btn-primary btn-xs" data-act="save-edit">保存</button>'+
+            '<button type="button" class="btn btn-default btn-xs" data-act="cancel-edit">取消</button></div>'+
+            '<p class="bj-error bj-edit-error" role="alert" tabindex="-1" hidden></p>';
+        if (key === "balance") return esc(amountText(row.balance))+
+            '<small class="bj-balance-note">保存后重算</small>';
+        return input(key,label,row[key]);
+    }
+    function rowMarkup(row, {canEdit = false, editing = false, editBusy = false} = {}) {
+        return (editing?'<tr class="bj-editing">':'<tr>')+columns.map(([key,label])=>{
             let value;
-            if (key === "date") {
+            if (editing) value=editCell(key,label,row);
+            else if (key === "date") {
                 value = '<time>'+esc(row.date)+'</time>'+(row.refs || []).map(ref=>{
                     const link = clientLink(row.links?.[ref]);
                     return link ? '<a class="bj-ref" href="'+esc(link)+'" title="在钉钉打开原单">'+esc(ref)+'</a>' :
                         '<span class="bj-ref" title="未找到当前用户可打开的原单">'+esc(ref)+'</span>';
                 }).join("");
-            } else if (key === "summary") value='<button class="bj-rowlink" data-row="'+esc(row.name)+'" title="查看或编辑这笔流水">'+esc(row.summary || "查看流水")+'</button>';
-            else if (["income","expense","balance"].includes(key)) value=esc(amountText(row[key]));
+            } else if (key === "summary") {
+                value='<div class="bj-summary-content"><button type="button" class="bj-rowlink" data-row="'+esc(row.name)+
+                    '" title="查看这笔流水">'+esc(row.summary || "查看流水")+'</button>'+
+                    (canEdit?'<button type="button" class="btn btn-default btn-xs bj-edit-link" data-edit="'+esc(row.name)+
+                        '" '+(editBusy?'disabled':'')+'>编辑</button>':'')+'</div>';
+            } else if (["income","expense","balance"].includes(key)) value=esc(amountText(row[key]));
             else value=esc(row[key] || "—");
             return '<td class="bj-'+key+'" data-label="'+esc(label)+'">'+value+'</td>';
         }).join("")+'</tr>';
@@ -82,6 +103,25 @@
     const field=(id,label,value="",type="text",attributes="")=>'<label>'+esc(label)+'<input name="'+id+'" type="'+type+'" value="'+esc(value)+'" '+attributes+'></label>';
     const multi=(id,label,value)=>'<label class="bj-wide">'+esc(label)+'<textarea name="'+id+'" rows="2">'+esc(value)+'</textarea></label>';
     const formValue=(el,name)=>el.querySelector('[name="'+name+'"]').value.trim();
+    function movementValues(el, base) {
+        const fields=["date","category","level2","level3","project","dept","summary","income","expense","invoice"];
+        const values=Object.fromEntries(fields.map(key=>[
+            key,el.querySelector('[name="'+key+'"]')?formValue(el,key):(base[key]??"")
+        ]));
+        values.refs=extractRefs(formValue(el,"refs"));
+        if (!values.date || Number(positive(values.income))+Number(positive(values.expense))!==1 ||
+            [values.income,values.expense].some(v=>v&&!positive(v)&&!/^0(?:\.0{1,2})?$/.test(v))) {
+            throw Error("请填写日期，并在收入或支出一栏输入正金额。");
+        }
+        values.income=positive(values.income)?values.income:null;
+        values.expense=positive(values.expense)?values.expense:null;
+        if(base.name)values.name=base.name;
+        return values;
+    }
+    function saveMovement(book, version, receipt, row) {
+        const args={book,version,row};
+        return call("save_row",{...args,request_id:retryKey(receipt,args)});
+    }
     function dialog(title, html) {
         const d = new root.frappe.ui.Dialog({title, size:"large", fields:[{fieldname:"body",fieldtype:"HTML"}]});
         const el=d.fields_dict.body.$wrapper[0];
@@ -158,38 +198,41 @@
             };
             return {...instance,check,action:(label,fn)=>instance.action(label,async()=>{check();await fn();})};
         }
-        async load() {
+        async load(scrollTop) {
             const seq=++this.seq;this.data=null;this.failed="";this.render();
             try{
                 const result=await call("get_month",monthArgs(this.book,this.month));
                 if(seq!==this.seq)return;this.data=result;
             }catch(e){if(seq!==this.seq)return;this.failed=reason(e);}
-            this.render();
+            this.render(scrollTop);
         }
-        render() {
+        render(scrollTop) {
             const b=this.books.find(x=>x.name===this.book),data=this.data,rows=data?.rows || [];
             const use=(id,label,disable=false,primary=false)=>'<button data-act="'+id+'" class="btn btn-'+(primary?"primary":"default")+' btn-sm" '+(disable?"disabled":"")+'>'+label+'</button>';
+            const editing=this.editing, canEdit=Boolean(this.opts.can_write);
             const accounts=scopeBooks(this.books,this.company);
-            const companySelect='<label>公司<select name="company" aria-label="公司">'+optionsList([["","请选择公司"],...this.companies.map(c=>[c,c])])+'</select></label>';
-            const bookSelect='<label>银行账户<select name="book" aria-label="银行账户" '+(!accounts.length?"disabled":"")+'>'+optionsList([["","请选择银行账户"],...accounts.map(b=>[b.name,b.account])])+'</select></label>';
+            const companySelect='<label>公司<select name="company" aria-label="公司" '+(editing?"disabled":"")+'>'+optionsList([["","请选择公司"],...this.companies.map(c=>[c,c])])+'</select></label>';
+            const bookSelect='<label>银行账户<select name="book" aria-label="银行账户" '+(!accounts.length||editing?"disabled":"")+'>'+optionsList([["","请选择银行账户"],...accounts.map(b=>[b.name,b.account])])+'</select></label>';
             const allowed=this.opts.can_create!==false;
             const summary=[["opening","月初余额"],["income","本月收入"],["expense","本月支出"],["closing","月末余额"]];
             const table='<table class="bj-ledger"><colgroup>'+columns.map(([key])=>'<col class="bj-width-'+key+'">').join("")+'</colgroup><thead><tr>'+
-                columns.map(([key,label])=>'<th scope="col" class="bj-'+key+'">'+esc(label)+'</th>').join("")+'</tr></thead><tbody>'+rows.map(rowMarkup).join("")+'</tbody></table>';
-            const toolbar='<div class="bj-toolbar">'+companySelect+bookSelect+'<label>月份<input name="month" aria-label="月份" type="month" value="'+esc(this.month)+'"></label>'+
-                (allowed&&this.company?use("book","新建账簿"):"")+'</div>';
+                columns.map(([key,label])=>'<th scope="col" class="bj-'+key+'">'+esc(label)+'</th>').join("")+'</tr></thead><tbody>'+rows.map(row=>rowMarkup(row,{canEdit,editing:editing?.row.name===row.name,editBusy:Boolean(editing)})).join("")+'</tbody></table>';
+            const toolbar='<div class="bj-toolbar">'+companySelect+bookSelect+'<label>月份<input name="month" aria-label="月份" type="month" value="'+esc(this.month)+'" '+(editing?"disabled":"")+'></label>'+
+                (allowed&&this.company?use("book","新建账簿",Boolean(editing)):"")+'</div>';
             if(!this.book) {
                 this.el.innerHTML=toolbar+'<p class="text-muted">'+(!this.company?'请选择流水所属公司。':accounts.length?'请选择本次操作的银行账户。':'该公司还没有银行账簿。')+'</p>'+
                     (this.opts.legacy_count?use("classic","查看原有手工流水"):"");
                 this.el.querySelector('[name="company"]').value=this.company;return;
             }
             this.el.innerHTML=toolbar+'<dl class="bj-totals">'+summary.map(([k,label])=>'<div><dt>'+label+'</dt><dd>'+amountText(data?.[k])+'</dd></div>').join("")+'</dl>'+
-                '<div class="bj-actions">'+(allowed?use("add","新增行",!data,true)+use("import","导入银行流水",!data)+(this.opts.can_sync!==false?use("sync","同步钉钉",!data):""):"")+(this.opts.can_export!==false?use("export","导出",!data):"")+
-                (data?.undo_operation?use("undo","撤回上次操作"):"")+'<span class="text-muted">'+(data?esc(this.month)+" · "+rows.length+" 笔":"")+'</span></div>'+
+                '<div class="bj-actions">'+(allowed?use("add","新增行",!data||editing,true)+use("import","导入银行流水",!data||editing)+(this.opts.can_sync!==false?use("sync","同步钉钉",!data||editing):""):"")+(this.opts.can_export!==false?use("export","导出",!data||editing):"")+
+                (data?.undo_operation?use("undo","撤回上次操作",Boolean(editing)):"")+'<span class="text-muted">'+(data?esc(this.month)+" · "+rows.length+" 笔":"")+'</span></div>'+
                 (this.failed?'<p class="bj-error">'+esc(this.failed)+'</p>'+use("refresh","重试"):!data?'<p role="status">正在读取本月流水…</p>':
                 '<div class="bj-grid">'+table+(rows.length?"":'<p class="text-muted bj-empty">本月暂无流水。</p>')+'</div>');
             this.el.querySelector('[name="company"]').value=this.company;
             if(b)this.el.querySelector('[name="book"]').value=b.name;
+            const grid=this.el.querySelector('.bj-grid');
+            if(grid&&scrollTop!=null)grid.scrollTop=scrollTop;
         }
         change(e){if(e.target.name==="company"){this.company=e.target.value;this.book="";this.chooseBook();}
             else if(e.target.name==="book")this.book=e.target.value;else if(e.target.name==="month"){
@@ -199,13 +242,60 @@
             if(this.book)this.load();else {++this.seq;this.data=null;this.failed="";this.render();}
         }
         click(e) {
-            const row=e.target.closest("[data-row]"),key=e.target.closest("[data-act]")?.dataset.act;
+            const key=e.target.closest("[data-act]")?.dataset.act;
+            if (key==="save-edit") {this.saveEdit();return;}
+            if (key==="cancel-edit") {this.closeEdit();return;}
+            if (this.editing) return;
+            const edit=e.target.closest("[data-edit]");
+            if(edit){this.startEdit(edit.dataset.edit);return;}
+            const row=e.target.closest("[data-row]");
             if(row){const r=this.data?.rows.find(x=>x.name===row.dataset.row);if(r)this.rowDialog(r);return;}
             if(key==="initialize")this.initialize();if(key==="refresh")this.load();
             if(key==="book")this.bookDialog();if(key==="classic")switchClassic(true);
             if(!this.data)return;
             if(key==="add")this.rowDialog(null);if(key==="export")this.exportDialog();
             if(key==="import")this.importDialog();if(key==="sync")this.syncDialog();if(key==="undo")this.undoDialog();
+        }
+        startEdit(name) {
+            const row=this.data?.rows.find(entry=>entry.name===name);
+            if (!row || !this.opts.can_write) return;
+            this.editing={row,version:this.data.version,book:this.book,receipt:{},busy:false};
+            this.render(this.el.querySelector(".bj-grid")?.scrollTop);
+            this.el.querySelector(".bj-editing input")?.focus({preventScroll:true});
+        }
+        closeEdit() {
+            if (!this.editing || this.editing.busy) return;
+            const name=this.editing.row.name;
+            this.editing=null;
+            this.render(this.el.querySelector(".bj-grid")?.scrollTop);
+            [...this.el.querySelectorAll("[data-edit]")].find(el=>el.dataset.edit===name)?.focus({preventScroll:true});
+        }
+        async saveEdit() {
+            const edit=this.editing, form=this.el.querySelector(".bj-editing");
+            if (!edit || edit.busy || !form) return;
+            const error=form.querySelector(".bj-edit-error");
+            const controls=form.querySelectorAll("input,textarea,button");
+            try {
+                const values=movementValues(form,edit.row);
+                edit.busy=true;
+                controls.forEach(el=>el.disabled=true);
+                error.hidden=true;
+                await saveMovement(edit.book,edit.version,edit.receipt,values);
+                this.editing=null;
+                const nextMonth=values.date.slice(0,7);
+                const scrollTop=nextMonth===this.month?this.el.querySelector(".bj-grid")?.scrollTop:0;
+                this.month=nextMonth;
+                await this.load(scrollTop);
+                [...this.el.querySelectorAll("[data-edit]")].find(el=>el.dataset.edit===edit.row.name)?.focus({preventScroll:true});
+                root.frappe.show_alert({message:"流水已保存，余额已更新",indicator:"green"});
+            } catch (e) {
+                error.textContent=reason(e);
+                error.hidden=false;
+                error.focus();
+            } finally {
+                edit.busy=false;
+                controls.forEach(el=>el.disabled=false);
+            }
         }
         bookDialog() {
             const companies=[[this.company,this.company]];
@@ -230,13 +320,8 @@
                 (row&&this.opts.can_delete!==false?'<button type="button" class="btn btn-danger btn-sm" data-cancel>取消这笔流水</button>':""));
             if(!write){el.querySelectorAll("input,textarea").forEach(x=>x.readOnly=true);d.get_primary_btn().addClass("hide");}
             else action("保存",async()=>{
-                const fields=["date","category","level2","level3","project","dept","summary","income","expense","invoice"];
-                const values=Object.fromEntries(fields.map(k=>[k,formValue(el,k)]));values.refs=extractRefs(formValue(el,"refs"));
-                if(!values.date||Number(positive(values.income))+Number(positive(values.expense))!==1||
-                    [values.income,values.expense].some(v=>v&&!positive(v)&&!/^0(?:\.0{1,2})?$/.test(v)))throw Error("请填写日期，并在收入或支出一栏输入正金额。");
-                values.income=positive(values.income)?values.income:null;values.expense=positive(values.expense)?values.expense:null;
-                if(row)values.name=row.name;
-                const args={book,version,row:values};await call("save_row",{...args,request_id:retryKey(receipt,args)});d.hide();
+                const values=movementValues(el,base);
+                await saveMovement(book,version,receipt,values);d.hide();
                 this.month=values.date.slice(0,7);await this.load();
             });
             el.querySelector("[data-cancel]")?.addEventListener("click",()=>root.frappe.confirm("取消此笔流水后，余额将重新汇总。确定取消？",async()=>{
@@ -350,11 +435,11 @@
                 nativeLoad(wrapper);wrapper.cashJournal?.page?.add_menu_item("银行日记账",()=>switchClassic(false));
                 return;
             }
-            root.frappe.require("/assets/budget/css/bank_journal.css",()=>{wrapper.budgetBankJournal=new Workbench(wrapper)});
+            root.frappe.require("/assets/budget/css/bank_journal.css?v=20261127",()=>{wrapper.budgetBankJournal=new Workbench(wrapper)});
         };
         page.on_page_show=wrapper=>{
             const app=wrapper.budgetBankJournal;
-            if(app?.loaded && app.book)app.load();
+            if(app?.loaded && app.book && !app.editing)app.load();
             else if(wrapper.cashJournal&&nativeShow)nativeShow(wrapper);
         };
     }
