@@ -136,7 +136,13 @@ def _check_opening_date(doc, parsed):
 			)
 
 
-def _file_target(book, company, permission, settings):
+def _file_target(book, company, permission, settings, mode):
+	if mode not in ("append", "replace_range"):
+		frappe.throw("请选择有效的导入方式。")
+	if mode == "replace_range":
+		if not book:
+			frappe.throw("按日期覆盖只能用于已有账簿。")
+		_store().authorize_replacement()
 	if not book:
 		_store().authorize_book_creation(company)
 		return None
@@ -165,9 +171,10 @@ def _new_file_book(company, parsed, account, opening, opening_date):
 	return doc, issues
 
 
-def _file_scope(filename, mapping, new_book):
+def _file_scope(filename, mapping, new_book, mode):
 	if new_book is None:
-		return Path(filename).suffix.lower(), mapping
+		prefix = "replace-range/v1:" if mode == "replace_range" else ""
+		return prefix + Path(filename).suffix.lower(), mapping
 	return "new-book:" + Path(filename).suffix.lower(), [mapping, new_book.opening, new_book.opening_date]
 
 
@@ -191,7 +198,7 @@ def _preview(parsed, version, token):
 @frappe.whitelist(methods=["POST"])
 def preview_import(
 	book=None, filename=None, content_base64=None, mapping=None, header_row=None, use_ai=None, edits=None,
-	review_offset=None, company=None, account=None, opening=None, opening_date=None,
+	review_offset=None, company=None, account=None, opening=None, opening_date=None, mode="append",
 ):
 	ai_requested = use_ai in (1, "1")
 	if review_offset is not None:
@@ -202,7 +209,7 @@ def preview_import(
 			frappe.throw("预览行范围无效")
 		review_offset = int(review_offset)
 	permission = "create" if ai_requested or edits or review_offset is not None else "read"
-	doc = _file_target(book, company, permission, (account, opening, opening_date))
+	doc = _file_target(book, company, permission, (account, opening, opening_date), mode)
 	suggest_layout = None
 	if ai_requested:
 		from budget.services.bank_journal_ai import infer_layout
@@ -224,6 +231,10 @@ def preview_import(
 			book_issues.append({"field": "account", "message": "该账户已有账簿，请选择该账户后导入银行流水。"})
 		target = {"book_settings": {k: doc[k] for k in ("account", "opening", "opening_date")}, "book_issues": book_issues}
 	_check_opening_date(doc, parsed)
+	if mode == "replace_range" and _ready(parsed):
+		impact, _, issues = _store().replacement_impact(doc, parsed["rows"], parsed["opening"])
+		target["impact"] = impact
+		parsed["errors"].extend(issues)
 	review = {}
 	if review_offset is not None:
 		visible = {row["source_row"] for row in parsed["review_rows"]}
@@ -234,7 +245,7 @@ def preview_import(
 			"review_errors": [issue for issue in parsed["errors"] if issue.get("row") in visible],
 		}
 	version = doc.revision
-	scope, binding = _file_scope(filename, mapping, None if book else doc)
+	scope, binding = _file_scope(filename, mapping, None if book else doc, mode)
 	token = _sign(doc, scope, file_hash, binding, version) if _ready(parsed) and not book_issues else ""
 	return {
 		**{
@@ -261,15 +272,15 @@ def preview_import(
 @frappe.whitelist(methods=["POST"])
 def apply_import(
 	book=None, filename=None, content_base64=None, mapping=None, preview_id=None, version=None,
-	request_id=None, header_row=None, edits=None, company=None, account=None, opening=None, opening_date=None,
+	request_id=None, header_row=None, edits=None, company=None, account=None, opening=None, opening_date=None, mode="append",
 ):
-	doc = _file_target(book, company, "create", (account, opening, opening_date))
+	doc = _file_target(book, company, "create", (account, opening, opening_date), mode)
 	file_hash, mapping, parsed = _read(filename, content_base64, mapping, header_row=header_row, edits=edits)
 	issues = []
 	if doc is None:
 		doc, issues = _new_file_book(company, parsed, account, opening, opening_date)
 	_check_opening_date(doc, parsed)
-	scope, binding = _file_scope(filename, mapping, None if book else doc)
+	scope, binding = _file_scope(filename, mapping, None if book else doc, mode)
 	if (
 		not _ready(parsed)
 		or issues
@@ -284,6 +295,8 @@ def apply_import(
 	if not isinstance(request_id, str) or not request_id.strip():
 		frappe.throw("导入请求缺少操作编号")
 	options = {} if book else {"new_book": doc, "request_facts": [scope, preview_id]}
+	if mode == "replace_range":
+		options = {"replace_range": True, "request_facts": [scope, preview_id]}
 	result = _store().apply_batch(
 		doc.name,
 		parsed["rows"],

@@ -181,6 +181,20 @@
         d.show();return {d,el,action,error,run};
     }
     const importFields=[["date","日期"],["summary","摘要"],["income","收入"],["expense","支出"],["balance","余额"]];
+    function importModeFields(canReplace) {
+        const radio=(value,label,checked=false)=>'<label><input type="radio" name="import-mode" value="'+value+'"'+
+            (checked?' checked':'')+'>'+label+'</label>';
+        return '<div class="bj-import-modes" role="radiogroup" aria-label="导入方式"><strong>导入方式</strong>'+
+            radio("append","新增流水",!canReplace)+(canReplace?radio("replace_range","按文件日期覆盖"):"")+
+            '<button type="button" class="btn btn-link btn-xs" data-import-new>导入为新账簿</button></div>';
+    }
+    function replacementNotice(impact) {
+        if(!impact)return "";
+        return '<div class="bj-range-notice" data-range-notice role="status"><strong>'+
+            esc(impact.start)+' 至 '+esc(impact.end)+'</strong> · 原有 '+esc(impact.old_count)+
+            ' 笔将替换为 '+esc(impact.new_count)+' 笔<span>区间末余额 '+esc(amountText(impact.old_closing))+
+            ' → '+esc(amountText(impact.new_closing))+' 元。区间内文件未列出的旧流水也会撤下。</span></div>';
+    }
     function importMapping(preview, mapping, signed=mapping.amount!=null, open=false) {
         if (!preview.headers?.length || (!preview.needs_mapping && preview.mapping_used===null)) return "";
         const choices=[["","未使用"],...preview.headers.map((header,i)=>[i,(i+1)+" · "+header])];
@@ -298,7 +312,7 @@
             }
             this.el.innerHTML=toolbar+'<dl class="bj-totals">'+summary.map(([k,label])=>'<div><dt>'+label+'</dt><dd>'+amountText(data?.[k])+'</dd></div>').join("")+'</dl>'+
                 '<div class="bj-actions">'+(allowed?use("add","新增行",!data||editing,true)+use("import","导入银行流水",!data||editing)+(this.opts.can_sync!==false?use("sync","同步钉钉",!data||editing):""):"")+(this.opts.can_export!==false?use("export","导出",!data||editing):"")+
-                (data?.undo_operation?use("undo","撤回上次操作",Boolean(editing)):"")+'<span class="text-muted">'+(data?esc(this.month)+" · "+rows.length+" 笔":"")+'</span></div>'+
+                (data?.undo_operation?use("undo",data.undo_range?"撤回上次覆盖":"撤回上次操作",Boolean(editing)):"")+'<span class="text-muted">'+(data?esc(this.month)+" · "+rows.length+" 笔":"")+'</span></div>'+
                 (this.failed?'<p class="bj-error">'+esc(this.failed)+'</p>'+use("refresh","重试"):!data?'<p role="status">正在读取本月流水…</p>':
                 '<div class="bj-grid">'+table+(rows.length?"":'<p class="text-muted bj-empty">本月暂无流水。</p>')+'</div>');
             this.el.querySelector('[name="company"]').value=this.company;
@@ -324,7 +338,7 @@
             if(row){const r=this.data?.rows.find(x=>x.name===row.dataset.row);if(r)this.rowDialog(r);return;}
             if(key==="initialize")this.initialize();if(key==="refresh")this.load();
             if(key==="book")this.bookDialog();if(key==="classic")switchClassic(true);
-            if(key==="import-book" && this.company && this.opts.can_create!==false){this.importDialog(true);return;}
+            if(key==="import-book" && this.company && this.opts.can_create!==false){this.importDialog(!this.book);return;}
             if(!this.data)return;
             if(key==="add")this.rowDialog(null);if(key==="export")this.exportDialog();
             if(key==="import")this.importDialog();if(key==="sync")this.syncDialog();if(key==="undo")this.undoDialog();
@@ -405,7 +419,10 @@
         }
         undoDialog() {
             const args={book:this.book,version:this.data.version,operation:this.data.undo_operation},receipt={};
-            const {d,action}=this.openDialog("撤回上次操作","<p>将撤回此账簿最近一次可撤回的操作，同批导入或同步的流水将一起撤回。</p>");
+            const range=this.data.undo_range;
+            const detail=range?esc(range.start)+" 至 "+esc(range.end)+" 将恢复覆盖前的 "+esc(range.old_count)+
+                " 笔流水，区间末余额恢复为 "+esc(amountText(range.old_closing))+" 元。":"同批导入或同步的流水将一起撤回。";
+            const {d,action}=this.openDialog(range?"撤回上次覆盖":"撤回上次操作","<p>"+detail+"</p>");
             action("确认撤回",async()=>{await call("undo",{...args,request_id:retryKey(receipt,args)});d.hide();await this.load();});
         }
         exportDialog() {
@@ -423,7 +440,8 @@
             const settings=newBook?'<div class="bj-import-book" data-book-settings hidden>'+
                 field("account","银行账户名称","","text",'maxlength="140"')+field("opening_date","启用日期","","date")+
                 field("opening","期初余额（元）","","text",'inputmode="decimal"')+'<div data-book-issues role="status"></div></div>':"";
-            const {d,el,action,error,check,run}=this.openDialog(newBook?"导入账簿":"导入银行流水",'<div class="bj-import-toolbar">'+
+            const modes=newBook?"":importModeFields(Boolean(this.opts.can_write && this.opts.can_delete));
+            const {d,el,action,error,check,run}=this.openDialog(newBook?"导入账簿":"导入银行流水",modes+'<div class="bj-import-toolbar">'+
                 '<label class="bj-import-file"><input type="file" accept=".csv,.xlsx" name="statement" aria-label="选择 CSV 或 XLSX 文件"></label>'+
                 '<div data-mapping></div></div>'+settings+'<div data-result></div>',{companyOnly:newBook});
             el.classList.add("bj-import-dialog");
@@ -438,10 +456,18 @@
                 ++revision;
                 preview=null;
                 error("");
+                resultBox.querySelector("[data-range-notice]")?.remove();
                 const status=resultBox.querySelector("[data-validation]");
                 if(status)status.textContent=label;
                 action("重新校验",validate);
             };
+            const mode=()=>newBook?"append":el.querySelector('[name="import-mode"]:checked')?.value;
+            el.querySelector(".bj-import-modes")?.addEventListener("change",()=>{
+                invalidate("导入方式已更改，请重新预览");
+                action("预览流水",validate);
+            });
+            const newTarget=el.querySelector("[data-import-new]");
+            newTarget?.addEventListener("click",()=>{check();d.hide();this.importDialog(true);});
             if(bookFields)bookFields.oninput=event=>{
                 if(event.target.matches("input[name]")){
                     bookEdits[event.target.name]=event.target.value.trim();
@@ -455,6 +481,7 @@
                 mappingBox.replaceChildren();
                 resultBox.replaceChildren();
                 bookEdits={};
+                if(newTarget)newTarget.hidden=Boolean(fileInput.files.length);
                 if(bookFields)bookFields.hidden=true;
                 action("预览流水",validate);
             };
@@ -491,7 +518,7 @@
                 if(button)run(async()=>{check();await read(Number(button.dataset.reviewOffset));});
             };
             function fileArgs(file){
-                const target=newBook?{company,...bookEdits}:{book};
+                const target=newBook?{company,...bookEdits}:{book,mode:mode()};
                 return {...target,filename:file.name,content_base64:data,edits:JSON.stringify(edits)};
             }
             const apply=async()=>{
@@ -507,10 +534,13 @@
                 check();
                 d.hide();
                 if(newBook){this.book=result.book;await this.initialize();}else await this.load();
-                root.frappe.show_alert({message:newBook?"已建账并导入 "+result.created+" 笔流水":"流水已导入",indicator:"green"});
+                const message=result.impact?"已按日期覆盖，可在账簿中撤回本次覆盖。":
+                    newBook?"已建账并导入 "+result.created+" 笔流水":"已新增 "+result.created+" 笔，匹配 "+result.matched+" 笔，跳过重复 "+result.skipped+" 笔。";
+                root.frappe.show_alert({message,indicator:"green"});
             };
             async function read(nextOffset){
                 const file=fileInput.files[0];
+                if(!mode())throw Error("请选择新增流水或按文件日期覆盖。");
                 if(!file)throw Error("请先选择银行流水文件。");
                 if(file.size>6*1024*1024)throw Error("请选择 6 MB 以内的银行流水文件。");
                 const v=++revision,bytes=data||await fileData(file);if(v!==revision)return;
@@ -544,7 +574,7 @@
                     Math.max(0,nextOffset-pageSize)+'" '+(nextOffset===0?'disabled':'')+'>上一页</button> '+
                     '<span>'+start+'–'+end+' / '+total+'</span> <button type="button" class="btn btn-default btn-xs" data-review-offset="'+
                     (nextOffset+pageSize)+'" '+(end>=total?'disabled':'')+'>下一页</button></nav>':"";
-                resultBox.innerHTML=(rows.length?importTable(rows,res.review_errors):'<p class="text-muted">'+
+                resultBox.innerHTML=replacementNotice(res.impact)+(rows.length?importTable(rows,res.review_errors):'<p class="text-muted">'+
                     esc(res.needs_mapping?"展开列对应，设置日期和收支列。":"没有可预览的流水。")+'</p>')+
                     '<div class="bj-import-footer"><div class="bj-import-stats" role="status">'+
                     (total?total+' 笔 · 收入 '+esc(amountText(res.income_total))+' · 支出 '+esc(amountText(res.expense_total)):"")+
@@ -553,7 +583,8 @@
                     (res.needs_mapping&&res.ai_notice?'<p class="text-muted">'+esc(res.ai_notice)+'</p>':"");
                 resultBox.querySelector(".bj-import-grid")?.scrollTo({top:position[0],left:position[1]});
                 offset=nextOffset;
-                if(!res.needs_mapping&&!problems&&res.preview_id&&rows.length)action(newBook?"建账并导入":"确认导入",apply);
+                if(!res.needs_mapping&&!problems&&res.preview_id&&rows.length)action(newBook?"建账并导入":
+                    res.impact?"确认覆盖这段日期":"确认新增流水",apply);
                 else action("重新校验",validate);
             }
             action("预览流水",validate);
@@ -623,5 +654,5 @@
             else if(wrapper.cashJournal&&nativeShow)nativeShow(wrapper);
         };
     }
-    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,syncPreview,importMapping,importTable,extractRefs,retryKey,scopeBooks,Workbench,install};
+    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,syncPreview,importMapping,importTable,importModeFields,replacementNotice,extractRefs,retryKey,scopeBooks,Workbench,install};
 });

@@ -393,6 +393,7 @@
       "FilePreviewRequest": {
         "type": "object",
         "properties": {
+          "mode": {"$ref":"#/components/schemas/FileImportMode"},
           "book": {"$ref": "#/components/schemas/BookId"},
           "company": {"$ref": "#/components/schemas/CreateBookRequest/properties/company"},
           "account": {"$ref": "#/components/schemas/CreateBookRequest/properties/account"},
@@ -424,6 +425,7 @@
       "FileApplyRequest": {
         "type": "object",
         "properties": {
+          "mode": {"$ref":"#/components/schemas/FileImportMode"},
           "book": {"$ref": "#/components/schemas/BookId"},
           "company": {"$ref": "#/components/schemas/CreateBookRequest/properties/company"},
           "account": {"$ref": "#/components/schemas/CreateBookRequest/properties/account"},
@@ -518,9 +520,20 @@
         "properties": {"row": {"type": "integer", "minimum": 1}, "field": {"type": "string"}, "message": {"type": "string"}},
         "required": ["row", "field", "message"]
       },
+      "FileImportMode": {"type":"string","enum":["append","replace_range"],"default":"append","description":"覆盖限已有账簿的交互财务用户，日期取已核对流水的首末日期，含首尾。专用导入账号只可新增。"},
+      "RangeImpact": {
+        "type":"object",
+        "properties":{
+          "start":{"type":"string","format":"date"},"end":{"type":"string","format":"date"},
+          "old_count":{"type":"integer","minimum":0},"new_count":{"type":"integer","minimum":1},
+          "opening":{"type":"string"},"old_closing":{"type":"string"},"new_closing":{"type":"string"},"difference":{"type":"string"}
+        },
+        "required":["start","end","old_count","new_count","opening","old_closing","new_closing","difference"]
+      },
       "FilePreview": {
         "type": "object",
         "properties": {
+          "impact": {"$ref":"#/components/schemas/RangeImpact"},
           "version": {"type": "integer", "minimum": 0},
           "row_count": {"type": "integer", "minimum": 0, "description": "通过格式解析的行数。"},
           "error_count": {"type": "integer", "minimum": 0},
@@ -621,6 +634,7 @@
       "MonthResult": {
         "type": "object",
         "properties": {
+          "undo_range": {"$ref":"#/components/schemas/RangeImpact"},
           "book": {"$ref": "#/components/schemas/BookId"},
           "company": {"type": "string", "minLength": 1, "description": "所选账簿 books[].company 的完整公司名称。"},
           "account": {"type": "string", "minLength": 1, "description": "所选账簿 books[].account 的完整账户名称。"},
@@ -657,7 +671,8 @@
           "version": {"type": "integer", "minimum": 0},
           "created": {"type": "integer", "minimum": 0},
           "matched": {"type": "integer", "minimum": 0},
-          "skipped": {"type": "integer", "minimum": 0}
+          "skipped": {"type": "integer", "minimum": 0},
+          "impact": {"$ref":"#/components/schemas/RangeImpact"}
         },
         "required": ["operation", "version", "created", "matched", "skipped"],
         "description": "created 为新增行数，matched 为匹配到已有流水的行数，skipped 为已处理的来源行数。"
