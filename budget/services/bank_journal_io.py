@@ -627,6 +627,16 @@ def _movement_decimal(row):
 	return Decimal(row["income"] or 0) - Decimal(row["expense"] or 0)
 
 
+def _balances_follow(rows):
+	previous = Decimal(rows[0]["balance"])
+	for entry in rows[1:]:
+		current = Decimal(entry["balance"])
+		if previous + _movement_decimal(entry) != current:
+			return False
+		previous = current
+	return True
+
+
 def _order_and_validate(result, supplied_opening):
 	rows = result["rows"]
 	if not rows:
@@ -642,16 +652,7 @@ def _order_and_validate(result, supplied_opening):
 			return
 	elif days[0] == days[-1] and len(rows) > 1 and all(r["balance"] is not None for r in rows):
 		# Several transactions on one date can be in either posting order.
-		def chains(entries):
-			previous = Decimal(entries[0]["balance"])
-			for entry in entries[1:]:
-				current = Decimal(entry["balance"])
-				if previous + _movement_decimal(entry) != current:
-					return False
-				previous = current
-			return True
-
-		if not chains(rows) and chains(rows[::-1]):
+		if not _balances_follow(rows) and _balances_follow(rows[::-1]):
 			rows.reverse()
 	balance = Decimal(supplied_opening) if supplied_opening is not None else None
 	if balance is None and rows[0]["balance"] is not None:
@@ -846,12 +847,12 @@ def _statement_account(preamble):
 				if isinstance(value, str) and not isinstance(value, Formula) and value.strip():
 					found[key].add(value.strip())
 	if any(len(values) > 1 for values in found.values()):
-		return ""
-	if found["name"]:
-		return next(iter(found["name"]))
-	if found["number"]:
-		return " ".join((*found["bank"], *found["number"]))
-	return ""
+		return None, ""
+	number = next(iter(found["number"]), "")
+	label = next(iter(found["name"]), "")
+	if not label and number:
+		label = " ".join((*found["bank"], number))
+	return label, number
 
 
 def _blank(value):
@@ -977,7 +978,7 @@ def _metadata_currencies(preamble, header, evidence):
 				yield token
 
 
-def _statement_currency(result, sheet, start, evidence, metadata, selected):
+def _statement_currency(result, sheet, start, evidence, metadata, selected, suggest_currency=None):
 	tokens = set(metadata)
 	for row in sheet[start:]:
 		try:
@@ -996,6 +997,9 @@ def _statement_currency(result, sheet, start, evidence, metadata, selected):
 	):
 		result["errors"].append({"row": start, "field": "currency", "message": "文件中的金额币种符号互不相容"})
 	currency = selected or (next(iter(explicit)) if len(explicit) == 1 else None)
+	if not currency and suggest_currency and not result["errors"]:
+		currency = suggest_currency(result["account_label"], result.get("own_account_number", ""), tokens)
+	result["effective_currency"] = currency
 	for token in metadata:
 		try:
 			_check_currency(token, currency)
@@ -1129,43 +1133,124 @@ def _native_width(sheet, first):
 	return width
 
 
-def _can_exclude(raw, cols, original, currency, evidence, previous_balance):
-	if any(not _blank(_at(raw, i)) for i in evidence.amounts | evidence.references):
-		return False
-	try:
-		empty = _parse_row(raw, cols, original, currency, allow_amountless=True)
-	except StatementError:
-		return False
-	return empty["balance"] is None or empty["balance"] == previous_balance
+def _amountless_balances(candidates, cols, original, currency, evidence):
+	balances = {}
+	for i, raw in candidates.items():
+		if any(not _blank(_at(raw, idx)) for idx in evidence.amounts | evidence.references):
+			continue
+		try:
+			empty = _parse_row(raw, cols, original, currency, allow_amountless=True)
+		except StatementError:
+			continue
+		balances[i] = empty["balance"]
+	return balances
 
 
-def _reviewed_movement(raw, cols, original, currency, changes, row_number, file_hash):
-	if not changes:
-		return _parse_row(raw, cols, original, currency), None, None
+def _fits_source_opening(numbers, rows, amountless, opening):
+	previous = Decimal(opening)
+	for i in numbers:
+		row = rows.get(i)
+		if row is None:
+			# Its movement is unknown. A checked closing balance is evidence
+			# for the following posting without assuming this one was zero.
+			stated = amountless.get(i)
+			previous = Decimal(stated) if stated is not None else None
+		else:
+			if previous is not None:
+				previous += _movement_decimal(row)
+			if row["balance"] is not None:
+				stated = Decimal(row["balance"])
+				if previous is not None and previous != stated:
+					return False
+				previous = stated
+	return True
+
+
+def _exclusion_order(dates, source_rows, amountless, opening):
+	"""Check the source order before comparing a blank posting with its earlier balance."""
+	days = [day for day in dates.values() if day is not None]
+	forward = all(a <= b for a, b in zip(days, days[1:]))
+	backward = all(a >= b for a, b in zip(days, days[1:]))
+	if forward and backward:
+		if opening is not None:
+			return (_fits_source_opening(dates, source_rows, amountless, opening),
+				_fits_source_opening(reversed(dates), source_rows, amountless, opening))
+		rows = list(source_rows.values())
+		if len(rows) > 1 and all(row["balance"] is not None for row in rows):
+			return _balances_follow(rows), _balances_follow(rows[::-1])
+	return forward, backward
+
+
+def _apply_exclusions(result, dates, source_rows, candidates, cols, original, currency, evidence, edits, explicit, automatic):
+	allowed = set()
+	selected = set(explicit)
+	amountless = _amountless_balances(candidates, cols, original, currency, evidence)
+	forward, backward = _exclusion_order(dates, source_rows, amountless, result["opening"])
+	# A description with no balance can be an unfinished transaction within the
+	# statement. Only a trailing note after actual postings is automatically omitted.
+	note_columns = {cols[k] for k in ("date", *DATE_PARTS, "summary", "remark", "category", "level2",
+		"level3", "project", "dept", "balance", "currency") if k in cols} | evidence.currencies | evidence.omitted_balances
+	plain = {i for i, raw in candidates.items()
+		if all(_blank(value) or idx in note_columns for idx, value in enumerate(raw))}
+	tail = set()
+	if automatic and forward:
+		for i in reversed(dates):
+			raw = candidates.get(i)
+			if i not in plain or not _blank(_at(raw, cols.get("balance"))):
+				break
+			if not any(not _blank(_at(raw, cols.get(k))) for k in ("summary", "remark")):
+				break
+			tail.add(i)
+
+	previous = result["opening"]
+	seen_movement = False
+	for i in (reversed(dates) if backward and not forward else dates):
+		if i in amountless and (amountless[i] is None or amountless[i] == previous):
+			allowed.add(i)
+			if automatic and seen_movement and i in plain and i not in edits:
+				if (amountless[i] is not None and forward != backward) or i in tail:
+					selected.add(i)
+		row = source_rows.get(i)
+		if row is not None:
+			seen_movement = True
+			if row["balance"] is not None:
+				previous = row["balance"]
+			elif previous is not None:
+				previous = format(Decimal(previous) + _movement_decimal(row), ".2f")
+		elif i not in allowed or amountless[i] is None:
+			# A gap in the source cannot prove the next stated balance was unchanged.
+			previous = None
+	if invalid := explicit - allowed:
+		raise StatementError(f"第 {min(invalid)} 行不能排除，请核对来源收支、日期、余额和币种", "excluded_rows")
+	result["excluded_source_rows"] = sorted(selected)
+	result["errors"] = [err for err in result["errors"] if err["row"] not in selected]
+	for row in result["review_rows"]:
+		i = row["source_row"]
+		row.update(excludable=i in allowed, excluded=i in selected)
+
+
+def _reviewed_movement(raw, cols, original, currency, changes, row_number, file_hash, source):
 	# Retain the normal receipt identity after a correction. A previously
 	# invalid source row has a stable identity within this exact file.
-	source, repaired_key = None, None
-	try:
-		source = _parse_row(raw, cols, original, currency)
-	except StatementError:
-		repaired_key = _record_key("bank-file-row", file_hash, row_number)
+	repaired_key = None if source is not None else _record_key("bank-file-row", file_hash, row_number)
 	row = _parse_row(raw, cols, original, currency, changes)
 	before = source or _review_values(raw, cols, currency)
 	changed = {field: before[field] for field in changes if (before[field] or "") != (row[field] or "")}
 	if changed:
 		row["file_review"] = {"file_sha256": file_hash, "source_row": row_number, "original": changed}
-	return row, source, repaired_key
+	return row, repaired_key
 
 
 def parse_statement(
 	content, filename, mapping=None, *, header_row=None, suggest_layout=None, edits=None, review_offset=None,
-	currency="CNY", excluded_rows=None,
+	currency="CNY", excluded_rows=None, suggest_currency=None, auto_exclude=False,
 ):
 	"""Parse a bank file, report each invalid row and return canonical decimal strings."""
 	sheet, final_terminator = _read(content, filename)
 	first = _first_nonempty(sheet)
 	if first is None:
 		raise StatementError("流水文件为空")
+	excluded = _exclusions(excluded_rows)
 	result = dict(
 		rows=[],
 		template=None,
@@ -1184,6 +1269,7 @@ def parse_statement(
 		errors=[],
 		review_rows=[],
 		review_total=0,
+		excluded_source_rows=sorted(excluded),
 	)
 	native_width = _native_width(sheet, first)
 	original = bool(native_width)
@@ -1216,7 +1302,7 @@ def parse_statement(
 		title_currency = _money_prefix(_str(_at(title, 12)).strip())
 		if title_currency:
 			metadata.add(title_currency)
-		currency = _statement_currency(result, sheet, start, evidence, metadata, currency)
+		currency = _statement_currency(result, sheet, start, evidence, metadata, currency, suggest_currency)
 		result["opening"] = _money(_at(carry, 11), "opening", currency=currency)
 		if result["opening"] is None:
 			raise StatementError("期初余额缺失", "opening")
@@ -1261,8 +1347,9 @@ def parse_statement(
 				result["ai_notice"] = str(exc)
 		header = [_str(c) for c in sheet[header_index]]
 		suggested = _preferred_mapping(suggested, {})
-		result.update(headers=header, suggested_mapping=suggested, account_label=_statement_account(sheet[first:header_index]),
-					  header_row=header_index + 1)
+		source_account, own_number = _statement_account(sheet[first:header_index])
+		result.update(headers=header, suggested_mapping=suggested, account_label=source_account or "",
+					  own_account_number=own_number, account_conflict=source_account is None, header_row=header_index + 1)
 		requested = suggested if mapping is None else mapping
 		if isinstance(requested, dict):
 			# Keep checkable source evidence when a user remaps other columns.
@@ -1277,28 +1364,30 @@ def parse_statement(
 		result["mapping_used"] = cols
 		evidence = _source_columns(header, cols)
 		metadata = set(_metadata_currencies(sheet[first:header_index], header, evidence))
-		currency = _statement_currency(result, sheet, start, evidence, metadata, currency)
+		currency = _statement_currency(result, sheet, start, evidence, metadata, currency, suggest_currency)
 	legacy_cols = _legacy_columns(header, cols) if not original and currency == "CNY" else None
 	legacy_counts = Counter()
 	occurrences = Counter()
 	seen_ids = set()
 	edits = edits or {}
-	excluded = _exclusions(excluded_rows)
 	if excluded.intersection(edits):
 		raise StatementError("同一行不能同时排除和修改", "excluded_rows")
-	unused_exclusions = set(excluded)
 	unused_edits = set(edits)
 	file_hash = hashlib.sha256(content).hexdigest() if edits else None
 	closing_line = None
-	previous_balance = result["opening"]
+	source_dates = {}
+	source_rows = {}
+	candidates = {}
+	auto_exclude = auto_exclude and not result["errors"]
 	earliest = None
 	for i, raw in enumerate(sheet[start:], start + 1):
 		if not any(c not in (None, "") for c in raw):
 			continue
 		transaction = False
-		row = None
+		row = source = None
 		changes = edits.get(i)
-		excludable = False
+		day = source_day = None
+		source_checked = False
 		try:
 			_resolve_balance(sheet, i - 1, cols, currency)
 			if not original and _is_carry(raw, cols, evidence):
@@ -1311,7 +1400,6 @@ def parse_statement(
 				if result["opening"] is None:
 					raise StatementError("期初余额缺失", "opening")
 				carry_label = _str(_at(raw, cols.get("summary")))
-				previous_balance = result["opening"]
 				continue
 			if original and not any(c not in ("", None) for j, c in enumerate(raw) if j != 11):
 				if result["template"]["closing_row"] is not None:
@@ -1327,41 +1415,54 @@ def parse_statement(
 				cell = _at(raw, index)
 				if isinstance(cell, Formula):
 					raise StatementError(cell.issue, key)
-			day_value = changes.get("date") if changes and "date" in changes else _file_date(lambda k: _at(raw, cols.get(k)), cols)
-			day = _date(day_value)
-			earliest = min(earliest, day) if earliest else day
+			file_date = _file_date(lambda k: _at(raw, cols.get(k)), cols)
+			try:
+				source_day = _date(file_date)
+			except StatementError:
+				if not changes or "date" not in changes:
+					raise
+			if not changes or "date" not in changes:
+				day = source_day
 			for token in _row_currency_tokens(raw, evidence):
 				_check_currency(token, currency)
 			_check_source_amounts(raw, cols, evidence, currency)
-			excludable = _can_exclude(raw, cols, original, currency, evidence, previous_balance)
-			if i in excluded:
-				if not excludable:
-					raise StatementError("只有收支原本为空且无其他冲突的流水可排除", "excluded_rows")
-				unused_exclusions.discard(i)
+			source_checked = True
+			repaired_key = None
+			try:
+				source = _parse_row(raw, cols, original, currency)
+			except StatementError:
+				if not changes:
+					raise
+			if changes:
+				if "date" in changes:
+					day = _date(changes["date"])
+				row, repaired_key = _reviewed_movement(raw, cols, original, currency, changes, i, file_hash, source)
 			else:
-				row, source, repaired_key = _reviewed_movement(raw, cols, original, currency, changes, i, file_hash)
-				_append_row(result, row, i, occurrences, seen_ids, source=source, repaired_key=repaired_key)
-				if legacy_cols and not repaired_key:
-					keys = _legacy_keys(raw, source or row, legacy_cols, legacy_counts) - {row["source_key"]}
-					if keys:
-						row["_legacy_source_keys"] = sorted(keys)
-				if row["balance"] is not None:
-					previous_balance = row["balance"]
-				elif previous_balance is not None:
-					previous_balance = format(Decimal(previous_balance) + _movement_decimal(row), ".2f")
+				row = source
+			_append_row(result, row, i, occurrences, seen_ids, source=source, repaired_key=repaired_key)
+			if legacy_cols and not repaired_key:
+				keys = _legacy_keys(raw, source or row, legacy_cols, legacy_counts) - {row["source_key"]}
+				if keys:
+					row["_legacy_source_keys"] = sorted(keys)
 		except StatementError as exc:
 			result["errors"].append({"row": i, "field": exc.field, "message": str(exc)})
-			if not excludable:
-				previous_balance = None
 		if transaction:
+			if day is not None:
+				earliest = min(earliest, day) if earliest else day
+			source_dates[i] = source_day
+			if source is not None:
+				source_rows[i] = source
+			elif source_checked:
+				candidates[i] = raw
 			index = result["review_total"]
 			result["review_total"] += 1
 			if review_offset is not None and review_offset <= index < review_offset + REVIEW_PAGE_SIZE:
 				values = row if row is not None else {**_review_values(raw, cols, currency), **(changes or {})}
-				result["review_rows"].append({"source_row": i, "excludable": excludable, "excluded": i in excluded,
+				result["review_rows"].append({"source_row": i, "excludable": False, "excluded": False,
 					**{field: values[field] for field in (*REVIEW_FIELDS, "remark")}})
-	if unused_exclusions:
-		raise StatementError(f"第 {min(unused_exclusions)} 行不能排除，请核对来源收支、日期、余额和币种", "excluded_rows")
+	if candidates or excluded:
+		_apply_exclusions(result, source_dates, source_rows, candidates, cols, original, currency, evidence, edits,
+			excluded, auto_exclude)
 	if unused_edits:
 		raise StatementError(f"第 {min(unused_edits)} 行不是可修改的流水行", "edits")
 	if not result["rows"] and not result["errors"]:

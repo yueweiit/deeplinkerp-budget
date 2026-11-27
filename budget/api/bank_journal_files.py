@@ -90,7 +90,7 @@ def _exclusions(value):
 
 def _read(
 	filename, content_base64, mapping, *, header_row=None, suggest_layout=None, edits=None,
-	review_offset=None, currency=None, excluded_rows=None,
+	review_offset=None, currency=None, excluded_rows=None, suggest_currency=None, auto_exclude=False,
 ):
 	if not isinstance(content_base64, str) or len(content_base64) > 4 * ((formats.MAX_BYTES + 2) // 3):
 		frappe.throw("请选择 6 MB 以内的银行流水文件")
@@ -120,6 +120,8 @@ def _read(
 			review_offset=review_offset,
 			currency=currency,
 			excluded_rows=excluded,
+			suggest_currency=suggest_currency,
+			auto_exclude=auto_exclude,
 		)
 	except formats.StatementError as exc:
 		frappe.throw(str(exc))
@@ -127,9 +129,8 @@ def _read(
 	binding = columns if parsed["header_row"] is None else [parsed["header_row"], columns]
 	if edits:
 		binding = [binding, edits]
-	if excluded:
-		binding = [binding, {"excluded": excluded}]
-	parsed["excluded_source_rows"] = excluded
+	if parsed["excluded_source_rows"]:
+		binding = [binding, {"excluded": parsed["excluded_source_rows"]}]
 	return hashlib.sha256(payload).hexdigest(), binding, parsed
 
 
@@ -177,7 +178,79 @@ def _file_target(book, company, permission, settings, mode):
 	return _store().authorize_book(book, permission)
 
 
-def _new_file_book(company, parsed, account, opening, opening_date, currency):
+def _filename_account(filename, company, abbr):
+	"""Suggest a display name only. The caller must confirm it before creating a book."""
+	if not isinstance(filename, str) or len(filename) > 255:
+		return ""
+	name = Path(filename.replace("\\", "/")).stem.strip()
+	# A download may contain both a dated suffix and a ledger label in either order.
+	name = re.sub(
+		r"(?:[\s_.-]*(?:(?:银行)?日记[账帐]|银行流水|(?:银行)?对账单|bank[ _-]*statement|"
+		r"(?:19|20)\d{2}[-.年]\d{1,2}(?:[-.月]\d{1,2}日?)?))+$", "", name, flags=re.I,
+	).strip(" ._-")
+	for prefix in (company, abbr):
+		if prefix and name.startswith(prefix):
+			rest = name[len(prefix):]
+			if prefix == company or re.search(r"[\u3400-\u9fff]$", prefix) or rest[:1] in {" ", "-", "_"}:
+				name = rest.strip(" ._-")
+				break
+	return name[:140] or "银行账户"
+
+
+def _bank_account_currencies(company, account, own_number):
+	"""Return None for unknown accounts, an empty set for contradictory account details."""
+	rows = frappe.db.sql(
+		"""SELECT DISTINCT ledger.account_currency, bank.bank_account_no
+		   FROM `tabBank Account` bank
+		   JOIN `tabAccount` ledger ON ledger.name = bank.account AND ledger.company = bank.company
+		   WHERE bank.company = %(company)s AND bank.is_company_account = 1 AND bank.disabled = 0
+		     AND ledger.disabled = 0 AND ledger.is_group = 0
+		     AND (bank.account_name = %(account)s OR bank.name = %(account)s OR bank.bank_account_no = %(account)s
+		          OR bank.bank_account_no = NULLIF(%(own_number)s, ''))""",
+		{"company": company, "account": account, "own_number": own_number},
+	)
+	if not rows:
+		return None
+	if own_number:
+		exact = {code for code, number in rows if number == own_number and code}
+		if exact:
+			return exact
+		rows = [(code, number) for code, number in rows if not number]
+	return {code for code, _ in rows if code}
+
+
+def _file_book_defaults(company, filename, edited_account):
+	from budget.api.bank_journal import supported_currencies
+
+	company_info = frappe.db.get_value("Company", company, ["abbr", "default_currency"], as_dict=True)
+	if not company_info:
+		frappe.throw("所选公司已变更，请重新选择公司。")
+	file_account = _filename_account(filename, company, company_info.abbr)
+	scopes = frappe.conf.get("bank_journal_currency_defaults") or {}
+	preferred = scopes.get(company, {}) if isinstance(scopes, dict) else {}
+
+	def suggest_currency(source_account, own_number, tokens):
+		enabled = set(supported_currencies())
+		for token in tokens:
+			enabled.intersection_update(formats.AMBIGUOUS_SYMBOLS.get(token, {token}))
+		account = edited_account if isinstance(edited_account, str) else source_account or file_account
+		account = account.strip()
+		confirmed = preferred.get(account) if isinstance(preferred, dict) else None
+		if account != source_account:
+			own_number = ""
+		native = _bank_account_currencies(company, account, own_number) if account else None
+		if native is not None:
+			enabled.intersection_update(native)
+		if isinstance(confirmed, str) and confirmed:
+			return confirmed if confirmed in enabled else None
+		if native is None and company_info.default_currency in enabled:
+			return company_info.default_currency
+		return next(iter(enabled)) if len(enabled) == 1 else None
+
+	return file_account, suggest_currency
+
+
+def _new_file_book(company, parsed, account, opening, opening_date, currency, *, suggest_opening=False):
 	statement_opening = parsed["opening"]
 	if statement_opening is None and not parsed["errors"]:
 		movement = Decimal(0)
@@ -186,10 +259,13 @@ def _new_file_book(company, parsed, account, opening, opening_date, currency):
 			if row["balance"] is not None:
 				statement_opening = format(Decimal(row["balance"]) - movement, ".2f")
 				break
+	book_opening = statement_opening if opening is None else opening
+	if book_opening is None and suggest_opening and parsed["rows"] and not parsed["errors"]:
+		book_opening = "0.00"
 	doc, issues = _store().book_settings(
 		company,
 		parsed["account_label"] if account is None else account,
-		statement_opening if opening is None else opening,
+		book_opening,
 		parsed["opening_date"] if opening_date is None else opening_date,
 		currency=currency,
 	)
@@ -261,7 +337,7 @@ def _preview(parsed, version, token):
 def preview_import(
 	book=None, filename=None, content_base64=None, mapping=None, header_row=None, use_ai=None, edits=None,
 	review_offset=None, company=None, account=None, opening=None, opening_date=None, mode="append",
-	currency=None, excluded_rows=None,
+	currency=None, excluded_rows=None, suggest_book_defaults=None, auto_exclude=None,
 ):
 	ai_requested = use_ai in (1, "1")
 	if review_offset is not None:
@@ -274,6 +350,8 @@ def preview_import(
 	permission = "create" if ai_requested or edits or review_offset is not None else "read"
 	doc = _file_target(book, company, permission, (account, opening, opening_date), mode)
 	currency = _file_currency(doc, currency)
+	file_defaults = doc is None and suggest_book_defaults in (1, "1")
+	file_account, suggest_currency = _file_book_defaults(company, filename, account) if file_defaults else ("", None)
 	suggest_layout = None
 	if ai_requested:
 		from budget.services.bank_journal_ai import infer_layout
@@ -288,7 +366,11 @@ def preview_import(
 		edits=edits,
 		review_offset=review_offset,
 		currency=currency, excluded_rows=excluded_rows,
+		suggest_currency=suggest_currency,
+		auto_exclude=auto_exclude in (1, "1"),
 	)
+	if file_defaults and currency is None:
+		currency = parsed.get("effective_currency")
 	ledger_book = _marked_book(doc, parsed)
 	if doc and mode == "append" and _ready(parsed):
 		if ledger_book and not _store().ledger_export_matches(doc, parsed["rows"]):
@@ -298,7 +380,11 @@ def preview_import(
 			parsed["errors"].extend(_store().legacy_import_issues(doc, parsed["rows"]))
 	book_issues, target = [], {}
 	if doc is None:
-		doc, book_issues, adjustment = _new_file_book(company, parsed, account, opening, opening_date, currency)
+		if file_defaults and account is None and not parsed["account_label"] and not parsed.get("account_conflict"):
+			account = file_account
+		doc, book_issues, adjustment = _new_file_book(
+			company, parsed, account, opening, opening_date, currency, suggest_opening=file_defaults
+		)
 		if doc.account and _store().book_exists(doc.name):
 			book_issues.append({"field": "account", "message": "该账户已有账簿，请选择该账户后导入银行流水。"})
 		target = {
@@ -343,6 +429,7 @@ def preview_import(
 		**_preview(parsed, version, token),
 		"currency": currency, "suggested_currency": parsed.get("suggested_currency"),
 		"excluded_count": len(parsed["excluded_source_rows"]),
+		"excluded_source_rows": parsed["excluded_source_rows"],
 		**review,
 		**target,
 	}

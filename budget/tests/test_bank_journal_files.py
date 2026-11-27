@@ -546,3 +546,124 @@ def test_reimport_checks_v1_reference_upgrade_and_manual_memo_mapping(book, cont
 	store.legacy_import_issues = Mock(side_effect=existing)
 	args = dict(book="book", filename="previous.csv", content_base64=base64.b64encode(content.encode()).decode())
 	assert not api.preview_import(**args)["preview_id"]
+
+
+@pytest.fixture
+def file_first(new_target, monkeypatch):
+	store, _ = new_target
+	company = "拉丁购国际电子商务（东莞）有限公司"
+	monkeypatch.setattr(frappe, "db", SimpleNamespace(
+		get_value=lambda *a, **kw: frappe._dict(abbr="拉丁购", default_currency="CNY"),
+		sql=Mock(return_value=[]),
+	))
+	monkeypatch.setattr(frappe, "conf", {"bank_journal_currency_defaults": {company: {"万里汇": "MXN"}}})
+	return store, dict(company=company, filename="拉丁购万里汇日记账.csv", suggest_book_defaults=1)
+
+
+def statement(text):
+	return base64.b64encode(text.encode()).decode()
+
+
+def test_file_first_defaults_scoped_account_and_peso_and_signs_displayed_values(file_first):
+	store, args = file_first
+	args["content_base64"] = statement("年,月,日,摘要,收入,支出,余额\n,,,期初余额,,,0\n2026,7,23,收款,$12.50,,$12.50")
+	preview = api.preview_import(**args, review_offset=0)
+	assert preview["preview_id"] and not preview["book_issues"]
+	assert preview["book_settings"] == {"account": "万里汇", "currency": "MXN", "opening": "0.00", "opening_date": "2026-07-23"}
+	assert preview["currency"] == "MXN" and preview["income_total"] == "12.50"
+	write = {key: value for key, value in args.items() if key != "suggest_book_defaults"}
+	write.update(preview["book_settings"], mapping=preview["mapping_used"], header_row=preview["header_row"])
+	api.apply_import(**write, version=0, request_id="file-first", preview_id=preview["preview_id"])
+	assert store.apply_batch.call_args.kwargs["new_book"].account == "万里汇"
+	with pytest.raises(ValueError, match="预览已变化"):
+		api.apply_import(**{**write, "currency": "USD"}, version=0, request_id="changed", preview_id=preview["preview_id"])
+
+
+def test_file_first_respects_explicit_source_and_manual_defaults(file_first):
+	_, args = file_first
+	args["content_base64"] = statement("银行账户名称,外汇主账户\n日期,摘要,收入,余额,币种\n2026-07-23,收款,10,40,USD")
+	source = api.preview_import(**args)
+	assert source["book_settings"] == {"account": "外汇主账户", "currency": "USD", "opening": "30.00", "opening_date": "2026-07-23"}
+	manual = api.preview_import(**args, account="我的账本", opening="20", opening_date="2026-07-01")
+	assert manual["preview_id"] and manual["book_settings"] == {"account": "我的账本", "currency": "USD", "opening": "20.00", "opening_date": "2026-07-01"}
+	assert manual["opening_adjustment"]["closing"] == "30.00"
+	conflict = api.preview_import(**args, currency="MXN")
+	assert conflict["error_count"] and not conflict["preview_id"]
+
+
+def test_file_first_no_cross_company_dollar_default_and_no_false_source_opening(file_first):
+	_, args = file_first
+	args["content_base64"] = statement("日期,摘要,收入\n2026-07-23,收款,$10")
+	other = api.preview_import(**{**args, "company": "另一家公司"})
+	assert not other["book_settings"]["currency"] and not other["preview_id"]
+	plain = api.preview_import(**{**args, "filename": "转账专户日记账.csv",
+		"content_base64": statement("日期,摘要,收入\n2026-07-23,收款,10")})
+	assert plain["book_settings"] == {"account": "转账专户", "currency": "CNY", "opening": "0.00", "opening_date": "2026-07-23"}
+	assert plain["opening"] is None and plain["preview_id"]
+
+
+def test_file_first_conflicting_own_account_or_currencies_require_correction(file_first):
+	_, args = file_first
+	args["content_base64"] = statement("本方账号,0001\n本方账号,0002\n日期,摘要,收入,余额\n2026-07-23,收款,10,10")
+	conflict = api.preview_import(**args)
+	assert not conflict["book_settings"]["account"] and not conflict["preview_id"]
+	args["content_base64"] = statement("日期,摘要,收入,余额,币种\n2026-07-23,收款,10,10,USD\n2026-07-24,收款,15,25,MXN")
+	mixed = api.preview_import(**args)
+	assert mixed["error_count"] and not mixed["preview_id"]
+
+
+def test_company_with_three_account_currencies_uses_its_own_bank_ledgers(file_first):
+	_, args = file_first
+	accounts = {"国内结算": "CNY", "比索结算": "MXN", "美元结算": "USD"}
+	def bank_currencies(_query, params):
+		return [(accounts[params["account"]], None)] if params["company"] == args["company"] else []
+	frappe.db.sql.side_effect = bank_currencies
+	for account, code in accounts.items():
+		amount = "50" if code == "CNY" else "$50"
+		preview = api.preview_import(**args, account=account,
+			content_base64=statement(f"日期,收入,余额\n2026-07-23,{amount},{amount}"))
+		assert preview["book_settings"]["currency"] == code and preview["preview_id"]
+		assert preview["income_total"] == "50.00"
+	other = api.preview_import(**{**args, "company": "另一家公司"}, account="比索结算",
+		content_base64=statement("日期,收入\n2026-07-23,$50"))
+	assert not other["book_settings"]["currency"] and not other["preview_id"]
+
+
+def test_ambiguous_native_bank_name_leaves_currency_editable(file_first):
+	_, args = file_first
+	frappe.db.sql.return_value = [("USD", None), ("MXN", None)]
+	args.update(account="多币种结算", content_base64=statement("日期,收入,余额\n2026-07-23,10,10"))
+	preview = api.preview_import(**args)
+	assert not preview["book_settings"]["currency"] and not preview["preview_id"]
+	manual = api.preview_import(**args, currency="USD")
+	assert manual["book_settings"]["currency"] == "USD" and manual["preview_id"]
+
+
+def test_own_account_number_resolves_bank_currency_until_target_is_changed(file_first):
+	_, args = file_first
+	frappe.db.sql.side_effect = lambda query, params: [("USD", "000123")] if params["own_number"] == "000123" else []
+	args["content_base64"] = statement("开户行,某银行\n本方账号,000123\n日期,收入\n2026-07-23,10")
+	bank = api.preview_import(**args)
+	assert bank["book_settings"]["account"] == "某银行 000123"
+	assert bank["book_settings"]["currency"] == "USD" and bank["preview_id"]
+	renamed = api.preview_import(**args, account="另一专户")
+	assert renamed["book_settings"]["currency"] == "CNY" and renamed["preview_id"]
+
+
+def test_bank_master_disagrees_with_scoped_currency_convention(file_first):
+	_, args = file_first
+	frappe.db.sql.return_value = [("USD", None)]
+	args["content_base64"] = statement("日期,收入\n2026-07-23,$10")
+	preview = api.preview_import(**args)
+	assert not preview["preview_id"] and not preview["book_settings"]["currency"]
+	selected = api.preview_import(**args, currency="MXN")
+	assert selected["preview_id"] and selected["currency"] == "MXN"
+
+
+@pytest.mark.parametrize(("master_number", "expected"), [("", "USD"), ("000999", "")])
+def test_named_foreign_account_with_optional_or_conflicting_account_number(file_first, master_number, expected):
+	_, args = file_first
+	frappe.db.sql.side_effect = lambda query, params: [("USD", master_number)] if params["account"] == "出口户" else []
+	args["content_base64"] = statement("银行账户名称,出口户\n本方账号,000123\n日期,收入\n2026-07-23,10")
+	result = api.preview_import(**args)
+	assert result["book_settings"]["currency"] == expected and bool(result["preview_id"]) == bool(expected)

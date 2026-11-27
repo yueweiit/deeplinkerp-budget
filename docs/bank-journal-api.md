@@ -155,7 +155,13 @@ jq '.message | {operation,version,created,matched,skipped}' "$work/receipt.json"
 
 `preview_import` 的请求体包含 `book`、带扩展名的 `filename` 和 `content_base64`。可选 `mapping` 形如 `{"date":0,"summary":2,"expense":5}`，整数为从 0 开始的列序号。传原始文件字节的标准 Base64，保留编码和换行。来源表明确标有账户时，核对预览中的 `account_label` 与选定的账户。通用流水可能没有这个字段的值，应以银行原单和用户选择为准。
 
-导入新账簿时，传 `company` 并省略 `book`。传 `use_ai=1` 可为陌生表头启用 DeepSeek，传 `review_offset=0` 读取首屏可编辑的流水。新账簿需明确传 `currency` 才可确认。`suggested_currency` 是文件中有明确依据的建议，单独的 `$` 需要用户选择。已有账簿直接用其币种。`book_settings` 提供账户、币种、文件期初及启用日的建议值。可在预览中修改 `opening_date`、`opening` 后重新校验。调整期初会显示 `opening_adjustment`，包含文件期初、确认期初、差额及调整后的期末。后续在本账簿追加或覆盖银行原单时继续使用该差额核对银行余额。该账簿导出的 CSV 使用账面余额，可在同一账簿预览和核对。缺项集中在 `book_issues`。需要修改流水时，通过 `edits` 按原表行号提交修改，收支两列一起传。提交确认沿用同一公司、文件、账簿参数、修改值及返回的 `header_row`、`mapping_used`（作为 `mapping`）。确认成功后，`message.book` 是新账簿编号。取消预览即可放弃本次建账。
+导入新账簿时，传 `company`、文件和 `suggest_book_defaults=1`。可同时传 `use_ai=1` 识别表头、`review_offset=0` 返回可编辑的首页。将 `book_settings` 中的账户、币种、启用日和期初显示给用户。账户优先取原表的本方账户，其次从文件名提议。
+
+同一家公司可以分账户使用不同币种。新账簿优先采用文件明确的币种，其次按本公司的银行账户和关联科目建议币种。已确认的账户约定可由站点配置 `bank_journal_currency_defaults` 按公司全名、账簿名保存，例如 `{"示例公司":{"外汇账户":"MXN"}}`。缺少账户依据时，公司本位币只作与文件相容的预填值。多个相符账户有不同币种且没有明确约定时，由用户在预览中选择。已有账簿始终以各自的币种记录收支与余额。
+
+传 `auto_exclude=1` 后，预览返回整份文件实际排除的原表行号 `excluded_source_rows`。后续翻页、重新校验和确认使用该数组作为 `excluded_rows`。用户恢复一行后，从数组中移除其行号，通过 `edits` 提供修正值，修改金额时同时传收入和支出。预览保留可调整的行并按有效流水统计。余额变化、币种冲突或其他有效金额线索会列入核对。
+
+修改账户、币种、启用日或期初后重新预览。调整有来源依据的期初会返回 `opening_adjustment`，包含文件期初、确认期初、差额及调整后的期末。后续追加或覆盖使用该差额核对银行余额。确认时传完整的 `book_settings` 值、原文件、同一组修改与排除行，以及预览中的 `header_row`、`mapping_used`（作为 `mapping`）、`version` 和 `preview_id`。确认成功后 `message.book` 是新账簿编号。取消预览即可放弃本次建账。
 
 可以复用上例的 `work/target.json` 和 `post` 函数。下面的 `FILE` 是本地文件路径。
 
