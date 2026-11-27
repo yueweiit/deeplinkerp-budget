@@ -1,6 +1,6 @@
 .bj-workbench{color:var(--text-color,#383838);padding:8px 0 16px;font-size:var(--text-sm,13px);min-width:0}
 .bj-toolbar,.bj-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
-.bj-toolbar select,.bj-toolbar input,.bj-dialog :is(input:not([type=checkbox]):not([type=radio]),textarea,select){min-width:0;max-width:100%;padding:5px 9px;border:1px solid var(--border-color,#ededed);border-radius:var(--border-radius,6px);background:var(--control-bg,#f3f3f3);color:var(--text-color,#383838);font:inherit}
+.bj-toolbar select,.bj-toolbar input,.bj-dialog :is(input:not([type=checkbox],[type=radio]),textarea,select){min-width:0;max-width:100%;padding:5px 9px;border:1px solid var(--border-color,#ededed);border-radius:var(--border-radius,6px);background:var(--control-bg,#f3f3f3);color:var(--text-color,#383838);font:inherit}
 .bj-toolbar select{max-width:100%}.bj-actions>span{margin-inline-start:auto}
 .bj-totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--border-color,#ededed);border-radius:var(--border-radius,6px);padding:8px 0;margin:10px 0}
 .bj-totals>div{padding:0 12px;min-width:0}.bj-totals>div+div{border-left:1px solid var(--border-color,#ededed)}
