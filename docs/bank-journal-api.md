@@ -15,6 +15,7 @@
 | 用途 | HTTP 方法 | 方法名 |
 | --- | --- | --- |
 | 取得有权使用的公司、账簿和当前月份 | GET | `budget.api.bank_journal.get_options` |
+| 创建缺少的银行账簿 | POST | `budget.api.bank_journal.create_book` |
 | 预览 AI 提取的明细 | POST | `budget.api.bank_journal_files.preview_rows` |
 | 确认 AI 明细并写入账簿 | POST | `budget.api.bank_journal_files.apply_rows` |
 | 预览原始 CSV／XLSX | POST | `budget.api.bank_journal_files.preview_import` |
@@ -23,20 +24,35 @@
 
 使用 ERP 接入用户的 API Key 和 API Secret。请求头格式为 `Authorization: token <API_KEY>:<API_SECRET>`。由调用系统的凭据配置注入这两个值，不要放进模型提示词、共享文档或流水文件。认证方式见 [Frappe REST API](https://docs.frappe.io/framework/user/en/api/rest)。
 
-用户需有目标公司的访问权限和 `CN Cash Journal Entry` 的读取权限，确认导入还需创建权限。若需关联、补充已有流水，还需对应记录的写权限。预览和确认使用同一个 ERP 用户。账簿列表为空时，由财务在日记账页面选公司并建立银行账簿。
+用户需有目标公司的访问权限和 `CN Cash Journal Entry` 的读取权限，新建账簿和确认导入还需创建权限。若需关联、补充已有流水，还需对应记录的写权限。预览和确认使用同一个 ERP 用户。
 
 ## 在 AI 工作流里选择公司和账户
 
 1. 在支持 OpenAPI 的工具中导入本文的 OpenAPI 文件。给工具配置自定义认证请求头，名称填写 `Authorization`，值填写 `token <API_KEY>:<API_SECRET>`。认证信息放在工具的凭据设置中。
-2. 每次导入先调用 `getJournalOptions`。第一级用 `message.books[].company` 去重生成公司选项。用户选公司后，用同一公司下的 `account` 映射出第二级选项，并保存对应的 `name` 作为账簿标识。公司改变时重新选择账户。若只有一个选项，也展示公司和账户供用户确认。
-3. CSV 或 XLSX 调用 `previewJournalFile`，从其他格式提取的结构化明细调用 `previewJournalRows`。显示选定的公司、银行账户、笔数和收支合计。用户确认后再调用对应的 `applyJournalFile` 或 `applyJournalRows`，并保留原请求和回执。
-4. 某公司没有可选账户时，先由财务在 ERP 日记账建立对应银行账簿。接入用户取得该公司的授权后，重新调用 `getJournalOptions` 即可加载新选项。
+2. 每次导入先调用 `getJournalOptions`。用 `message.companies` 生成公司选项，包含尚未建账簿的已授权公司。用户选公司后，从该公司下的 `message.books[].account` 生成账户选项，并用该项的 `name` 作为账簿标识。公司改变时重新选择账户。
+3. 目标账户缺少账簿且 `can_create=true` 时，用用户提供或银行原单明确列示的账户、启用日期和期初余额调用 `createJournalBook`，再用返回的 `message.book` 继续。期初资料缺失或有冲突时，先核实具体字段。
+4. CSV 或 XLSX 调用 `previewJournalFile`，从其他格式提取的结构化明细调用 `previewJournalRows`。显示选定的公司、银行账户、笔数和收支合计。用户确认后再调用对应的 `applyJournalFile` 或 `applyJournalRows`，并保留原请求和回执。
 
 专用接入用户通过 `Bank Journal Import API` 角色限制到本页列出的接口。管理员用 ERP 的 `User Permission` 逐一授权目标公司，选择 `Company`，启用「适用于所有单据类型」和「隐藏下级」，再核对该公司的可用账簿。
 
+## 创建账簿
+
+使用 `createJournalBook` 时，`company` 取自 `message.companies`，`account` 填该银行账户的完整名称。`opening_date` 为开始记账的日期，`opening` 为该日期首笔交易发生前的人民币余额，使用十进制字符串。确认银行余额为零时填 `"0.00"`。
+
+```json
+{
+  "company": "示例公司",
+  "account": "示例银行基本户",
+  "opening": "1000.00",
+  "opening_date": "2026-11-01"
+}
+```
+
+成功返回 `message.book`、`message.company` 和 `message.account`，可直接用于流水预览。重复提交同一公司、账户和期初设置时，ERP 返回原账簿。若同名账簿的启用日期或期初余额不同，ERP 返回冲突，按财务确认的账簿继续。
+
 ## JSON 明细的请求
 
-取 `get_options` 返回的 `message.books`，按用户选择的 **公司全称＋银行账户名称** 精确匹配。用匹配项的 `name` 作 `book`，并把其 `company` 和 `account` 原样传给接口。不同公司可能使用同名账户，禁止取列表第一项作为默认账簿。
+取 `get_options` 返回的 `message.books`，按用户选择的 **公司全称＋银行账户名称** 精确匹配。用匹配项的 `name` 或新建返回的 `book` 作账簿标识，并把其 `company` 和 `account` 原样传给接口。不同公司可能使用同名账户，禁止取列表第一项作为默认账簿。
 
 下例的公司、账户、流水和编号均为演示数据。实际调用应使用目标环境返回的账簿标识。
 

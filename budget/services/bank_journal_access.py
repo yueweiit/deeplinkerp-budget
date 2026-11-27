@@ -9,6 +9,7 @@ METHOD_PREFIX = "/api/method/budget.api."
 IMPORT_ROUTES = {
 	("GET", METHOD_PREFIX + "bank_journal.get_options"),
 	("GET", METHOD_PREFIX + "bank_journal.get_month"),
+	("POST", METHOD_PREFIX + "bank_journal.create_book"),
 	("POST", METHOD_PREFIX + "bank_journal_files.preview_import"),
 	("POST", METHOD_PREFIX + "bank_journal_files.apply_import"),
 	("POST", METHOD_PREFIX + "bank_journal_files.preview_rows"),

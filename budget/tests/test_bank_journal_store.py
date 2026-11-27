@@ -64,6 +64,12 @@ def test_service_role_can_only_use_the_import_routes(monkeypatch):
 	req.method = "POST"
 	req.path = "/api/method/budget.api.bank_journal_files.apply_rows"
 	restrict_import_request()
+	req.path = "/api/method/budget.api.bank_journal.create_book"
+	restrict_import_request()
+	req.method = "GET"
+	with pytest.raises(frappe.PermissionError):
+		restrict_import_request()
+	req.method = "POST"
 	req.path = "/api/method/budget.api.bank_journal.save_row"
 	with pytest.raises(frappe.PermissionError):
 		restrict_import_request()
@@ -83,3 +89,26 @@ def test_service_role_has_no_company_access_without_explicit_grants(monkeypatch)
 	assert access.journal_companies() == set()
 	monkeypatch.setattr(frappe, "get_all", lambda *a, **kw: ["B", "not visible"])
 	assert access.journal_companies() == {"B"}
+
+
+@pytest.mark.parametrize("writes", [0, 1])
+def test_lock_retries_a_stale_snapshot_only_before_writing(monkeypatch, writes):
+	from types import SimpleNamespace
+	from unittest.mock import Mock
+
+	import frappe
+
+	from budget.api import bank_journal as api
+
+	db = SimpleNamespace(transaction_writes=writes, rollback=Mock(), savepoint=Mock())
+	monkeypatch.setattr(frappe, "db", db, raising=False)
+	existing = object()
+	acquire = Mock(side_effect=[frappe.QueryDeadlockError(), existing])
+	if writes:
+		with pytest.raises(frappe.QueryDeadlockError):
+			api._lock_current_snapshot(acquire)
+		db.rollback.assert_not_called()
+	else:
+		assert api._lock_current_snapshot(acquire) is existing
+		db.rollback.assert_called_once_with()
+		db.savepoint.assert_called_once_with("bank_journal_change")
