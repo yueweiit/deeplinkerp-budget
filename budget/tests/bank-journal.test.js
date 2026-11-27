@@ -84,3 +84,21 @@ test("DingTalk preview starts with importable rows and keeps read-only groups se
     assert.match(markup, /data-sync-panel="existing" hidden/);
     assert.doesNotMatch(syncPreview([],"2026-11"),/data-sync-tab="review"/);
 });
+test("DingTalk inputs default to the cashier date and application amount", () => {
+    const {syncPreview}=require("../public/js/bank_journal.js");
+    const markup=syncPreview([
+        {source_key:"cashier",selectable:true,application_date:"2026-11-12",approved_date:"2026-12-01",
+            cashier_date:"2026-11-24",application_amount:"260.00",date:null,expense:null},
+        {source_key:"undated",selectable:true,application_date:"2026-11-16",approved_date:"2026-11-24",
+            cashier_date:null,application_amount:"22.00",date:null,expense:null},
+        {source_key:"registered",selectable:true,cashier_date:"2026-11-24",application_amount:"40.00",
+            date:"2026-11-25",expense:"35.00"},
+    ],"2026-11");
+    assert.match(markup,/name="date-0"[^>]*value="2026-11-24"/);
+    assert.match(markup,/name="expense-0"[^>]*value="260.00"/);
+    assert.match(markup,/name="date-1"[^>]*value=""/);
+    assert.match(markup,/name="expense-1"[^>]*value="22.00"/);
+    assert.match(markup,/name="date-2"[^>]*value="2026-11-25"/);
+    assert.match(markup,/name="expense-2"[^>]*value="35.00"/);
+    assert.doesNotMatch(markup,/\bchecked\b/);
+});

@@ -59,6 +59,10 @@ def test_stale_changed_company_or_duplicated_reference_blocks(action):
 	with pytest.raises(ValueError):
 		apply()
 	existing.return_value = []
+	row["cashier_date"] = "2026-11-03"
+	with pytest.raises(ValueError, match="原单或账簿已变化"):
+		apply()
+	row["cashier_date"] = None
 	row["application_amount"] = "20.00"
 	with pytest.raises(ValueError):
 		apply()

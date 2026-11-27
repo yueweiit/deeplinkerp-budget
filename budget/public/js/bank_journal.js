@@ -105,9 +105,9 @@
                 return '<tr><td>'+identity+'<span class="bj-sync-meta">'+esc(metadata)+'</span>'+note+'</td>'+
                     '<td class="bj-sync-money" data-label="申请金额">'+esc(amountText(row.application_amount))+'</td>'+
                     (editable?
-                        '<td data-label="实付日期"><input type="date" name="date-'+index+'" aria-label="实付日期" value="'+esc(row.date)+'"></td>'+
+                        '<td data-label="实付日期"><input type="date" name="date-'+index+'" aria-label="实付日期" value="'+esc(row.date || row.cashier_date)+'"></td>'+
                         '<td data-label="实付金额"><input type="text" inputmode="decimal" name="expense-'+index+
-                            '" aria-label="实付金额" value="'+esc(row.expense)+'"></td>':"")+'</tr>';
+                            '" aria-label="实付金额" value="'+esc(row.expense ?? row.application_amount)+'"></td>':"")+'</tr>';
             }).join("");
             const table = '<table class="bj-sync-table'+(editable?' bj-sync-ready':'')+'"><thead><tr>'+
                 '<th scope="col">支出</th><th scope="col" class="bj-sync-money">申请金额</th>'+
