@@ -16,9 +16,8 @@ import frappe
 
 from budget.services import bank_journal_io as formats
 
-PREVIEW_VERSION = 1
+PREVIEW_VERSION = 2
 MAX_PREVIEW_ROWS = 100
-ROWS_SCOPE = "bank-journal-rows/v1:CNY"
 
 
 def _store():
@@ -72,7 +71,27 @@ def _file_edits(edits):
 	return rows
 
 
-def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=None, edits=None, review_offset=None):
+def _exclusions(value):
+	if value in (None, ""):
+		return []
+	if isinstance(value, str) and len(value) <= formats.MAX_MOVEMENTS * 8:
+		try:
+			value = json.loads(value)
+		except ValueError:
+			frappe.throw("排除流水行号的格式无效")
+	if (
+		not isinstance(value, list) or len(value) > formats.MAX_MOVEMENTS
+		or any(type(i) is not int or not 1 <= i <= formats.MAX_ROWS for i in value)
+		or len(set(value)) != len(value)
+	):
+		frappe.throw("请提供有效且唯一的原表行号")
+	return sorted(value)
+
+
+def _read(
+	filename, content_base64, mapping, *, header_row=None, suggest_layout=None, edits=None,
+	review_offset=None, currency=None, excluded_rows=None,
+):
 	if not isinstance(content_base64, str) or len(content_base64) > 4 * ((formats.MAX_BYTES + 2) // 3):
 		frappe.throw("请选择 6 MB 以内的银行流水文件")
 	if not isinstance(filename, str) or not filename or len(filename) > 255:
@@ -89,6 +108,7 @@ def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=
 	if mapping is not None and (not isinstance(mapping, dict) or len(mapping) > len(formats.ALIASES)):
 		frappe.throw("列映射格式无效")
 	edits = _file_edits(edits)
+	excluded = _exclusions(excluded_rows)
 	try:
 		parsed = formats.parse_statement(
 			payload,
@@ -98,6 +118,8 @@ def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=
 			suggest_layout=suggest_layout,
 			edits=edits,
 			review_offset=review_offset,
+			currency=currency,
+			excluded_rows=excluded,
 		)
 	except formats.StatementError as exc:
 		frappe.throw(str(exc))
@@ -105,6 +127,9 @@ def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=
 	binding = columns if parsed["header_row"] is None else [parsed["header_row"], columns]
 	if edits:
 		binding = [binding, edits]
+	if excluded:
+		binding = [binding, {"excluded": excluded}]
+	parsed["excluded_source_rows"] = excluded
 	return hashlib.sha256(payload).hexdigest(), binding, parsed
 
 
@@ -115,6 +140,7 @@ def _sign(doc, input_type, content_hash, mapping, version):
 		doc.name,
 		doc.company,
 		doc.account,
+		doc.currency,
 		str(version),
 		input_type,
 		content_hash,
@@ -151,7 +177,7 @@ def _file_target(book, company, permission, settings, mode):
 	return _store().authorize_book(book, permission)
 
 
-def _new_file_book(company, parsed, account, opening, opening_date):
+def _new_file_book(company, parsed, account, opening, opening_date, currency):
 	statement_opening = parsed["opening"]
 	if statement_opening is None and not parsed["errors"]:
 		movement = Decimal(0)
@@ -165,10 +191,46 @@ def _new_file_book(company, parsed, account, opening, opening_date):
 		parsed["account_label"] if account is None else account,
 		statement_opening if opening is None else opening,
 		parsed["opening_date"] if opening_date is None else opening_date,
+		currency=currency,
 	)
-	if doc.opening is not None and statement_opening is not None and Decimal(doc.opening) != Decimal(statement_opening):
-		issues.append({"field": "opening", "message": "期初余额与文件流水不符，请核对流水或期初余额。"})
-	return doc, issues
+	adjustment = None
+	if doc.opening is not None and statement_opening is not None:
+		difference = Decimal(doc.opening) - Decimal(statement_opening)
+		if difference:
+			closing = Decimal(doc.opening) + sum(
+				Decimal(r["income"] or 0) - Decimal(r["expense"] or 0) for r in parsed["rows"]
+			)
+			adjustment = dict(
+				file_opening=statement_opening, book_opening=doc.opening,
+				difference=format(difference, ".2f"), closing=format(closing, ".2f"),
+			)
+	return doc, issues, adjustment
+
+
+def _file_currency(doc, requested):
+	if requested is not None:
+		if not isinstance(requested, str):
+			frappe.throw("请选择有效的账簿币种。")
+		requested = requested.strip().upper()
+	if doc is None:
+		return requested or None
+	code = _store().book_currency(doc)
+	if requested not in (None, "", code):
+		frappe.throw(f"所选币种与此账簿的 {code} 不一致。")
+	return code
+
+
+def _ledger_marker(book):
+	return hmac.new(_secret(), ("bank-journal:ledger-balance:v1:" + book).encode(), hashlib.sha256).hexdigest()
+
+
+def _marked_book(doc, parsed):
+	marker = parsed.get("ledger_book")
+	if not marker or doc is None:
+		return None
+	if not hmac.compare_digest(marker, _ledger_marker(doc.name)):
+		frappe.throw("这份账面余额导出属于其他账簿，请选择对应的账簿。")
+	return doc.name
 
 
 def _file_scope(filename, mapping, new_book, mode):
@@ -186,7 +248,7 @@ def _preview(parsed, version, token):
 		"error_count": len(parsed["errors"]),
 		"errors": parsed["errors"][:MAX_PREVIEW_ROWS],
 		"rows": [
-			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof", "file_review")}
+			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof", "file_review", "_legacy_source_keys")}
 			for row in rows[:MAX_PREVIEW_ROWS]
 		],
 		"income_total": format(sum((Decimal(r["income"] or 0) for r in rows), Decimal(0)), ".2f"),
@@ -199,6 +261,7 @@ def _preview(parsed, version, token):
 def preview_import(
 	book=None, filename=None, content_base64=None, mapping=None, header_row=None, use_ai=None, edits=None,
 	review_offset=None, company=None, account=None, opening=None, opening_date=None, mode="append",
+	currency=None, excluded_rows=None,
 ):
 	ai_requested = use_ai in (1, "1")
 	if review_offset is not None:
@@ -210,6 +273,7 @@ def preview_import(
 		review_offset = int(review_offset)
 	permission = "create" if ai_requested or edits or review_offset is not None else "read"
 	doc = _file_target(book, company, permission, (account, opening, opening_date), mode)
+	currency = _file_currency(doc, currency)
 	suggest_layout = None
 	if ai_requested:
 		from budget.services.bank_journal_ai import infer_layout
@@ -223,16 +287,29 @@ def preview_import(
 		suggest_layout=suggest_layout,
 		edits=edits,
 		review_offset=review_offset,
+		currency=currency, excluded_rows=excluded_rows,
 	)
+	ledger_book = _marked_book(doc, parsed)
+	if doc and mode == "append" and _ready(parsed):
+		if ledger_book and not _store().ledger_export_matches(doc, parsed["rows"]):
+			parsed["errors"].append({"field": "balance", "row": parsed["rows"][0]["source_row"],
+				"message": "这份账面导出与当前流水有差异。请核对或选择按文件日期覆盖。"})
+		elif not ledger_book and any(row.get("_legacy_source_keys") for row in parsed["rows"]):
+			parsed["errors"].extend(_store().legacy_import_issues(doc, parsed["rows"]))
 	book_issues, target = [], {}
 	if doc is None:
-		doc, book_issues = _new_file_book(company, parsed, account, opening, opening_date)
+		doc, book_issues, adjustment = _new_file_book(company, parsed, account, opening, opening_date, currency)
 		if doc.account and _store().book_exists(doc.name):
 			book_issues.append({"field": "account", "message": "该账户已有账簿，请选择该账户后导入银行流水。"})
-		target = {"book_settings": {k: doc[k] for k in ("account", "opening", "opening_date")}, "book_issues": book_issues}
+		target = {
+			"book_settings": {k: doc[k] for k in ("account", "opening", "opening_date", "currency")},
+			"book_issues": book_issues, "opening_adjustment": adjustment,
+		}
 	_check_opening_date(doc, parsed)
 	if mode == "replace_range" and _ready(parsed):
-		impact, _, issues = _store().replacement_impact(doc, parsed["rows"], parsed["opening"])
+		impact, _, issues = _store().replacement_impact(
+			doc, parsed["rows"], parsed["opening"], **({"ledger_book": ledger_book} if ledger_book else {})
+		)
 		target["impact"] = impact
 		parsed["errors"].extend(issues)
 	review = {}
@@ -264,6 +341,8 @@ def preview_import(
 			)
 		},
 		**_preview(parsed, version, token),
+		"currency": currency, "suggested_currency": parsed.get("suggested_currency"),
+		"excluded_count": len(parsed["excluded_source_rows"]),
 		**review,
 		**target,
 	}
@@ -273,12 +352,18 @@ def preview_import(
 def apply_import(
 	book=None, filename=None, content_base64=None, mapping=None, preview_id=None, version=None,
 	request_id=None, header_row=None, edits=None, company=None, account=None, opening=None, opening_date=None, mode="append",
+	currency=None, excluded_rows=None,
 ):
 	doc = _file_target(book, company, "create", (account, opening, opening_date), mode)
-	file_hash, mapping, parsed = _read(filename, content_base64, mapping, header_row=header_row, edits=edits)
-	issues = []
+	currency = _file_currency(doc, currency)
+	file_hash, mapping, parsed = _read(
+		filename, content_base64, mapping, header_row=header_row, edits=edits,
+		currency=currency, excluded_rows=excluded_rows,
+	)
+	ledger_book = _marked_book(doc, parsed)
+	issues, adjustment = [], None
 	if doc is None:
-		doc, issues = _new_file_book(company, parsed, account, opening, opening_date)
+		doc, issues, adjustment = _new_file_book(company, parsed, account, opening, opening_date, currency)
 	_check_opening_date(doc, parsed)
 	scope, binding = _file_scope(filename, mapping, None if book else doc, mode)
 	if (
@@ -297,14 +382,22 @@ def apply_import(
 	options = {} if book else {"new_book": doc, "request_facts": [scope, preview_id]}
 	if mode == "replace_range":
 		options = {"replace_range": True, "request_facts": [scope, preview_id]}
+	if adjustment or parsed["excluded_source_rows"]:
+		options["request_facts"] = [scope, preview_id]
+		options["import_review"] = dict(
+			file_sha256=file_hash, currency=currency, excluded_source_rows=parsed["excluded_source_rows"],
+			**(adjustment or {}),
+		)
+	if ledger_book:
+		options["ledger_book"] = ledger_book
 	result = _store().apply_batch(
 		doc.name,
 		parsed["rows"],
 		"Import",
 		version,
 		request_id,
-		opening=parsed["opening"],
-		opening_date=parsed["opening_date"],
+		opening=adjustment["file_opening"] if adjustment else parsed["opening"],
+		opening_date=parsed["opening_date"] if book else doc.opening_date,
 		template=parsed["template"],
 		**options,
 	)
@@ -320,8 +413,9 @@ def _read_rows(book, company, account, currency, rows, extra):
 	doc = _store().authorize_book(book)
 	if doc.company != company or doc.account != account:
 		frappe.throw("所选账簿与指定公司或银行账户不一致")
-	if currency != "CNY":
-		frappe.throw("请明确使用此账簿的人民币币种代码 CNY")
+	book_currency = _store().book_currency(doc)
+	if currency != book_currency:
+		frappe.throw(f"请明确使用此账簿的币种代码 {book_currency}")
 	try:
 		parsed = formats.parse_rows(rows)
 	except formats.StatementError as exc:
@@ -332,10 +426,10 @@ def _read_rows(book, company, account, currency, rows, extra):
 
 @frappe.whitelist(methods=["POST"])
 def preview_rows(book=None, company=None, account=None, currency=None, rows=None, **extra):
-	"""Preview extracted bank transactions against the explicitly selected RMB book."""
+	"""Preview extracted bank transactions in the selected account's currency."""
 	doc, parsed = _read_rows(book, company, account, currency, rows, extra)
 	version = int(doc.revision or 0)
-	token = _sign(doc, ROWS_SCOPE, parsed["input_hash"], None, version) if not parsed["errors"] else ""
+	token = _sign(doc, "bank-journal-rows/v1:" + currency, parsed["input_hash"], None, version) if not parsed["errors"] else ""
 	return {
 		"book": doc.name,
 		"company": doc.company,
@@ -361,13 +455,14 @@ def apply_rows(
 ):
 	"""Confirm an unchanged extraction with the same native writer used by file imports."""
 	doc, parsed = _read_rows(book, company, account, currency, rows, extra)
+	scope = "bank-journal-rows/v1:" + currency
 	if (
 		parsed["errors"]
 		or type(version) is not int
 		or version < 0
 		or not isinstance(preview_id, str)
 		or not re.fullmatch(r"[0-9a-f]{64}", preview_id)
-		or not hmac.compare_digest(_sign(doc, ROWS_SCOPE, parsed["input_hash"], None, version), preview_id)
+		or not hmac.compare_digest(_sign(doc, scope, parsed["input_hash"], None, version), preview_id)
 	):
 		frappe.throw("流水、账簿或预览参数已变化，请重新预览后提交")
 	return _store().apply_batch(
@@ -378,7 +473,7 @@ def apply_rows(
 		request_id,
 		opening=parsed["opening"],
 		opening_date=parsed["opening_date"],
-		request_facts=[ROWS_SCOPE, parsed["input_hash"]],
+		request_facts=[scope, parsed["input_hash"]],
 	)
 
 
@@ -399,6 +494,8 @@ def export_journal(book, month=None):
 		account_label=data["account"],
 		template=data.get("template"),
 		month=period,
+		currency=data.get("currency", "CNY"),
+		ledger_book=_ledger_marker(book) if Decimal(str(data.get("bank_balance_offset") or 0)) else None,
 	)
 	label = re.sub(r'[/\\:*?"<>|\x00-\x1f]', "_", str(data["account"]))[:128]
 	return {

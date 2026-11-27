@@ -8,7 +8,9 @@
  "field_order": [
   "company",
   "account",
+  "currency",
   "opening",
+  "bank_balance_offset",
   "opening_date",
   "revision",
   "next_sequence",
@@ -29,10 +31,31 @@
    "label": "Bank account label"
   },
   {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "default": "CNY",
+   "not_nullable": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
    "fieldname": "opening",
    "fieldtype": "Currency",
    "label": "Opening balance",
+   "options": "currency",
    "precision": "2"
+  },
+  {
+   "fieldname": "bank_balance_offset",
+   "fieldtype": "Currency",
+   "label": "Book opening minus original bank opening",
+   "options": "currency",
+   "precision": "2",
+   "default": "0",
+   "read_only": 1,
+   "set_only_once": 1
   },
   {
    "fieldname": "opening_date",

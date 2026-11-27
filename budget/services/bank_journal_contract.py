@@ -1,4 +1,4 @@
-"""Wire values for the RMB journal; all monetary arithmetic stays in decimal."""
+"""Wire values for single-currency bank books with two-decimal amounts."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-TEXT = ("category", "level2", "level3", "project", "summary", "invoice", "dept")
+TEXT = ("category", "level2", "level3", "project", "summary", "invoice", "dept", "remark")
 SOURCE = {"oa": "DingTalk", "dingtalk": "DingTalk", "import": "Import"}
 CENT = Decimal("0.01")
 
@@ -39,7 +39,7 @@ def month_bounds(month, today):
 
 def money(value, *, positive=False):
 	if isinstance(value, bool) or not isinstance(value, (str, int, Decimal, float)):
-		raise ValueError("请填写有效人民币金额。")
+		raise ValueError("请填写有效金额。")
 	try:
 		n = Decimal(str(value))
 		if not n.is_finite() or abs(n) >= Decimal("10000000000000") or n != n.quantize(CENT):
@@ -47,7 +47,7 @@ def money(value, *, positive=False):
 		if positive and n <= 0:
 			raise ValueError
 	except (InvalidOperation, ValueError) as exc:
-		raise ValueError("金额须精确到分，流水金额必须大于零。") from exc
+		raise ValueError("金额最多保留两位小数，流水金额必须大于零。") from exc
 	return format(n, ".2f")
 
 
@@ -72,6 +72,9 @@ def clean_row(row):
 		raise ValueError("流水格式无效。")
 	out = {"date": as_date(row.get("date")).isoformat(), "refs": references(row.get("refs"))}
 	for field in TEXT:
+		# Older clients omit this field. Keep their existing notes and request digests.
+		if field == "remark" and field not in row:
+			continue
 		value = row.get(field)
 		value = "" if value is None else value
 		if not isinstance(value, str) or len(value) > 12000 or "\x00" in value:

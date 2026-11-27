@@ -11,10 +11,12 @@ from budget.api import bank_journal_files as api
 @pytest.fixture
 def book(monkeypatch):
 	doc = SimpleNamespace(
-		name="book", company="Example", account="Cash", revision=4, opening_date="2026-01-01"
+		name="book", company="Example", account="Cash", currency="CNY", revision=4, opening_date="2026-01-01"
 	)
 	store = SimpleNamespace(
-		authorize_book=Mock(return_value=doc), apply_batch=Mock(return_value={"added": 1})
+		authorize_book=Mock(return_value=doc), apply_batch=Mock(return_value={"added": 1}),
+		legacy_import_issues=Mock(return_value=[]),
+		book_currency=lambda value: getattr(value, "currency", None) or "CNY",
 	)
 	monkeypatch.setattr(api, "_store", lambda: store)
 	monkeypatch.setattr(api, "_secret", lambda: b"test secret")
@@ -342,21 +344,22 @@ def test_unusable_ai_mapping_keeps_manual_preview_and_cannot_skip_transactions(b
 
 
 @pytest.fixture
-def new_target(book):
+def new_target(book, monkeypatch):
 	from budget.api import bank_journal
 
 	store, _ = book
 	store.authorize_book_creation = Mock()
 	store.book_settings = bank_journal.book_settings
+	monkeypatch.setattr(bank_journal, "supported_currencies", lambda: ["CNY", "MXN", "USD"])
 	store.book_exists = Mock(return_value=False)
 	payload = base64.b64encode("银行账户名称,测试专户\n日期,摘要,支出,余额\n2026-11-05,服务费,8.25,91.75".encode()).decode()
-	return store, dict(company="示例公司", filename="银行.csv", content_base64=payload)
+	return store, dict(company="示例公司", filename="银行.csv", content_base64=payload, currency="CNY")
 
 
 def test_new_book_preview_bank_defaults_edit_and_bound_confirmation(new_target):
 	store, args = new_target
 	first = api.preview_import(**args, review_offset=0, use_ai=1)
-	assert first["book_settings"] == {"account": "测试专户", "opening": "100.00", "opening_date": "2026-11-05"}
+	assert first["book_settings"] == {"account": "测试专户", "opening": "100.00", "opening_date": "2026-11-05", "currency": "CNY"}
 	assert first["review_rows"][0]["expense"] == "8.25" and first["preview_id"]
 	store.apply_batch.assert_not_called()
 	store.authorize_book_creation.assert_called_once_with("示例公司")
@@ -398,7 +401,7 @@ def test_new_book_original_template_and_ai_layout_share_preview(new_target, monk
 	store, args = new_target
 	template = api.preview_import(**{**args, "content_base64": base64.b64encode(sample_journal()).decode()}, review_offset=0)
 	assert template["preview_id"] and template["book_settings"] == {
-		"account": "示例银行", "opening": "1000.00", "opening_date": "2026-01-01"
+		"account": "示例银行", "opening": "1000.00", "opening_date": "2026-01-01", "currency": "CNY"
 	}
 	raw = "过账日,资金流入额,业务说明,账面余款\n2026-11-01,8.00,示例,18.00"
 	model = Mock(return_value={"header_row": 1, "columns": {"date": 0, "income": 1, "summary": 2, "balance": 3}})
@@ -436,3 +439,110 @@ def test_new_book_uses_earliest_evidenced_balance_and_keeps_ambiguous_account_em
 	args["content_base64"] = base64.b64encode(("本方账号,000456\n"+raw).encode()).decode()
 	proposed = api.preview_import(**args)
 	assert proposed["book_settings"]["account"] == "" and not proposed["preview_id"]
+
+
+def test_new_file_book_requires_confirmed_currency_before_apply(new_target):
+	store, args = new_target
+	args = {**args, "currency": None}
+	initial = api.preview_import(**args, review_offset=0)
+	assert initial["row_count"] == 1 and not initial["preview_id"]
+	assert "currency" in {issue["field"] for issue in initial["book_issues"]}
+	mxn = api.preview_import(**{**args, "currency": "MXN"})
+	assert mxn["book_settings"]["currency"] == "MXN" and mxn["preview_id"]
+	assert api.preview_import(**{**args, "currency": " mxn "})["currency"] == "MXN"
+	with pytest.raises(ValueError, match="币种"):
+		api.preview_import(**{**args, "currency": ["MXN"]})
+	confirm = dict(preview_id=mxn["preview_id"], version=0, request_id="peso-confirmation")
+	with pytest.raises(ValueError, match="预览已变化"):
+		api.apply_import(**{**args, "currency": "USD"}, **confirm)
+	api.apply_import(**{**args, "currency": "MXN"}, **confirm)
+	assert store.apply_batch.call_args.kwargs["new_book"].currency == "MXN"
+
+
+def test_edited_opening_keeps_source_balance_and_previews_ledger_balance(new_target):
+	store, args = new_target
+	args = {**args, "opening": "120", "opening_date": "2026-10-01", "currency": "MXN"}
+	info = api.preview_import(**args, review_offset=0)
+	assert info["book_settings"]["opening"] == "120.00" and info["preview_id"]
+	assert info["review_rows"][0]["balance"] == "91.75"
+	assert info["opening_adjustment"] == {
+		"file_opening": "100.00", "book_opening": "120.00", "difference": "20.00", "closing": "111.75",
+	}
+	api.apply_import(**args, preview_id=info["preview_id"], version=0, request_id="opening-edit")
+	call = store.apply_batch.call_args
+	assert (call.kwargs["opening"], call.kwargs["new_book"].opening, call.kwargs["opening_date"]) == ("100.00", "120.00", "2026-10-01")
+	assert call.args[1][0]["balance"] == "91.75" and "ledger_balance" not in call.args[1][0]
+	assert call.kwargs["import_review"]["file_opening"] == "100.00"
+
+
+def test_existing_foreign_book_and_json_validate_same_currency(book):
+	store, encoded = book
+	store.authorize_book.return_value.currency = "MXN"
+	args = dict(book="book", filename="b.csv", content_base64=encoded)
+	assert api.preview_import(**args)["currency"] == "MXN"
+	with pytest.raises(ValueError, match="币种"):
+		api.preview_import(**args, currency="CNY")
+	scope = dict(book="book", company="Example", account="Cash", currency="MXN")
+	rows = [{"date": "2026-11-16", "income": "1.00"}]
+	info = api.preview_rows(**scope, rows=rows)
+	assert info["preview_id"] and info["currency"] == "MXN"
+	api.apply_rows(**scope, rows=rows, preview_id=info["preview_id"], version=4, request_id="mxn-json")
+	assert "MXN" in store.apply_batch.call_args.kwargs["request_facts"][0]
+
+
+def test_explicit_exclusions_are_bound_to_file_and_audited(new_target):
+	store, args = new_target
+	content = "日期,摘要,收入,支出,余额\n2026-11-01,第一笔,5,,5\n2026-11-02,第二笔,,,\n2026-11-03,第三笔,,,"
+	args = {**args, "content_base64": base64.b64encode(content.encode()).decode(), "account":"测试账户", "currency":"MXN"}
+	info = api.preview_import(**args, excluded_rows=[3, 4], review_offset=0)
+	assert info["excluded_count"] == 2 and info["row_count"] == 1 and info["preview_id"]
+	assert [r["source_row"] for r in info["review_rows"] if r.get("excluded")] == [3, 4]
+	confirm = dict(preview_id=info["preview_id"], version=0, request_id="explicit-exclusions")
+	with pytest.raises(ValueError):
+		api.apply_import(**args, excluded_rows=[3], **confirm)
+	api.apply_import(**args, excluded_rows="[4,3]", **confirm)
+	assert store.apply_batch.call_args.kwargs["import_review"]["excluded_source_rows"] == [3, 4]
+
+
+def test_legacy_ambiguous_summary_receipt_blocks_duplicating_an_existing_import(book):
+	from budget.services import bank_journal_io as fmt
+	store, _ = book
+	content = "日期,摘要,备注,收入\n2026-11-01,电商入账,订单123,100\n2026-11-01,另一收款,订单456,100"
+	args = dict(book="book", filename="old.csv", content_base64=base64.b64encode(content.encode()).decode())
+	keys = [fmt._record_key("bank-movement", "2026-11-01", "100.00", None, None, "", n) for n in (1, 2)]
+	def existing(book_doc, rows):
+		assert all(key in row["_legacy_source_keys"] for key, row in zip(keys, rows, strict=True))
+		return [{"row": 2, "field": "summary", "message": "原行已按旧版摘要或余额导入"}]
+	store.legacy_import_issues = Mock(side_effect=existing)
+	report = api.preview_import(**args)
+	assert not report["preview_id"] and report["errors"][0]["row"] == 2
+	assert "_legacy_source_keys" not in report["rows"][0]
+	store.legacy_import_issues.return_value = []
+	store.legacy_import_issues.side_effect = None
+	ready = api.preview_import(**args)
+	assert ready["preview_id"]
+
+
+def test_ledger_export_uses_site_marker_only_for_the_original_existing_book(book):
+	store, _ = book
+	marker = api._ledger_marker("book")
+	assert api._marked_book(store.authorize_book.return_value, {"ledger_book": marker}) == "book"
+	assert api._marked_book(store.authorize_book.return_value, {}) is None
+	with pytest.raises(ValueError, match="其他账簿|对应的账簿"):
+		api._marked_book(store.authorize_book.return_value, {"ledger_book": api._ledger_marker("elsewhere")})
+
+
+@pytest.mark.parametrize(("content","prior_summary"), [
+	('日期,收入,"银行流水号\nBank reference",摘要\n2026-11-01,100,AB-950,客户入账', "客户入账"),
+	("日期,收入,摘要,备注\n2026-11-01,100,客户入账,订单123", "订单123"),
+])
+def test_reimport_checks_v1_reference_upgrade_and_manual_memo_mapping(book, content, prior_summary):
+	from budget.services import bank_journal_io as fmt
+	store, _ = book
+	previous = fmt._record_key("bank-movement", "2026-11-01", "100.00", None, None, prior_summary, 1)
+	def existing(_doc, rows):
+		assert previous in rows[0]["_legacy_source_keys"]
+		return [{"row": 2, "field": "summary", "message": "旧版来源已入账"}]
+	store.legacy_import_issues = Mock(side_effect=existing)
+	args = dict(book="book", filename="previous.csv", content_base64=base64.b64encode(content.encode()).decode())
+	assert not api.preview_import(**args)["preview_id"]
