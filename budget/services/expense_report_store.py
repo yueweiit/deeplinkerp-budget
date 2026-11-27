@@ -14,6 +14,7 @@ STATE = "Expense Report State"
 LINE = "Expense Report Line"
 CURRENT = "current"
 MAX_LINES = 50000
+GROUP_CONDITION = "(company='' and coalesce(JSON_EXTRACT(detail_json, '$.is_group_expense'),0)=1)"
 
 
 def encode(value):
@@ -110,13 +111,17 @@ def where(context, f, *, categories=True):
 		params["legacy_keys"] = sorted(context["legacy_keys"])
 	else:
 		conditions.append("is_legacy=0")
-	if f["company"]:
+	from .expense_regions import GROUP_COMPANY
+	if f["company"] == GROUP_COMPANY:
+		conditions.append(GROUP_CONDITION if context["manager"] else "1=0")
+	elif f["company"]:
 		conditions.append("company=%(company)s")
 		params["company"] = f["company"]
 	if f.get("region"):
 		names = sorted(name for name, region in context.get("company_regions", {}).items()
 			if name in context["companies"] and region == f["region"])
-		conditions.append("company in %(region_companies)s" if names else "1=0")
+		conditions.append(GROUP_CONDITION if f["region"] == "group" and context["manager"]
+			else "company in %(region_companies)s" if names else "1=0")
 		if names:
 			params["region_companies"] = names
 	if categories:
@@ -169,10 +174,15 @@ def summaries(conditions, params, *, group=None, review_currency=None):
 	for currency in ("cny", "mxn"):
 		columns.append(f"case when count(case when {approved} and {currency}_known=0 then 1 end)>0 then null "
 			f"else coalesce(sum(case when {approved} then amount_{currency} else 0 end),0) end as {currency}")
+	group_expression = group
+	if group == "company":
+		from .expense_regions import GROUP_COMPANY
+		params = {**params, "group_company": GROUP_COMPANY}
+		group_expression = f"case when {GROUP_CONDITION} then %(group_company)s else company end"
 	if group:
-		columns.insert(0, group)
+		columns.insert(0, group_expression + " as " + group)
 	rows = frappe.db.sql("select " + ",".join(columns) + " from `tabExpense Report Line` where " + conditions
-		+ (" group by " + group if group else ""), params, as_dict=True)
+		+ (" group by " + group_expression if group else ""), params, as_dict=True)
 	return [{**({group: row[group]} if group else {}), "count": row.line_count, "applications": row.applications,
 		"pending": row.pending, "review": row.review, "excluded": row.excluded,
 		"amounts": {currency.upper(): None if row[currency] is None else str(Decimal(row[currency]).quantize(Decimal("0.01")))

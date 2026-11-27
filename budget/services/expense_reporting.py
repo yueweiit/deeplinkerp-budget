@@ -15,9 +15,9 @@ from .expense_report_refresh import read_context
 def prepare(values):
 	f = service.filters(values)
 	context, rules, metadata = read_context()
-	if f["company"] and f["company"] not in context["companies"]:
+	if f["company"] and not service.regions.allowed_company(f["company"], context):
 		frappe.throw(_("You do not have permission to view this subsidiary."), frappe.PermissionError)
-	context = {**context, "company_regions": service.regions.company_regions(context)}
+	context = {**context, "company_regions": service.regions.reporting_regions(context)}
 	metadata = {**metadata, "company_regions": context["company_regions"]}
 	condition, params = store.where(context, f, categories=False)
 	condition += " and " + store.period(f, undated=f["view"] == "review")
@@ -52,11 +52,11 @@ def query(values=None, start=0):
 	f, context, rules, metadata, condition, params = prepare(values)
 	current = condition + " and " + store.period(f)
 	undated = store.count(condition + " and reporting_month='' and approval_status in ('approved','pending','unknown')", params)
-	response = {"filters": f, "companies": sorted(context["companies"]),
+	response = {"filters": f, "companies": service.regions.company_options(context),
 		"categories": service.management.rules_service.CATEGORIES, "source_categories": metadata["source_categories"],
 		"issues": service.ISSUES, "metadata": metadata, "summary": store.summaries(current, params)[0], "undated": undated}
-	names = service.regions.company_names(metadata["company_regions"], f)
 	groups = {row["company"]: row for row in store.summaries(current, params, group="company")}
+	names = service.regions.company_names(metadata["company_regions"], f, groups)
 	response["company_rows"] = [groups.get(name) or {"company": name, **service.summarize([])} for name in names]
 	response["company_rows"].sort(key=lambda row: (row["amounts"]["CNY"] is None, -Decimal(row["amounts"]["CNY"] or 0), row["company"]))
 	response["unassigned"] = groups.get("", {}).get("review", 0)
@@ -65,7 +65,7 @@ def query(values=None, start=0):
 		# authorized set. No raw approval parsing or exchange-rate IO occurs.
 		budget_groups = defaultdict(list)
 		for row in store.select(current, params):
-			budget_groups[row["company"]].append(row)
+			budget_groups[service.regions.company_key(row)].append(row)
 		response["budgets"] = [{"company": name, "metrics": service.budget_metrics(budget_groups[name],
 			rules["warning_percent"], category_scope=f["category"], source_scope=f["source_category"])} for name in names]
 		if not metadata["complete"]:
@@ -104,9 +104,10 @@ def query(values=None, start=0):
 		response.update(total=total, start=start, has_more=start + 50 < total,
 			rows=[service.public(row) for row in store.select(selection, params, start=start, limit=50)])
 	response["regions"] = []
-	for region in service.regions.descriptors(metadata["company_regions"], f):
+	for region in service.regions.descriptors({name: metadata["company_regions"][name] for name in names}, f):
 		regional_params = {**params, "regional_companies": region.pop("companies")}
-		regional_condition = condition + " and company in %(regional_companies)s"
+		regional_condition = condition + " and " + (store.GROUP_CONDITION if region["region"] == "group"
+			else "company in %(regional_companies)s")
 		regional_current = regional_condition + " and " + store.period(f)
 		region["summary"] = store.summaries(regional_current, regional_params)[0]
 		if f["view"] in ("overview", "analysis"):

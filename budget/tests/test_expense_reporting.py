@@ -248,6 +248,68 @@ def test_mexico_comparison_uses_mxn_even_when_monthly_fx_changes(database, monke
 
 
 @pytest.mark.parametrize("backend", ["sql", "snapshot"])
+def test_group_scope_has_its_own_totals_details_and_export_without_a_company_record(database, monkeypatch, backend):
+	seed, _ = database
+	seed([line("subsidiary"), line("group", company="", entity="", amount="60"),
+		line("group-prior", company="", entity="", amount="30", month="2026-10", application_date="2026-10-10"),
+		line("bad-group", company="", entity="", amount=None, issues=["amount"]),
+		line("unassigned", company="", entity="Unknown source", amount="40")], companies=("A",))
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	service = reporting if backend == "sql" else legacy
+	result = service.query()
+	groups = {row["company"]: row for row in result["company_rows"]}
+	key = legacy.regions.GROUP_COMPANY
+	assert result["summary"]["amounts"]["CNY"] == "160.00"
+	assert groups["A"]["amounts"]["CNY"] == "100.00"
+	assert groups[key]["amounts"]["CNY"] == "60.00" and groups[key]["regional_share"] is None
+	assert groups[key]["region"] == "group" and result["unassigned"] == 1
+	group = next(region for region in result["regions"] if region["region"] == "group")
+	assert group["comparison"]["percent"] == "100.0"
+	selected = service.query({"company": key, "view": "details", "measure": "approved"})
+	assert [row["key"] for row in selected["rows"]] == ["group"]
+	assert selected["rows"][0]["company"] == "" and selected["rows"][0]["is_group_expense"] == 1
+	assert selected["rows"][0]["display_currency"] == "CNY"
+	exported, _, _ = service.export_rows({"company": key})
+	assert [row["key"] for row in exported] == ["group"]
+	assert service.detail("group", {"company": key})["row"]["region"] == "group"
+	if backend == "sql":
+		from budget.api import expenses as api
+		monkeypatch.setattr(api, "_", lambda value: value)
+		monkeypatch.setattr(api, "workbook", lambda data, filename: data)
+		monkeypatch.setattr(api.service, "export_rows", service.export_rows)
+		assert api.export_data({"company": key})[-1][1] == "Group"
+	budget = service.query({"company": key, "view": "budget"})["budgets"][0]["metrics"]["CNY"]
+	assert budget["budget"] is None and budget["approved"] is None and budget["balance"] is None
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
+def test_group_budget_is_missing_without_hiding_valid_spending(database, monkeypatch, backend):
+	seed, _ = database
+	seed([line("group", company="", entity="", amount="60")], companies=("A",))
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	service = reporting if backend == "sql" else legacy
+	metrics = service.query({"company": legacy.regions.GROUP_COMPANY, "view": "budget"})["budgets"][0]["metrics"]["CNY"]
+	assert metrics["budget"] is None and metrics["approved"] == "60.00" and metrics["balance"] is None
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
+def test_group_expenses_keep_the_original_unassigned_access_boundary(database, monkeypatch, backend):
+	seed, _ = database
+	seed([line("subsidiary"), line("group", company="", entity="", amount="60")], companies=("A",), manager=False)
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	service = reporting if backend == "sql" else legacy
+	result = service.query()
+	assert legacy.regions.GROUP_COMPANY not in result["companies"]
+	assert result["summary"]["amounts"]["CNY"] == "100.00"
+	assert all(row["region"] != "group" for row in result["regions"])
+	with pytest.raises(ValueError, match="permission"):
+		service.query({"company": legacy.regions.GROUP_COMPANY})
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
 def test_verified_comparison_keeps_amounts_when_other_lines_need_review(database, monkeypatch, backend):
 	seed, _ = database
 	seed([line("now", amount="200"),
@@ -265,9 +327,8 @@ def test_verified_comparison_keeps_amounts_when_other_lines_need_review(database
 	assert result["summary"]["excluded"] == 1 and result["undated"] == 1
 
 
-
 @pytest.mark.parametrize("backend", ["sql", "snapshot"])
-@pytest.mark.parametrize("company,currency", [("A", "CNY"), ("B", "MXN")])
+@pytest.mark.parametrize("company,currency", [("A", "CNY"), ("B", "MXN"), ("", "CNY")])
 def test_comparison_exposes_prior_review_counts_in_the_exact_authorized_window(database, monkeypatch, backend, company, currency):
 	seed, _ = database
 	ownership = {"company": company, "currency": currency, **({"entity": ""} if not company else {})}
@@ -285,7 +346,6 @@ def test_comparison_exposes_prior_review_counts_in_the_exact_authorized_window(d
 	assert comparison["percent"] == "100.0" and set(comparison["warnings"]) == {"review", "excluded"}
 	assert comparison["periods"] == {"current": {"review": 0, "excluded": 0}, "previous": {"review": 1, "excluded": 1}}
 	assert "periods" not in result["comparison"]  # Preserve the legacy global response.
-
 
 
 @pytest.mark.parametrize("backend", ["sql", "snapshot"])

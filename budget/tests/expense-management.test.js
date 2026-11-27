@@ -87,6 +87,22 @@ test("comparison shows previous-period review caveats even when the current mont
   assert.doesNotMatch(work.html,/Some expenses in the comparison periods still need review\./);
 });
 
+test("virtual Group renders in the overview and detail without a Company record or raw filter label", () => {
+  const key='__expense_group__',work=Object.create(Workbench.prototype);
+  Object.assign(work,{view:'overview',filters:{region:'group'},content(html){this.html=html;},data:{
+    metadata:{complete:true,has_data:true},summary:{review:0,pending:0,excluded:0},undated:0,
+    regions:[{region:'group',label:'Group',currency:'CNY',summary:{amounts:{CNY:'60'},applications:1,count:1},comparison:{percent:'100.0',status:'comparable'}}],
+    company_rows:[{company:key,region:'group',display_currency:'CNY',amounts:{CNY:'60'},applications:1,review:0,regional_share:null}],
+    rows:[{key:'line',number:'NO-1',company:'',is_group_expense:1,display_currency:'CNY',amounts:{CNY:'60'},issues:[],status:'approved'}],total:1,start:0
+  }});
+  work.render();
+  assert.match(work.html,/data-company="__expense_group__"/);
+  assert.match(work.html,/>Group/);
+  assert.doesNotMatch(work.html.replace(/<[^>]*>/g,''),/__expense_group__|Company not matched|Mexico/);
+  assert.match(work.details(),/>Group<\/td>/);
+  assert.equal(readFilters('?expense_filters='+encodeURIComponent(JSON.stringify({company:key,region:'group'}))).region,'group');
+});
+
 test("regional cards and company rows display one currency per region and company", () => {
   const work = Object.create(Workbench.prototype);
   Object.assign(work, {view: "overview", filters: {}, content(html) {this.html = html;}, data: {

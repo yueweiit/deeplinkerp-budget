@@ -47,6 +47,13 @@ def shared_source(monkeypatch, context, *, origin="mx", entries=None):
 
 
 @pytest.mark.parametrize("origin", ["cn", "mx"])
+def test_group_reporting_keeps_original_empty_company_identity_for_source_authorization(monkeypatch, runtime, origin):
+	row, _, _ = shared_source(monkeypatch, runtime, origin=origin, entries=[{"region": "pending", "company": ""}])
+	assert links.original_url({**row, "is_group_expense": 1}, runtime, {}) == URL
+	assert links.original_url({**row, "company": "__expense_group__", "is_group_expense": 1}, runtime, {}) == ""
+
+
+@pytest.mark.parametrize("origin", ["cn", "mx"])
 @pytest.mark.parametrize("owner_field", ["company", "regional_company"])
 def test_shared_source_blocks_forbidden_retired_memberships(monkeypatch, runtime, origin, owner_field):
 	row, _record, lines = shared_source(monkeypatch, runtime, origin=origin)

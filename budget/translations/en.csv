@@ -393,6 +393,12 @@ No verified expenditure last month,No verified expenditure last month
 Comparison exchange rate unavailable,Comparison exchange rate unavailable
 Last month's verified expenditure was zero,Last month's verified expenditure was zero
 Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.,Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.
+Assigned to Group automatically,Assigned to Group automatically
+Sources without a name are reported under Group automatically. No company mapping is needed.,Sources without a name are reported under Group automatically. No company mapping is needed.
+"Expenses without a source name are reported under Group in CNY. Group is a reporting scope, not a Company record; original currencies are retained.","Expenses without a source name are reported under Group in CNY. Group is a reporting scope, not a Company record; original currencies are retained."
+Group,Group
+Only verified subsidiary or Group allocations and amounts enter approved expenditure. Invalid or undated expenses remain in Data Review.,Only verified subsidiary or Group allocations and amounts enter approved expenditure. Invalid or undated expenses remain in Data Review.
+Regional totals use the subsidiary country; Group is reported separately. Missing exchange rates leave the relevant total unavailable.,Regional totals use the subsidiary country; Group is reported separately. Missing exchange rates leave the relevant total unavailable.
 Current period: {0} lines need review; {1} unverified lines excluded.,Current period: {0} lines need review; {1} unverified lines excluded.
 Previous period: {0} lines need review; {1} unverified lines excluded.,Previous period: {0} lines need review; {1} unverified lines excluded.
 Some expenses in the comparison periods still need review.,Some expenses in the comparison periods still need review.

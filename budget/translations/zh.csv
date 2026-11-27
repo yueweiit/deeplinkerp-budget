@@ -988,6 +988,11 @@ No verified expenditure last month,上月暂无已核实支出
 Comparison exchange rate unavailable,比较所需汇率缺失
 Last month's verified expenditure was zero,上月已核实支出为零
 Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.,本月按与上月相同的已过天数比较，两期均使用已核实的已通过支出。其他待核对项不阻止比较；来源完整性及未计入明细单独提示。
+Assigned to Group automatically,自动归入集团
+Sources without a name are reported under Group automatically. No company mapping is needed.,来源名称为空的费用自动按集团口径统计，无需配置公司映射。
+"Expenses without a source name are reported under Group in CNY. Group is a reporting scope, not a Company record; original currencies are retained.",来源名称为空的支出按集团口径单列，以 CNY 折算展示；集团仅为报表统计范围，不新增公司档案，原币金额保留。
+Only verified subsidiary or Group allocations and amounts enter approved expenditure. Invalid or undated expenses remain in Data Review.,只有已核实的子公司或集团归属及金额才计入已通过支出；金额等数据异常或缺少日期的明细继续留待核对。
+Regional totals use the subsidiary country; Group is reported separately. Missing exchange rates leave the relevant total unavailable.,地区汇总按子公司国家归属，集团另行单列；缺少汇率时，相应合计暂不可用。
 Current period: {0} lines need review; {1} unverified lines excluded.,本期：{0} 条待核对，{1} 条未核实明细未计入。
 Previous period: {0} lines need review; {1} unverified lines excluded.,上期：{0} 条待核对，{1} 条未核实明细未计入。
 Some expenses in the comparison periods still need review.,比较期间仍有费用待核对。

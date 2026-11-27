@@ -5,6 +5,7 @@
 })(globalThis, function (root) {
   "use strict";
   const API = "budget.api.expenses.";
+  const GROUP_COMPANY = "__expense_group__";
   const ROUTES = {
     overview: "expense-management",
     analysis: "expense-analysis",
@@ -51,6 +52,8 @@
     )}</button>`;
   const textMoney = (value) =>
     value == null ? "—" : root.DeepLinkERPMexicoExpenseMoney.format(value);
+  const companyLabel = row => row.is_group_expense || row.company === GROUP_COMPANY
+    ? t("Group") : row.company || t("Company not matched");
   function money(amounts, currency) {
     if (!["CNY", "MXN"].includes(currency))
       return `<span class="em-muted">${esc(t("Region not configured"))}</span>`;
@@ -113,7 +116,7 @@
       result.month > monthNow()
     )
       result.month = monthNow();
-    if (!["", "cn", "mx"].includes(result.region)) result.region = "";
+    if (!["", "cn", "mx", "group"].includes(result.region)) result.region = "";
     return result;
   }
   function shiftMonth(month, delta) {
@@ -347,7 +350,7 @@
       this.host.querySelector(
         ".em-controls"
       ).innerHTML = `<div class="em-heading"><h2>${esc(
-        f.company || t("Subsidiary expense overview")
+        f.company ? companyLabel({company:f.company}) : t("Subsidiary expense overview")
       )}</h2><div class="em-heading-actions">${
         this.view === "details" && f.source_category ? button("analysis", "Back to expense analysis", "", "em-back-link") : ""
       }${
@@ -376,7 +379,7 @@
       }</div></div>${select(
         "company",
         "Subsidiary",
-        companies.map((name) => [name, name]),
+        companies.map((name) => [name, name === GROUP_COMPANY ? t("Group") : name]),
         "All Subsidiaries"
       )}${select(
         "source_category",
@@ -460,7 +463,7 @@
         ? `<div class="em-status"><span class="em-chip">${esc(t("Verified approvals only"))}</span>${button("all-statuses", "All statuses")}</div>`
         : "";
       if (this.filters.region)
-        html += `<div class="em-status"><span class="em-chip">${esc(t(this.filters.region === "cn" ? "China" : "Mexico"))}</span>${button("clear-region", "All regions")}</div>`;
+        html += `<div class="em-status"><span class="em-chip">${esc(t({cn:"China",mx:"Mexico",group:"Group"}[this.filters.region]))}</span>${button("clear-region", "All regions")}</div>`;
       const notices = [];
       if (d.metadata.reporting_pending) notices.push(t("Expense reports are being updated. Showing the last completed version."));
       if (!d.metadata.complete) notices.push(t("Source data incomplete"));
@@ -504,7 +507,7 @@
         return [
           `<button class="em-link em-company" data-action="company" data-company="${esc(
             row.company
-          )}">${esc(row.company)} <span aria-hidden="true">›</span></button>`,
+          )}">${esc(companyLabel(row))} <span aria-hidden="true">›</span></button>`,
           money(row.amounts, row.display_currency),
           share == null
             ? "—"
@@ -519,7 +522,7 @@
           }</button>`,
         ];
       });
-      return `<section class="em-panel em-companies" aria-label="${esc(t("Subsidiaries"))}">${table(["Subsidiary", "Verified approved expenditure", "Share within region", "Applications", "Needs review"], rows, "No records in this month", d.company_rows.length)}${d.unassigned ? `<div class="em-panel-footer">${button("review", "Review unassigned expenses")} <span class="em-warning">${d.unassigned}</span></div>` : ""}</section>`;
+      return `<section class="em-panel em-companies" aria-label="${esc(t("Subsidiaries"))}">${table(["Subsidiary", "Verified approved expenditure", "Share within region", "Applications", "Needs review"], rows, "No records in this month", d.company_rows.filter(row=>row.company!==GROUP_COMPANY).length)}${d.unassigned ? `<div class="em-panel-footer">${button("review", "Review unassigned expenses")} <span class="em-warning">${d.unassigned}</span></div>` : ""}</section>`;
     }
     analysis() {
       return (this.data.regions || []).map((region) => {
@@ -546,7 +549,7 @@
         return [
           `<button class="em-link" data-action="budget-company" data-company="${esc(
             row.company
-          )}">${esc(row.company)}</button>`,
+          )}">${esc(companyLabel(row))}</button>`,
           c.budget == null
             ? `<span class="em-muted">${esc(
                 t(
@@ -572,7 +575,7 @@
         `<button class="em-link" data-action="detail" data-key="${esc(
           row.key
         )}">${esc(row.number)}</button>`,
-        esc(row.company || t("Company not matched")),
+        esc(companyLabel(row)),
         esc(row.application_date || "—"),
         esc(t(STATUS[row.status] || "Unknown")),
         esc(sourceLabels(row).join(" / ") || t("Category not provided")),
@@ -607,7 +610,7 @@
         if (!this.current() || token !== this.detailSeq) return;
         const path = sourceLabels(row);
         body.innerHTML = `<div class="em-detail">${money(row.amounts, row.display_currency)}<dl><dt>${esc(t("Subsidiary"))}</dt><dd>${esc(
-          row.company || t("Company not matched")
+          companyLabel(row)
         )}</dd><dt>${esc(t("Approval number"))}</dt><dd>${esc(
           row.number
         )}</dd><dt>${esc(t("Application date"))}</dt><dd>${esc(
@@ -652,10 +655,11 @@
         comparison = this.data?.comparison;
       const lines = [
         "Amounts follow the subsidiary country: China in CNY, Mexico in MXN. Regional totals are kept separate.",
+        "Expenses without a source name are reported under Group in CNY. Group is a reporting scope, not a Company record; original currencies are retained.",
         "Shares and comparisons are calculated within each region. Companies without a supported country are not included in regional totals.",
         "Approved expenses by application month; approval does not confirm payment.",
         "MX forms without an application date field use the OA submission date. Invalid or conflicting dates still require review.",
-        "Only verified company allocations and amounts enter approved expenditure. Unassigned or undated expenses remain in Data Review.",
+        "Only verified subsidiary or Group allocations and amounts enter approved expenditure. Invalid or undated expenses remain in Data Review.",
         "OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.",
         "CNY and MXN are converted independently from original amounts using the application month-start rate.",
         "Missing exchange rates are shown as unavailable; no partial currency total is presented.",

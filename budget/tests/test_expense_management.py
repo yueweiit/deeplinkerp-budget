@@ -22,6 +22,35 @@ def line(key="one", **values):
 	return s.normalize({**row, **values})
 
 
+def test_group_reporting_does_not_replace_known_companies_budgets_or_invalid_amounts():
+	group = line(company="", entity="", issues=["organization", "company"])
+	assert group["is_group_expense"] == 1 and group["eligible"] and group["company"] == ""
+	assert "organization" not in group["issues"]
+	assert not line(company="", entity="Named source")["is_group_expense"]
+	assert not line(company="A", entity="", is_group_expense=1)["is_group_expense"]
+	assert not line(company="", entity="", scope_company="A", is_group_expense=1)["is_group_expense"]
+	assert not line(company="", entity="", kind="budget", is_group_expense=1)["is_group_expense"]
+	assert not line(company="", entity="", regional_allocation="record")["is_group_expense"]
+	for changes in ({"amount": None}, {"month": None}, {"issues": ["amount"]},
+		{"original_issues": ["structure"]}):
+		assert not line(company="", entity="", **changes)["eligible"]
+
+
+@pytest.mark.parametrize("manager", [False, True])
+def test_group_option_is_virtual_and_uses_the_existing_manager_permission(monkeypatch, manager):
+	from types import SimpleNamespace
+	from budget.api import expenses as api
+	monkeypatch.setattr(api.service.approvals, "require_reader", lambda: None)
+	monkeypatch.setattr(api.service.approvals, "allowed_companies", lambda: {"A", "B"})
+	monkeypatch.setattr(frappe, "session", SimpleNamespace(user="reader"))
+	monkeypatch.setattr(frappe, "get_roles", lambda: ["System Manager"] if manager else ["Accounts Manager"])
+	def company_list(doctype, **kwargs):
+		assert doctype == "Company" and kwargs["filters"] == {"is_group": 0, "country": "Mexico"}
+		return ["B"]
+	monkeypatch.setattr(frappe, "get_list", company_list)
+	assert api.get_options()["companies"] == ["A", "B"] + ([s.regions.GROUP_COMPANY] if manager else [])
+
+
 def rate(currency, day):
 	assert day.endswith("-01")
 	return {"CNY": Decimal(1), "MXN": Decimal("0.4"), "USD": Decimal("7")}[currency]

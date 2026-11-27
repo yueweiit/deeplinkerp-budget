@@ -58,7 +58,9 @@ def inspect_sync_template(template, business_timezone, template_defaults=None, p
 @frappe.whitelist()
 def get_options():
 	service.approvals.require_reader()
-	return {"companies": sorted(service.approvals.allowed_companies()),
+	context = {"companies": service.approvals.allowed_companies(),
+		"manager": frappe.session.user == "Administrator" or "System Manager" in frappe.get_roles()}
+	return {"companies": service.regions.company_options(context),
 		"mx_companies": frappe.get_list("Company", filters={"is_group": 0, "country": "Mexico"}, pluck="name", limit_page_length=0),
 		"categories": service.management.rules_service.CATEGORIES, "issues": service.ISSUES}
 
@@ -101,20 +103,22 @@ def export_data(filters=None):
 	issues = service.ISSUES
 	statuses = dict(zip(service.approvals.STATUSES, ("Approved", "In progress", "Rejected", "Terminated", "Withdrawn", "Unknown")))
 	data = [[_("Expense Management")], [_("Reporting month"), f["month"]],
-		[_("Subsidiary"), f["company"] or _("All Subsidiaries")],
+		[_("Subsidiary"), _("Group") if f["company"] == service.regions.GROUP_COMPANY else f["company"] or _("All Subsidiaries")],
 		[_("Region"), _(service.regions.REGIONS[f["region"]]["label"]) if f["region"] else _("All regions")],
 		[_("OA expense category"), source_filter_label(f, metadata)],
 		[_("Management category"), _(service.management.rules_service.CATEGORIES.get(f["category"], "Unclassified" if f["category"] else "All"))],
 		[_("Approved expenses by application month; approval does not confirm payment.")],
 		[_("CNY and MXN are converted independently from original amounts using the application month-start rate.")],
 		[_("Amounts follow the subsidiary country: China in CNY, Mexico in MXN. Regional totals are kept separate.")],
-		[_("Regional scope requires a supported company country. Missing exchange rates leave the regional total unavailable.")],
+		[_("Regional totals use the subsidiary country; Group is reported separately. Missing exchange rates leave the relevant total unavailable.")],
+		[_("Expenses without a source name are reported under Group in CNY. Group is a reporting scope, not a Company record; original currencies are retained.")],
 		[_("Snapshot complete"), _("Yes") if metadata["complete"] else _("No")], [], [_(label) for label in headers]]
 	for row in rows:
 		path = source_labels(row)
 		currency = row["display_currency"]
 		verified = row["eligible"] and row["status"] == "approved" and row["kind"] != "budget"
-		data.append([row["number"], row["company"] or _("Company not matched"), row["application_date"], row["month"],
+		data.append([row["number"], _("Group") if service.regions.company_key(row) == service.regions.GROUP_COMPANY
+			else row["company"] or _("Company not matched"), row["application_date"], row["month"],
 			_(statuses.get(row["status"], "Unknown")),
 			path[0] if path else _("Category not provided"), " / ".join(path[1:]),
 			row["line_label"] or row["description"], excel_amount(row["amount"]), row["currency"],
@@ -134,7 +138,8 @@ def export_budget(filters):
 	if not result["metadata"]["has_data"]:
 		frappe.throw(_("No local approval snapshot is available yet. Wait for synchronization before exporting."))
 	data = [[_("Budget Execution"), result["filters"]["month"]],
-		[_("Subsidiary"), result["filters"]["company"] or _("All Subsidiaries")],
+		[_("Subsidiary"), _("Group") if result["filters"]["company"] == service.regions.GROUP_COMPANY
+			else result["filters"]["company"] or _("All Subsidiaries")],
 		[_("Region"), _(service.regions.REGIONS[result["filters"]["region"]]["label"]) if result["filters"]["region"] else _("All regions")],
 		[_("OA expense category"), source_filter_label(result["filters"], result["metadata"])],
 		[_("Management category"), _(service.management.rules_service.CATEGORIES.get(result["filters"]["category"], "Unclassified" if result["filters"]["category"] else "All"))],
@@ -145,7 +150,8 @@ def export_budget(filters):
 	for row in result["budgets"]:
 		currency = row["display_currency"]
 		metrics = row["metrics"].get(currency, {})
-		data.append([row["company"], _(service.regions.REGIONS[row["region"]]["label"]) if row["region"] else _("Region not configured"), currency]
+		data.append([_("Group") if row["company"] == service.regions.GROUP_COMPANY else row["company"],
+			_(service.regions.REGIONS[row["region"]]["label"]) if row["region"] else _("Region not configured"), currency]
 			+ [excel_amount(metrics.get(key)) for key in ("budget", "approved", "balance")]
 			+ [metrics.get("execution_rate")])
 	return workbook(data, f"expense-budget-{result['filters']['month']}.xlsx")

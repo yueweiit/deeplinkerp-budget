@@ -58,7 +58,7 @@ test("nameless source groups cannot partially apply a batch assignment", () => {
     const rows = [row("Existing")], before = structuredClone(rows), model = new Model(rows, saved);
     const valid = candidate("Unmapped"), missing = candidate(name, {count: 1370});
     for (const item of [valid, missing]) model.candidates.set(key(item), item);
-    assert.throws(() => model.assign([key(rows[0]), key(valid), key(missing)], "CN"), /no identifiable source name/);
+    assert.throws(() => model.assign([key(rows[0]), key(valid), key(missing)], "CN"), /reported under Group automatically/);
     assert.deepEqual(rows, before);
     assert.throws(() => model.put({...missing, company: "CN"}), /source information/);
     assert.deepEqual(rows, before);
@@ -73,20 +73,21 @@ test("select all skips nameless groups while preserving their counts and other d
   view.change({target: {dataset: {mappingRole: "all"}, checked: true}});
   assert.deepEqual([...view.selected], [key(valid)]);
   assert.equal(view.element.querySelector('[data-mapping-role="all"]').indeterminate, false);
-  const item = view.visible.find(item => item.key === key(missing));
-  const html = view.rowHTML(item, view.visible.indexOf(item), "");
-  assert.match(html, /Source name missing/);
+  const item = view.model.items().find(item => item.key === key(missing));
+  const html = view.rowHTML(item, 0, "");
+  assert.match(html, /Assigned to Group automatically/);
+  assert.doesNotMatch(html, /Source name missing|data-mapping-action="remove"/);
   assert.match(html, /1370 expense lines/);
   assert.match(html, /data-mapping-role="row"[^>]*disabled/);
   assert.doesNotMatch(html, /data-mapping-role="row-company"|data-mapping-action="suggest"/);
   view.model.assign(view.selected, "CN");
   assert.equal(rows.length, 2);
   assert.equal(rows.find(item => item.source_name === "Unmapped").company, "CN");
-  assert.equal(view.model.items().find(item => item.key === key(missing)).mapped, false);
+  assert.equal(view.model.items().find(item => item.key === key(missing)).mapped, true);
   assert.equal(view.model.items().find(item => item.key === key(missing)).dirty, false);
 });
 
-test("details for a nameless group explain the repair without opening a mapping editor", () => {
+test("details for an automatic Group source explain reporting without opening a mapping editor", () => {
   const rows = [row("Existing")], before = structuredClone(rows), view = controller(rows);
   const missing = candidate("", {count: 1370});
   view.model.candidates.set(key(missing), missing);
@@ -95,11 +96,83 @@ test("details for a nameless group explain the repair without opening a mapping 
   try {
     global.frappe.msgprint = value => { message = value; };
     view.edit(view.model.items().find(item => item.key === key(missing)));
-    assert.equal(message.title, "Source name missing");
-    assert.match(message.message, /entity or department field mapping/);
+    assert.equal(message.title, "Group");
+    assert.match(message.message, /reported under Group automatically/);
     assert.equal(view.editor, undefined);
     assert.deepEqual(rows, before);
   } finally { global.frappe.msgprint = original; }
+});
+
+test("missing source counts merge null, empty and whitespace groups without merging source domains", async () => {
+  const view = controller([], async (_method, {kind}) => ({rows: kind === "entities" ? [
+    candidate(null, {count: 1370}), candidate("", {count: "10"}), candidate("   ", {count: 5}),
+    candidate(null, {match_kind: "department", count: 7}),
+  ] : [candidate(null, {corp_id: "corp-a", count: 8}), candidate("", {corp_id: "corp-b", count: 9})], has_more: false}));
+  await view.load();
+  assert.equal(view.model.items().length, 4);
+  for (const [source, count] of [
+    [candidate(""), 1385], [candidate("", {match_kind: "department"}), 7],
+    [candidate("", {match_kind: "organization", corp_id: "corp-a"}), 8],
+    [candidate("", {match_kind: "organization", corp_id: "corp-b"}), 9],
+  ]) assert.equal(view.model.candidates.get(key(source)).count, count);
+  view.tab = "mapped"; view.render();
+  assert.match(view.element.querySelector('[data-mapping-part="results"]').innerHTML, /1385 expense lines/);
+  assert.equal(view.model.rows.length, 0);
+});
+
+test("Group mappings are searchable and filterable without entering the saved Company mappings", async () => {
+  const rows=[row("Saved")],before=structuredClone(rows);
+  const view=controller(rows,async(_method,{kind})=>({rows:kind==='entities'?[candidate('',{count:1380})]:[],has_more:false}));
+  await view.load();
+  assert.equal(view.filtered().length,0);
+  view.tab='mapped';view.query='Group';view.render();
+  assert.equal(view.visible.length,1);
+  assert.equal(view.visible[0].group,true);
+  view.query='';view.company='__expense_group__';view.render();
+  assert.equal(view.visible.length,1);
+  assert.equal(view.element.querySelector('[data-mapping-role="all"]').indeterminate,false);
+  assert.deepEqual(rows,before);
+});
+
+test("overlapping candidate pages count each raw empty group once and retain staged assignments", async () => {
+  const rows = [row("Existing")];
+  const view = controller(rows, async (_method, {kind, start}) => ({rows: kind !== "entities" ? [] : start === 0
+    ? [candidate(null, {count: 1370}), candidate("Pending")]
+    : [candidate(null, {count: start === 50 ? 1370 : 1372}), candidate("", {count: 10}), candidate("", {count: 10})],
+    has_more: kind === "entities" && start < 100}));
+  await view.load();
+  view.model.assign([key(rows[0])], "CN");
+  view.model.assign([key(candidate("Pending"))], "MX 2");
+  const staged = structuredClone(rows);
+  await view.load();
+  assert.equal(view.model.candidates.get(key(candidate(""))).count, 1380);
+  await view.load();
+  assert.equal(view.model.candidates.get(key(candidate(""))).count, 1382);
+  assert.equal(view.model.candidates.size, 2);
+  assert.equal(view.streams.entities.done, true);
+  assert.deepEqual(rows, staged);
+});
+
+test("source refresh replaces empty-group counts and failed refresh retains the last loaded counts", async () => {
+  let cycle = "initial";
+  const rows = [row("Existing")];
+  const view = controller(rows, async (_method, {kind}) => {
+    if (kind === "entities" && cycle === "failed") throw Error("offline");
+    return {rows: kind !== "entities" ? [] : cycle === "initial"
+      ? [candidate(null, {count: 1370}), candidate("", {count: 10})]
+      : [candidate(null, {count: 20})], has_more: false};
+  });
+  view.model.assign([key(rows[0])], "CN");
+  const staged = structuredClone(rows);
+  await view.load();
+  assert.equal(view.model.candidates.get(key(candidate(""))).count, 1380);
+  cycle = "failed"; await view.load(true);
+  assert.equal(view.model.candidates.get(key(candidate(""))).count, 1380);
+  assert.equal(view.streams.entities.error, true);
+  cycle = "updated"; await view.load(true);
+  assert.equal(view.model.candidates.get(key(candidate(""))).count, 20);
+  assert.equal(view.streams.entities.error, false);
+  assert.deepEqual(rows, staged);
 });
 
 test("all mapping kinds allow authorized Chinese companies in inline and batch controls", () => {

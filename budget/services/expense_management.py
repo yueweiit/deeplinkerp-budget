@@ -32,7 +32,7 @@ ISSUES.pop("management_category", None)
 VIEWS = {"overview", "analysis", "budget", "details", "review"}
 PUBLIC = ("key", "company", "number", "application_date", "month", "kind", "status",
 	"management_category", "source_path", "source_category_key", "description", "line_label", "amount", "currency", "issues",
-	"amounts", "rates", "rate_date", "eligible", "budget_state", "date_basis")
+	"amounts", "rates", "rate_date", "eligible", "budget_state", "date_basis", "is_group_expense")
 
 
 def filters(values=None):
@@ -65,7 +65,7 @@ def load():
 	context = approvals.access_context()
 	snapshot, rules = read_snapshot(), settings.management_rules()
 	identities, allocated = regional.management_projection(context, include_legacy=False,
-		submission_fallback=True, management_rules=rules)
+		submission_fallback=True, management_rules=rules, group_unassigned=True)
 	legacy_ids = automatic.legacy_manual_identities()
 	native = [row for row in snapshot["rows"] if row["kind"] == "budget"
 		or (row["corp_id"], row["process_instance_id"]) not in identities | legacy_ids]
@@ -102,13 +102,15 @@ def legacy_projection(legacy_ids, context, rules, templates=()):
 	source_names = sorted(regional.digest([corp, instance]) for corp, instance in legacy_ids)
 	lines = mx._get_management_lines(filters={"is_active": 1, "source": ["in", source_names]},
 		fields=["name", "source", "source_version", "company", "regional_company", "approval_no", "approval_status",
-			"amount", "currency", "description", "approval_type", "review_state", "issues", "classification_path"],
+			"amount", "currency", "description", "approval_type", "review_state", "issues", "classification_path", "source_entity", "company_basis"],
 		limit_page_length=50001)
 	if len(lines) > 50000:
 		frappe.throw(_("Expense analysis exceeds 50000 detail lines. Narrow the configured scope."))
-	# Only explicit authorized companies are reportable. Unassigned legacy
-	# exceptions remain in the existing MX review workbench.
-	lines = [line for line in lines if line.company in context["companies"]
+	# Keep authorized companies and manager-visible unnamed Group expenses.
+	# Named unassigned legacy exceptions remain in the MX review workbench.
+	lines = [line for line in lines if (line.company in context["companies"] or context.get("manager")
+		and not line.company and not str(getattr(line, "source_entity", "") or "").strip()
+		and not line.regional_company and getattr(line, "company_basis", "") != "manual")
 		and (not line.regional_company or line.regional_company in context["companies"])]
 	if not lines:
 		return []
@@ -137,6 +139,8 @@ def legacy_projection(legacy_ids, context, rules, templates=()):
 			issues.add("management_category")
 		output.append({"key": line.name, "source_key": line.source, "company": line.company,
 			"is_legacy": True,
+			"is_group_expense": int(not line.company and not str(getattr(line, "source_entity", "") or "").strip()
+				and not line.regional_company and getattr(line, "company_basis", "") != "manual"),
 			"scope_company": line.regional_company or "",
 			"number": line.approval_no, "application_date": applied, "month": applied[:7] if applied else None,
 			"date_basis": date_basis,
@@ -157,6 +161,14 @@ def normalize(row):
 	# projections and all amount/company/date validation unchanged.
 	row = {**row, "issues": sorted(set(row.get("issues") or []) - {"management_category"}),
 		"date_basis": row.get("date_basis") or ("budget" if row.get("kind") == "budget" else "application")}
+	# Group is a reporting scope. Keep the original empty Company identity so
+	# source permissions and on-demand original-approval checks remain intact.
+	group = not row.get("company") and not row.get("scope_company") and row.get("kind") != "budget" and (
+		row.get("is_group_expense") or "entity" in row and not str(row.get("entity") or "").strip()
+		and not row.get("regional_allocation") and not row.get("is_legacy"))
+	row["is_group_expense"] = int(bool(group))
+	if group:
+		row["issues"] = sorted(set(row["issues"]) - {"organization", "company"})
 	path = normalized_source_path(row)
 	row["source_path"] = path
 	row["source_category_key"] = hashlib.sha256(json.dumps([row.get("kind"), path], ensure_ascii=False).encode()).hexdigest() if path else "missing"
@@ -164,11 +176,11 @@ def normalize(row):
 	# in the MX reconciliation API. The explicit application date is required.
 	original = set(row.get("original_issues") or []) & (BLOCKING - {"period", "allocation", "organization"})
 	row["issues"] = sorted(set(row["issues"]) | original)
-	if not row.get("company"):
+	if not row.get("company") and not group:
 		row["issues"] = sorted(set(row["issues"]) | {"organization"})
 	if not row.get("month"):
 		row["issues"] = sorted(set(row["issues"]) | {"period"})
-	row["eligible"] = bool(row.get("company") and row.get("month")
+	row["eligible"] = bool((row.get("company") or group) and row.get("month")
 		and row.get("amount") is not None and not BLOCKING.intersection(row["issues"]))
 	return row
 
@@ -178,7 +190,7 @@ def source_category_options(rows, f):
 	# filtering, so choosing one option does not hide the other options.
 	options = {}
 	for row in rows:
-		if f["company"] and row.get("company") != f["company"]:
+		if f["company"] and regions.company_key(row) != f["company"]:
 			continue
 		if row.get("month") != f["month"] and not (f["view"] == "review" and not row.get("month")):
 			continue
@@ -250,7 +262,7 @@ def summarize(rows, *, review_currency=None):
 def budget_metrics(rows, threshold, *, category_scope="", source_scope=""):
 	result = {}
 	for currency in CURRENCIES:
-		projected = [{**row, "converted_amount": row["amounts"][currency]} for row in rows]
+		projected = [{**row, "company": regions.company_key(row), "converted_amount": row["amounts"][currency]} for row in rows]
 		result[currency] = management.metrics(projected, threshold)
 		if category_scope == "unclassified" or source_scope:
 			management.unclassified_comparison(result[currency])
@@ -258,7 +270,7 @@ def budget_metrics(rows, threshold, *, category_scope="", source_scope=""):
 
 
 def scope(rows, f):
-	return [row for row in rows if (not f["company"] or row["company"] == f["company"])
+	return [row for row in rows if (not f["company"] or regions.company_key(row) == f["company"])
 		and (not f["category"] or (row.get("management_category") or "unclassified") == f["category"])
 		and (not f["source_category"] or row["source_category_key"] == f["source_category"])]
 
@@ -266,11 +278,11 @@ def scope(rows, f):
 def prepare(values=None):
 	f = filters(values)
 	rows, context, rules, metadata = load()
-	if f["company"] and f["company"] not in context["companies"]:
+	if f["company"] and not regions.allowed_company(f["company"], context):
 		frappe.throw(_("You do not have permission to view this subsidiary."), frappe.PermissionError)
-	mapping = regions.company_regions(context)
+	mapping = regions.reporting_regions(context)
 	if f["region"]:
-		rows = [row for row in rows if mapping.get(row["company"]) == f["region"]]
+		rows = [row for row in rows if mapping.get(regions.company_key(row)) == f["region"]]
 	metadata = {**metadata, "company_regions": mapping, "source_categories": source_category_options(rows, f)}
 	return scope(rows, f), context, rules, metadata, f
 
@@ -305,13 +317,13 @@ def query(values=None, start=0):
 	current = convert([row for row in rows if row.get("month") == f["month"]])
 	undated = [row for row in rows if not row.get("month")
 		and row["status"] in ("approved", "pending", "unknown")]
-	response = {"filters": f, "companies": sorted(context["companies"]),
+	response = {"filters": f, "companies": regions.company_options(context),
 		"categories": management.rules_service.CATEGORIES, "source_categories": metadata["source_categories"], "issues": ISSUES, "metadata": metadata,
 		"summary": summarize(current), "undated": len(undated)}
-	names = regions.company_names(metadata["company_regions"], f)
 	groups = defaultdict(list)
 	for row in current:
-		groups[row["company"]].append(row)
+		groups[regions.company_key(row)].append(row)
+	names = regions.company_names(metadata["company_regions"], f, groups)
 	companies = [{"company": name, **summarize(groups[name])} for name in names]
 	companies.sort(key=lambda item: (item["amounts"]["CNY"] is None, -Decimal(item["amounts"]["CNY"] or 0), item["company"]))
 	response["company_rows"] = companies
@@ -353,9 +365,9 @@ def query(values=None, start=0):
 		response.update(total=len(selected), start=start, has_more=start + 50 < len(selected),
 			rows=[public(row) for row in selected[start:start + 50]])
 	response["regions"] = []
-	for region in regions.descriptors(metadata["company_regions"], f):
+	for region in regions.descriptors({name: metadata["company_regions"][name] for name in names}, f):
 		owned = set(region.pop("companies"))
-		selected = [row for row in current if row["company"] in owned]
+		selected = [row for row in current if regions.company_key(row) in owned]
 		region["summary"] = summarize(selected)
 		if f["view"] in ("overview", "analysis"):
 			grouped = defaultdict(list)
@@ -365,10 +377,10 @@ def query(values=None, start=0):
 			region["source_category_rows"] = [{"category": key, "kind": group[0]["kind"],
 				"source_path": group[0]["source_path"], **summarize(group)} for key, group in grouped.items()]
 			region["source_category_rows"].sort(key=lambda row: -Decimal(row["amounts"][region["currency"]] or 0))
-			selected_history = [row for row in history if row["company"] in owned]
+			selected_history = [row for row in history if regions.company_key(row) in owned]
 			region["trend"] = [{"month": month, **summarize(row for row in selected_history if row["month"] == month)} for month in months]
 			region["comparison"] = comparison(selected_history, f, metadata,
-				any(row["company"] in owned for row in undated), currency=region["currency"])
+				any(regions.company_key(row) in owned for row in undated), currency=region["currency"])
 		response["regions"].append(region)
 	return regions.annotate_response(response, metadata["company_regions"])
 
