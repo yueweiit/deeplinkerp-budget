@@ -630,15 +630,15 @@ def _matching_entry(book, source, row, claimed):
 
 def _legacy_import_issue(row):
 	return {"row": row["source_row"], "field": "summary",
-		"message": f"原表第 {row['source_row']} 行与旧版导入回执相符；请核对已有流水，需替换时选择按日期覆盖。"}
+		"message": f"原表第 {row['source_row']} 行与旧版导入回执相符，请核对已有流水，需替换时选择按日期覆盖。"}
 
 def legacy_import_issues(book, rows):
-	keys = list(dict.fromkeys(row["_legacy_source_key"] for row in rows if row.get("_legacy_source_key")))
+	keys = list({key for row in rows for key in row.get("_legacy_source_keys", ())})
 	existing = set()
 	for offset in range(0, len(keys), 500):
 		existing.update(frappe.get_all(ORIGIN, filters={"book": book.name, "source": "Import",
 			"source_key": ["in", keys[offset:offset + 500]]}, pluck="source_key", limit_page_length=0))
-	return [_legacy_import_issue(row) for row in rows if row.get("_legacy_source_key") in existing]
+	return [_legacy_import_issue(row) for row in rows if existing.intersection(row.get("_legacy_source_keys", ()))]
 
 
 def _source_record(book, source, key):
@@ -851,10 +851,11 @@ def apply_batch(
 			if len(row["bank_ref"]) > 140:
 				frappe.throw("银行流水号过长。")
 			origin_id, receipt = _source_record(doc, source, key)
-			if not receipt and not replace_range and source == "Import" and raw.get("_legacy_source_key"):
-				_, old_receipt = _source_record(doc, source, raw["_legacy_source_key"])
-				if old_receipt:
-					frappe.throw(_legacy_import_issue(raw)["message"])
+			if not receipt and not replace_range and source == "Import":
+				for previous in raw.get("_legacy_source_keys", ()):
+					_, old_receipt = _source_record(doc, source, previous)
+					if old_receipt:
+						frappe.throw(_legacy_import_issue(raw)["message"])
 			fingerprint = batch_digest(row)
 			review = raw.get("file_review") if source == "Import" else None
 			if source == "Import" and raw.get("balance") not in (None, "") and (

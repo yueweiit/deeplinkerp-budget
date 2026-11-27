@@ -604,3 +604,38 @@ def test_duplicate_source_balance_cannot_hide_a_change_on_an_amountless_row():
 			journal.parse_statement(raw, "bank.csv", mapping, excluded_rows=[3])
 	fixed = raw.replace(b",8,19", b",8,8")
 	assert not journal.parse_statement(fixed, "bank.csv", {"date": 0, "expense": 1, "balance": 2}, excluded_rows=[3])["errors"]
+
+
+@pytest.mark.parametrize("header", ["USD ABONOS", "ABONOS usd", "uSd/ABONOS", "(usd) ABONOS", "ABONOS [uSd]", "（USD）收入"])
+def test_currency_qualifier_position_case_and_brackets_do_not_change_account_checks(header):
+	raw = csv_bytes([["日期", header, "CARGOS"], ["20261101", "4.00", ""]])
+	match = journal.parse_statement(raw, "bank.csv", currency="USD")
+	assert not match["errors"] and match["suggested_currency"] == "USD" and match["rows"][0]["income"] == "4.00"
+	conflict = journal.parse_statement(raw, "bank.csv", {"date": 0, "income": 1}, currency="MXN")
+	assert any(e["field"] == "currency" for e in conflict["errors"])
+
+
+def test_explicit_account_numbers_and_row_numbers_are_not_additional_amounts():
+	raw = csv_bytes([["日期", "支出", "对方账号", "账号", "行序号", "Counterparty Account Number", "Row No."],
+		["20261101", "3.25", "0012345", "0056789", "1", "00011", "01"]])
+	result = journal.parse_statement(raw, "example.csv", currency="MXN")
+	assert not result["errors"] and result["rows"][0]["expense"] == "3.25"
+	for label in ("交易数量", "交易行数", "原账号金额", "其他数字", "Deposit"):
+		result = journal.parse_statement(raw.replace("对方账号".encode(), label.encode()), "example.csv", currency="MXN")
+		assert result["errors"] and not result["rows"]
+
+
+@pytest.mark.parametrize("early", [
+	[["日期", "到账资金"], ["20261101", "1000"]],
+	[["日", "到账资金", "月", "年"], ["1", "1000", "11", "2026"]],
+])
+def test_later_header_cannot_skip_dated_money_under_an_unrecognized_prior_amount_header(early):
+	raw = csv_bytes([*early, ["Deposit", "description", "Date"], ["2", "later", "20261102"]])
+	mapping = {"income": 0, "summary": 1, "date": 2}
+	with pytest.raises(journal.StatementError, match="表头前"):
+		journal.parse_statement(raw, "example.csv", mapping, header_row=3)
+	# A report date alone is normal bank metadata above the header.
+	preamble = csv_bytes([["日期", "对方账号"], ["20261101", "0000187"],
+		["Deposit", "description", "Date"], ["2", "later", "20261102"]])
+	safe = journal.parse_statement(preamble, "example.csv", mapping, header_row=3)
+	assert not safe["errors"] and len(safe["rows"]) == 1

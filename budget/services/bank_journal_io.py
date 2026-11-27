@@ -150,6 +150,17 @@ ALIASES = {
 }
 MONEY = re.compile(r"[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\Z", re.ASCII)
 LEDGER_MARKER = "DeepLinkERP/bank-journal/ledger-balance/v1:"
+# Explicit identifiers commonly included beside posting amounts. Use whole
+# header labels so quantity, invoice amount and other numeric fields still need review.
+ACCOUNT_AND_ROW_LABELS = {
+	"账号", "帐号", "银行账号", "银行帐号", "本方账号", "本方帐号", "本方银行账号", "账户号码",
+	"对方账号", "对方帐号", "对方银行账号", "对手账号", "交易对手账号", "收款账号", "付款账号",
+	"行号", "行序号", "序号", "明细序号", "行编号", "行次",
+	"accountnumber", "accountno", "accountno.", "bankaccountnumber", "counterpartyaccount",
+	"counterpartyaccountnumber", "counterpartyaccountno", "counterpartyaccountno.",
+	"rowno", "rowno.", "rownumber", "linenumber", "lineno", "lineno.",
+	"númerodecuenta", "numerodecuenta", "númerodefila", "numerodefila",
+}
 CURRENCY_NAMES = {
 	"人民币": "CNY", "人民币元": "CNY", "RMB": "CNY", "156": "CNY",
 	"美元": "USD", "美金": "USD", "US$": "USD", "840": "USD",
@@ -397,13 +408,40 @@ def _normal(value):
 
 
 def _qualified_header(part):
-	match = re.fullmatch(r"(.+?)(?:\s*[（(\[]\s*([^()（）\[\]]+?)\s*[）)\]]|[\s/]+([A-Z]{3}))", part.strip())
-	if match:
+	token = r"(?:[（(\[]\s*([^()（）\[\]]+?)\s*[）)\]]\s*|([A-Za-z]{3})[\s/]+)"
+	suffix = re.fullmatch(r"(.+?)(?:\s*[（(\[]\s*([^()（）\[\]]+?)\s*[）)\]]|[\s/]+([A-Za-z]{3}))", part.strip())
+	prefix = re.fullmatch(token + r"(.+)", part.strip())
+	choices = []
+	if suffix:
+		choices.append((suffix[1], suffix[2] or suffix[3]))
+	if prefix:
+		choices.append((prefix[3], prefix[1] or prefix[2]))
+	for label, currency in choices:
 		try:
-			return match[1], _currency_token(match[2] or match[3])
+			code = _currency_token(currency)
 		except StatementError:
-			pass
+			continue
+		# A banking word such as "net" can also be three letters.
+		if code != currency.strip().upper() or code in AMBIGUOUS_SYMBOLS or code in _header_currency_codes():
+			return label, code
 	return part, None
+
+
+@lru_cache(maxsize=1)
+def _header_currency_codes():
+	# Babel is part of Frappe. The standalone reader can also run without it.
+	try:
+		from babel.numbers import list_currencies
+	except ImportError:
+		return DOLLAR_CURRENCIES | set(CURRENCY_NAMES.values()) | set(
+			"AED AFN ALL AMD AOA AWG AZN BAM BBD BDT BGN BHD BIF BOB BRL BTN BWP BYN CDF CHF CLF CLP "
+			"CRC CVE CZK DJF DKK DZD EGP ERN ETB FKP GEL GHS GIP GMD GNF GTQ HNL HTG HUF IDR ILS "
+			"INR IQD IRR ISK JOD KES KGS KHR KMF KPW KRW KWD KZT LAK LBP LKR LSL LYD MAD MDL MGA "
+			"MKD MMK MNT MOP MRU MUR MVR MWK MYR MZN NGN NIO NOK NPR OMR PAB PEN PGK PHP PKR PLN "
+			"PYG QAR RON RSD RUB RWF SAR SCR SDG SEK SHP SLE SOS SSP STN SYP SZL THB TJS TMT TND TOP "
+			"TRY TZS UAH UGX UZS VES VND VUV WST XAF XCG XOF XPF YER ZAR ZMW ZWG".split()
+		)
+	return list_currencies()
 
 
 def _header_terms(value):
@@ -638,28 +676,41 @@ def _order_and_validate(result, supplied_opening):
 # In earlier CNY import receipts these columns determined the bank-movement key.
 # Reconstruct the historical key to recognize those receipts without changing them.
 def _legacy_columns(header, cols):
-	aliases = (
-		("摘要", "交易摘要", "业务摘要", "交易说明", "交易用途", "用途", "附言", "备注", "description", "memo"),
-		("余额", "账户余额", "交易余额", "账面余额", "本次余额", "balance"),
-	)
-	names = [re.sub(r"[\s_()（）]", "", str(cell or "")).lower() for cell in header]
-	indices = []
-	for choices in aliases:
-		matches = [i for i, name in enumerate(names) if name in choices]
-		indices.append(matches[0] if len(matches) == 1 else None)
-	current = [cols.get("summary", cols.get("remark")), cols.get("balance")]
-	return indices if indices != current else None
+	names = [_normal(cell) for cell in header]
+	summary = {"摘要", "交易摘要", "业务摘要", "交易说明", "交易用途", "用途", "附言", "备注", "description", "memo"}
+	balance = {"余额", "账户余额", "交易余额", "账面余额", "本次余额", "balance"}
+	choices = [[i for i, name in enumerate(names) if name in labels]
+		for labels in (summary, balance, ALIASES["bank_ref"])]
+	old_summary, old_balance, old_ref = (picks[0] if len(picks) == 1 else None for picks in choices)
+	current = (cols.get("summary", cols.get("remark")), cols.get("balance"), cols.get("bank_ref"))
+	if current == (old_summary, old_balance, old_ref) and len(choices[0]) <= 1:
+		return ()
+	# v1 accepted a manual choice between the summary and note columns.
+	# Keep each interpretation separate so repeated equal movements retain their exact occurrence number.
+	memos = dict.fromkeys([old_summary, current[0], cols.get("remark")])
+	balances = dict.fromkeys([old_balance, current[1]])
+	return [(memo, bal, old_ref) for memo in memos for bal in balances]
 
 
-def _legacy_key(raw, source, columns, occurrences):
-	summary, balance = columns
-	try:
-		old_balance = _money(_at(raw, balance), "balance", currency="CNY")
-	except StatementError:
-		return None
-	identity = (source["date"], source["income"], source["expense"], old_balance, _str(_at(raw, summary)).strip())
-	occurrences[identity] += 1
-	return _record_key("bank-movement", *identity, occurrences[identity])
+def _legacy_keys(raw, source, columns, occurrences):
+	keys = set()
+	for layout in columns:
+		summary, balance, ref = layout
+		try:
+			identifier = _bank_reference(_at(raw, ref))
+		except StatementError:
+			continue  # The legacy mapping could not have produced a receipt.
+		if identifier:
+			keys.add(_record_key("bank-reference", identifier))
+			continue
+		try:
+			old_balance = _money(_at(raw, balance), "balance", currency="CNY")
+		except StatementError:
+			continue
+		identity = (source["date"], source["income"], source["expense"], old_balance, _str(_at(raw, summary)).strip())
+		occurrences[layout, identity] += 1
+		keys.add(_record_key("bank-movement", *identity, occurrences[layout, identity]))
+	return keys
 
 
 def _append_row(result, row, row_number, occurrences, seen_ids, *, source=None, repaired_key=None):
@@ -829,7 +880,7 @@ def _source_columns(header, mapping):
 
 	amounts = indices("income", "expense", "amount")
 	movement_keys = ("income", "expense", "amount")
-	safe_names = {name for key, aliases in ALIASES.items() if key not in movement_keys for name in aliases}
+	safe_names = ACCOUNT_AND_ROW_LABELS | {name for key, aliases in ALIASES.items() if key not in movement_keys for name in aliases}
 	explained = {i for i, labels in enumerate(terms) if labels & safe_names}
 	explained.update(mapping[k] for k in ("date", *DATE_PARTS, *movement_keys) if k in mapping)
 	# A model can recognize a nonstandard balance/reference header. Retain its
@@ -1018,17 +1069,34 @@ def _exclusions(values):
 
 
 def _check_prior_rows(sheet, first, header_index, cols):
-	layouts = [cols]
+	def has_date(row, layout):
+		try:
+			_date(_file_date(lambda k: _at(row, layout.get(k)), layout))
+			return True
+		except StatementError:
+			return False
+
+	layouts = []
+	future_amounts = {cols[k] for k in ("income", "expense", "amount") if k in cols}
+	message = "所选表头前已有疑似流水，请核对表头行或按表拆分"
 	for row in sheet[first:header_index]:
-		for layout in layouts:
-			try:
-				_date(_file_date(lambda k: _at(row, layout.get(k)), layout))
-			except StatementError:
+		matched = False
+		for layout, nonfinancial in layouts:
+			if not has_date(row, layout):
 				continue
-			raise StatementError("所选表头前已有疑似流水，请核对表头行或按表拆分", "date")
+			matched = True
+			if nonfinancial is None or any(
+				i not in nonfinancial and not _blank(cell) and _possible_money(cell) for i, cell in enumerate(row)
+			):
+				raise StatementError(message, "date")
+		if not matched and has_date(row, cols) and any(_possible_money(_at(row, i)) for i in future_amounts):
+			raise StatementError(message, "date")
 		prior = _suggest(row)
-		if _usable(prior):
-			layouts.append(prior)
+		if "date" in prior or all(part in prior for part in DATE_PARTS):
+			# Even an unrecognized amount heading cannot hide a dated numeric
+			# transaction. A standalone report date or an account number can be metadata.
+			nonfinancial = None if _usable(prior) else _source_columns(row, prior).explained
+			layouts.append((prior, nonfinancial))
 
 
 def _preferred_mapping(known, proposal):
@@ -1273,10 +1341,10 @@ def parse_statement(
 			else:
 				row, source, repaired_key = _reviewed_movement(raw, cols, original, currency, changes, i, file_hash)
 				_append_row(result, row, i, occurrences, seen_ids, source=source, repaired_key=repaired_key)
-				if legacy_cols and not row["bank_ref"] and not repaired_key:
-					previous_key = _legacy_key(raw, source or row, legacy_cols, legacy_counts)
-					if previous_key and previous_key != row["source_key"]:
-						row["_legacy_source_key"] = previous_key
+				if legacy_cols and not repaired_key:
+					keys = _legacy_keys(raw, source or row, legacy_cols, legacy_counts) - {row["source_key"]}
+					if keys:
+						row["_legacy_source_keys"] = sorted(keys)
 				if row["balance"] is not None:
 					previous_balance = row["balance"]
 				elif previous_balance is not None:

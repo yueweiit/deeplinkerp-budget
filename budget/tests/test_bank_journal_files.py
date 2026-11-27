@@ -511,12 +511,12 @@ def test_legacy_ambiguous_summary_receipt_blocks_duplicating_an_existing_import(
 	args = dict(book="book", filename="old.csv", content_base64=base64.b64encode(content.encode()).decode())
 	keys = [fmt._record_key("bank-movement", "2026-11-01", "100.00", None, None, "", n) for n in (1, 2)]
 	def existing(book_doc, rows):
-		assert [row["_legacy_source_key"] for row in rows] == keys
+		assert all(key in row["_legacy_source_keys"] for key, row in zip(keys, rows, strict=True))
 		return [{"row": 2, "field": "summary", "message": "原行已按旧版摘要或余额导入"}]
 	store.legacy_import_issues = Mock(side_effect=existing)
 	report = api.preview_import(**args)
 	assert not report["preview_id"] and report["errors"][0]["row"] == 2
-	assert "_legacy_source_key" not in report["rows"][0]
+	assert "_legacy_source_keys" not in report["rows"][0]
 	store.legacy_import_issues.return_value = []
 	store.legacy_import_issues.side_effect = None
 	ready = api.preview_import(**args)
@@ -530,3 +530,19 @@ def test_ledger_export_uses_site_marker_only_for_the_original_existing_book(book
 	assert api._marked_book(store.authorize_book.return_value, {}) is None
 	with pytest.raises(ValueError, match="其他账簿|对应的账簿"):
 		api._marked_book(store.authorize_book.return_value, {"ledger_book": api._ledger_marker("elsewhere")})
+
+
+@pytest.mark.parametrize(("content","prior_summary"), [
+	('日期,收入,"银行流水号\nBank reference",摘要\n2026-11-01,100,AB-950,客户入账', "客户入账"),
+	("日期,收入,摘要,备注\n2026-11-01,100,客户入账,订单123", "订单123"),
+])
+def test_reimport_checks_v1_reference_upgrade_and_manual_memo_mapping(book, content, prior_summary):
+	from budget.services import bank_journal_io as fmt
+	store, _ = book
+	previous = fmt._record_key("bank-movement", "2026-11-01", "100.00", None, None, prior_summary, 1)
+	def existing(_doc, rows):
+		assert previous in rows[0]["_legacy_source_keys"]
+		return [{"row": 2, "field": "summary", "message": "旧版来源已入账"}]
+	store.legacy_import_issues = Mock(side_effect=existing)
+	args = dict(book="book", filename="previous.csv", content_base64=base64.b64encode(content.encode()).decode())
+	assert not api.preview_import(**args)["preview_id"]

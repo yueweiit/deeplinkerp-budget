@@ -248,7 +248,7 @@ def _preview(parsed, version, token):
 		"error_count": len(parsed["errors"]),
 		"errors": parsed["errors"][:MAX_PREVIEW_ROWS],
 		"rows": [
-			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof", "file_review", "_legacy_source_key")}
+			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof", "file_review", "_legacy_source_keys")}
 			for row in rows[:MAX_PREVIEW_ROWS]
 		],
 		"income_total": format(sum((Decimal(r["income"] or 0) for r in rows), Decimal(0)), ".2f"),
@@ -294,7 +294,7 @@ def preview_import(
 		if ledger_book and not _store().ledger_export_matches(doc, parsed["rows"]):
 			parsed["errors"].append({"field": "balance", "row": parsed["rows"][0]["source_row"],
 				"message": "这份账面导出与当前流水有差异。请核对或选择按文件日期覆盖。"})
-		elif not ledger_book and any(row.get("_legacy_source_key") for row in parsed["rows"]):
+		elif not ledger_book and any(row.get("_legacy_source_keys") for row in parsed["rows"]):
 			parsed["errors"].extend(_store().legacy_import_issues(doc, parsed["rows"]))
 	book_issues, target = [], {}
 	if doc is None:
