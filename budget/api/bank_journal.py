@@ -34,6 +34,7 @@ ORIGIN = "CN Bank Journal Source"
 CORE = ("posting_date", "direction", "amount", "summary", "dingtalk_approval_number", "reference_number")
 ROW_FIELDS = ["name", *CORE, EXTRA, SEQ, VOID]
 MAX_BATCH = 10000
+REPLACE_RANGE = "Replace Range"
 
 
 def _json(x, default=None):
@@ -59,6 +60,13 @@ def authorize_book(book, permission="read", *, lock=False):
 	if doc.company not in allowed_companies():
 		frappe.throw("无此公司银行日记账的访问权限。", frappe.PermissionError)
 	return doc
+
+
+def authorize_replacement():
+	if is_import_user():
+		frappe.throw("流水导入专用账号没有覆盖账簿权限。", frappe.PermissionError)
+	for permission in ("create", "write", "delete"):
+		_doctype_permission(permission)
 
 
 @frappe.whitelist()
@@ -258,8 +266,12 @@ def get_month(book, month=None):
 	for row in result["rows"]:
 		row.pop("raw_cells", None)
 	result["undo_operation"] = None
-	if doc.last_operation and frappe.db.get_value(OP, doc.last_operation, "actor") == frappe.session.user:
-		result["undo_operation"] = doc.last_operation
+	if doc.last_operation:
+		last = frappe.db.get_value(OP, doc.last_operation, ["actor", "operation", "result_json"], as_dict=True)
+		if last and last.actor == frappe.session.user:
+			result["undo_operation"] = doc.last_operation
+			if last.operation == REPLACE_RANGE:
+				result["undo_range"] = _json(last.result_json)["impact"]
 	return result
 
 
@@ -560,6 +572,56 @@ def _register(book, source, key, name, entry, fingerprint):
 	).insert(ignore_permissions=True, set_name=name)
 
 
+def _range_entries(doc, start, end):
+	filters = {BOOK_FIELD: doc.name, VOID: 0, "posting_date": ["between", [start, end]]}
+	entries = frappe.get_list(ENTRY, filters=filters, fields=["name", "direction", "amount"],
+		order_by=f"posting_date asc, {SEQ} asc, name asc", limit_page_length=0)
+	if len(entries) != frappe.db.count(ENTRY, filters):
+		frappe.throw("没有该日期范围内全部流水的访问权限，无法覆盖。", frappe.PermissionError)
+	return entries
+
+
+def replacement_impact(doc, rows, opening):
+	"""Use reviewed transaction dates, including both ends and intervening empty file days."""
+	start = min(row["date"] for row in rows)
+	end = max(row["date"] for row in rows)
+	entries = _range_entries(doc, start, end)
+	prior = _prior(doc, as_date(start))
+	old = prior + sum(Decimal(str(r.amount)) * (1 if r.direction == "income" else -1) for r in entries)
+	running = prior
+	issues = []
+	if opening is not None and Decimal(opening) != prior:
+		issues.append({"row": rows[0]["source_row"], "field": "opening", "message": "文件期初余额与覆盖日前的账簿余额不符。"})
+	for row in rows:
+		running += Decimal(row["income"] or 0) - Decimal(row["expense"] or 0)
+		if row.get("balance") is not None and running != Decimal(row["balance"]):
+			issues.append({"row": row["source_row"], "field": "balance", "message": "文件余额与按覆盖日前余额重算的结果不符。"})
+	return dict(start=start, end=end, old_count=len(entries), new_count=len(rows),
+		opening=format(prior, ".2f"), old_closing=format(old, ".2f"), new_closing=format(running, ".2f"),
+		difference=format(running - old, ".2f")), entries, issues
+
+
+def _retire_entries(doc, entries, changes):
+	# Keep the original native rows, sequence and complete metadata for undo.
+	# Release only bank-file keys. A previously synchronized DingTalk payment
+	# retains its receipt so the next sync cannot recreate a retired expense.
+	for offset in range(0, len(entries), 500):
+		chunk = entries[offset:offset + 500]
+		names = [row.name for row in chunk]
+		filters = {"book": doc.name, "source": "Import", "entry": ["in", names]}
+		origins = frappe.get_all(ORIGIN, filters=filters, fields=["name", "source", "source_key", "entry", "digest"],
+			limit_page_length=0)
+		if origins:
+			changes.append({"detached_sources": origins})
+			frappe.db.delete(ORIGIN, filters)
+		for item in chunk:
+			entry = _authorized_entry(doc, item.name, "delete")
+			entry.check_permission("write")
+			changes.append({"entry": entry.name, "before": {VOID: 0}})
+			entry.set(VOID, 1)
+			entry.save()
+
+
 def _import_balances(book, checks):
 	if not checks:
 		return
@@ -602,6 +664,7 @@ def apply_batch(
 	template=None,
 	request_facts=None,
 	new_book=None,
+	replace_range=False,
 ):
 	source = _source(source)
 	if not isinstance(rows, list) or len(rows) > MAX_BATCH:
@@ -611,6 +674,12 @@ def apply_batch(
 	if opening is not None:
 		opening = money(opening)
 	payload = [rows, opening, str(opening_date or ""), template] if request_facts is None else request_facts
+	kind = source
+	if replace_range:
+		if source != "Import" or new_book is not None or not rows:
+			frappe.throw("请选择已有账簿和含有效流水的文件。")
+		authorize_replacement()
+		kind = REPLACE_RANGE
 	with _transaction(), managed():
 		replay_only = False
 		if new_book is not None:
@@ -620,7 +689,7 @@ def apply_batch(
 			replay_only = bool(existing)
 			if not existing:
 				_insert_book(new_book)
-		doc, ident, fp, done = _begin(book, "create", version, request_id, source, payload, replay_only=replay_only)
+		doc, ident, fp, done = _begin(book, "create", version, request_id, kind, payload, replay_only=replay_only)
 		if done:
 			return done
 		changes, checks, claimed = [], [], set()
@@ -629,6 +698,12 @@ def apply_batch(
 		clean = [clean_row(raw) for raw in rows]
 		lookup = list(dict.fromkeys(ref for row in clean for ref in row["refs"]))
 		all_links = _links(doc.company, lookup)
+		if replace_range:
+			impact, entries, issues = replacement_impact(doc, rows, opening)
+			if issues:
+				frappe.throw(issues[0]["message"])
+			_retire_entries(doc, entries, changes)
+			counts["impact"] = impact
 		# Never fabricate an approval identity. Historic imports preserve the
 		# literal number even if its matching OA instance is no longer available.
 		if opening is not None and clean:
@@ -655,6 +730,8 @@ def apply_batch(
 			if raw.get("weak_file_proof"):
 				fingerprint = digest([fingerprint, raw["weak_file_proof"]])
 			if receipt:
+				if replace_range:
+					frappe.throw(f"{row['date']} 的来源流水号已被覆盖范围以外或已取消的流水使用，请核对。")
 				if receipt.digest != fingerprint:
 					if raw.get("weak_file_proof"):
 						frappe.throw(
@@ -705,10 +782,10 @@ def apply_batch(
 			if raw.get("balance") not in (None, ""):
 				checks.append((as_date(row["date"]), current.name, Decimal(money(raw["balance"]))))
 		_import_balances(doc, checks)
-		if template and not doc.template_json:
+		if template and not doc.template_json and not replace_range:
 			changes.append({"template_before": doc.template_json})
 			doc.template_json = _dump(template)
-		return _finish(doc, ident, fp, source, changes, result=counts)
+		return _finish(doc, ident, fp, kind, changes, result=counts)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -722,8 +799,14 @@ def undo(book, operation, version, request_id):
 		prior = frappe.get_doc(OP, operation)
 		if prior.book != book or prior.actor != frappe.session.user:
 			frappe.throw("只可撤销自己的最近一次操作。", frappe.PermissionError)
+		if prior.operation == REPLACE_RANGE:
+			authorize_replacement()
 		steps = _json(prior.changes, [])
 		for step in reversed(steps):
+			if "detached_sources" in step:
+				for old in step["detached_sources"]:
+					_register(doc, old["source"], old["source_key"], old["name"], old["entry"], old["digest"])
+				continue
 			if "template_before" in step:
 				doc.template_json = step["template_before"]
 				continue

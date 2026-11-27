@@ -61,6 +61,46 @@ def test_bad_rows_and_invalid_base64_cannot_be_applied(book):
 	store.apply_batch.assert_not_called()
 
 
+def test_file_replacement_preview_binds_mode_dates_edits_and_same_book(book):
+	store, _ = book
+	store.authorize_replacement = Mock()
+	store.replacement_impact = Mock(return_value=(
+		{"start": "2026-11-05", "end": "2026-11-20", "old_count": 3, "new_count": 2}, [], []
+	))
+	encoded = base64.b64encode("日期,摘要,收入\n2026-11-05,甲,2\n2026-11-20,乙,5".encode()).decode()
+	args = dict(book="book", filename="流水.csv", content_base64=encoded)
+	append = api.preview_import(**args, mode="append")
+	result = api.preview_import(**args, mode="replace_range")
+	assert result["impact"]["old_count"] == 3 and result["preview_id"] != append["preview_id"]
+	assert [r["date"] for r in store.replacement_impact.call_args.args[1]] == ["2026-11-05", "2026-11-20"]
+	confirm = dict(**args, version=4, request_id="replace-file-test")
+	for mode, token in (("replace_range", append["preview_id"]), ("append", result["preview_id"])):
+		with pytest.raises(ValueError, match="预览已变化"):
+			api.apply_import(**confirm, mode=mode, preview_id=token)
+	with pytest.raises(ValueError, match="预览已变化"):
+		api.apply_import(**confirm, mode="replace_range", preview_id=result["preview_id"], edits={"3":{"date":"2026-11-21"}})
+	store.apply_batch.assert_not_called()
+	api.apply_import(**confirm, mode="replace_range", preview_id=result["preview_id"])
+	assert store.apply_batch.call_args.kwargs["replace_range"] is True
+	assert store.authorize_replacement.called
+
+
+def test_replacement_requires_valid_target_and_clean_whole_file(book):
+	store, encoded = book
+	store.authorize_replacement = Mock()
+	store.replacement_impact = Mock(return_value=({}, [], [{"row":2,"field":"balance","message":"区间期初余额不符"}]))
+	with pytest.raises(ValueError, match="已有账簿"):
+		api.preview_import(filename="a.csv", company="A", content_base64=encoded, mode="replace_range")
+	with pytest.raises(ValueError, match="导入方式"):
+		api.preview_import("book", "a.csv", encoded, mode="replace_all")
+	result = api.preview_import("book", "a.csv", encoded, mode="replace_range")
+	assert not result["preview_id"] and result["error_count"] == 1
+	store.authorize_replacement.side_effect = PermissionError("没有覆盖权限")
+	with pytest.raises(PermissionError):
+		api.preview_import("book", "a.csv", encoded, mode="replace_range")
+	store.apply_batch.assert_not_called()
+
+
 def test_file_review_binds_corrected_cells_and_preserves_bank_movement_identity(book):
 	store, encoded = book
 	base = api.preview_import("book", "流水.csv", encoded, review_offset=0)

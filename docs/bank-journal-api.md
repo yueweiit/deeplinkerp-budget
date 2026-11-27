@@ -173,6 +173,10 @@ jq '.message | {account_label,headers,suggested_mapping,needs_mapping,row_count,
 - `needs_mapping=true` 时，根据 `headers` 补上 `mapping` 并重新预览。仅在 `needs_mapping=false`、`error_count=0` 且有 `preview_id` 时确认。确认沿用相同文件、参数和列映射，加上此次预览的 `preview_id`、`version` 及新的 `request_id`，调用 `apply_import`。
 - CSV 支持 UTF-8（含 BOM）和 GB18030。XLSX 需仅有一个可见工作表，映射到的公式单元格请先转为值。单文件上限 6 MiB。原件按文件方式导入，才能保留受支持的原表模板；JSON 只包含提取后的明细。
 
+已有账簿的文件导入支持两种方式。专用 AI 导入账号沿用 `mode=append`（默认），相同来源的流水自动去重。持有本公司流水新增、修改及删除权限的财务用户，在页面选「按文件日期覆盖」时，预览和确认都传 `mode=replace_range`。区间为核对后第一笔至最后一笔流水日期，含首尾和中间日期。预览中的 `impact` 给出旧、新笔数和区间末余额。修改日期或切换方式需要重新预览。区间末余额改变时，后续流水的滚动余额随之重算。
+
+确认覆盖后，操作人可在同一账簿点「撤回上次覆盖」整批恢复。若账簿又有修改，需先按时间倒序撤回较新的操作，每位操作人撤回自己的操作。预览、取消和校验失败均不写账。
+
 ## 异常与重试
 
 | 调用结果 | 客户端处理 |

@@ -137,3 +137,16 @@ test("a company without a bank book can open the common import preview", () => {
     app.render();
     assert.doesNotMatch(app.el.innerHTML,/data-act="import-book"/);
 });
+
+test("selected books offer explicit append and date-range replacement in the same preview", () => {
+    const {Workbench, importModeFields, replacementNotice}=require("../public/js/bank_journal.js");
+    const app=Object.assign(Object.create(Workbench.prototype),{company:"A",book:"B",opts:{can_create:true},data:{},importDialog:newBook=>assert.equal(newBook,false)});
+    app.click({target:{closest:selector=>selector==="[data-act]"?{dataset:{act:"import-book"}}:null}});
+    const controls=importModeFields(true);
+    assert.match(controls,/value="append"/);assert.match(controls,/value="replace_range"/);
+    assert.doesNotMatch(controls,/\bchecked\b/);
+    assert.doesNotMatch(importModeFields(false),/value="replace_range"/);
+    const info=replacementNotice({start:"2026-11-05",end:"2026-11-20",old_count:3,new_count:2,
+        old_closing:"12.00",new_closing:"15.00",difference:"3.00"});
+    for(const value of ["2026-11-05","2026-11-20","3 笔","2 笔","12.00","15.00"])assert.ok(info.includes(value));
+});
