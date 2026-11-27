@@ -22,6 +22,7 @@ MAX_ROWS = 20000
 MAX_COLS = 160
 MAX_CELLS = 1500000
 MAX_UNPACKED = 48 * 1024 * 1024
+HEADER_SCAN = 40
 CENT = Decimal("0.01")
 HEADERS = (
 	"Años\n年",
@@ -551,7 +552,31 @@ def parse_rows(rows):
 	return result
 
 
-def parse_statement(content, filename, mapping=None):
+def _header_index(sheet, first, header_row):
+	if isinstance(header_row, bool) or not re.fullmatch(r"\d{1,5}", str(header_row)):
+		raise StatementError("表头行号无效")
+	index = int(header_row) - 1
+	if not first <= index < min(len(sheet), first + HEADER_SCAN):
+		raise StatementError("表头行号超出可识别范围")
+	return index
+
+
+def _check_prior_rows(sheet, first, header_index, cols):
+	for row in sheet[first:header_index]:
+		try:
+			_date(_at(row, cols["date"]))
+		except StatementError:
+			continue
+		for key in ("income", "expense", "amount"):
+			try:
+				value = _money(_at(row, cols.get(key)), key)
+			except StatementError:
+				continue
+			if value is not None:
+				raise StatementError("所选表头前已有疑似流水，请核对表头行", "date")
+
+
+def parse_statement(content, filename, mapping=None, *, header_row=None, suggest_layout=None):
 	"""Parse a bank file, report each invalid row and return canonical decimal strings."""
 	sheet, final_terminator = _read(content, filename)
 	first = _first_nonempty(sheet)
@@ -566,12 +591,17 @@ def parse_statement(content, filename, mapping=None):
 		needs_mapping=False,
 		suggested_mapping={},
 		mapping_used=None,
+		header_row=None,
+		mapping_source=None,
+		ai_notice="",
 		opening_date=None,
 		errors=[],
 	)
 	original = len(sheet) > first + 2 and list(sheet[first + 1][:14]) == list(HEADERS)
 	start = first
 	if original:
+		if header_row is not None:
+			raise StatementError("原日记账模板使用固定表头")
 		title, header, carry = sheet[first : first + 3]
 		width = len(header)
 		if any(any(c not in ("", None) for c in row[14:]) for row in sheet):
@@ -594,8 +624,31 @@ def parse_statement(content, filename, mapping=None):
 			header_total=_money(_at(title, 12), "balance", title=True),
 		)
 	else:
-		candidates = [(i, _suggest(row)) for i, row in enumerate(sheet[first : first + 40], first)]
+		candidates = [
+			(i, _suggest(row)) for i, row in enumerate(sheet[first : first + HEADER_SCAN], first)
+		]
 		header_index, suggested = max(candidates, key=lambda x: (_usable(x[1]), len(x[1])))
+		if header_row is not None:
+			header_index = _header_index(sheet, first, header_row)
+			suggested = _suggest(sheet[header_index])
+			result["header_row"] = header_index + 1
+		elif mapping is None and not _usable(suggested) and suggest_layout:
+			try:
+				layout = suggest_layout(sheet, first)
+				if layout:
+					ai_row, proposal = layout
+					ai_index = _header_index(sheet, first, ai_row)
+					declared = _suggest(sheet[ai_index])
+					for key in ("currency", "balance", "bank_ref"):
+						if key in declared:
+							proposal = {**proposal, key: declared[key]}
+					ai_cols = _mapping(sheet[ai_index], proposal)
+					if _usable(ai_cols):
+						_check_prior_rows(sheet, first, ai_index, ai_cols)
+						header_index, suggested = ai_index, ai_cols
+						result.update(header_row=ai_row, mapping_source="deepseek")
+			except StatementError as exc:
+				result["ai_notice"] = str(exc)
 		header = [_str(c) for c in sheet[header_index]]
 		result.update(headers=header, suggested_mapping=suggested)
 		# Bank reports may provide both the signed amount and the two direction columns.
@@ -610,6 +663,8 @@ def parse_statement(content, filename, mapping=None):
 		if not _usable(cols):
 			result["needs_mapping"] = True
 			return result
+		if result["header_row"] is not None:
+			_check_prior_rows(sheet, first, header_index, cols)
 		start = header_index + 1
 		result["mapping_used"] = cols
 	occurrences = Counter()
