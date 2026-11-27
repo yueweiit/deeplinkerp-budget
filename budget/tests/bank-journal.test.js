@@ -47,3 +47,19 @@ test("imported movements have a visible row editor with a calculated balance and
     assert.match(edit, /data-act="cancel-edit"[^>]*>取消<\/button>/);
     assert.doesNotMatch(edit, /name="balance"/);
 });
+test("the Desk asset loader receives a CSS path and manages its own version parameter", () => {
+    const {install}=require("../public/js/bank_journal.js");
+    const savedFrappe=globalThis.frappe, savedLocation=globalThis.location;
+    const paths=[];
+    globalThis.frappe={require:asset=>paths.push(asset)};
+    globalThis.location=new URL("https://erp.example.invalid/desk/china-cash-journal");
+    try {
+        const page={};
+        install(page);
+        page.on_page_load({});
+        assert.deepEqual(paths,["/assets/budget/css/bank_journal.css"]);
+    } finally {
+        globalThis.frappe=savedFrappe;
+        globalThis.location=savedLocation;
+    }
+});
