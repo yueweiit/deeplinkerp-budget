@@ -248,9 +248,50 @@ def test_mexico_comparison_uses_mxn_even_when_monthly_fx_changes(database, monke
 
 
 @pytest.mark.parametrize("backend", ["sql", "snapshot"])
+def test_verified_comparison_keeps_amounts_when_other_lines_need_review(database, monkeypatch, backend):
+	seed, _ = database
+	seed([line("now", amount="200"),
+		line("prior", amount="100", month="2026-10", application_date="2026-10-10"),
+		line("bad", amount=None, issues=["amount"]),
+		line("pending", status="pending", issues=["history"]),
+		line("undated", month=None, application_date=None)], companies=("A",), complete=False)
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	result = (reporting if backend == "sql" else legacy).query({"company": "A"})
+	comparison = result["regions"][0]["comparison"]
+	assert comparison["percent"] == "100.0"
+	assert (comparison["current"], comparison["previous"]) == ("200.00", "100.00")
+	assert set(comparison["warnings"]) == {"source_incomplete", "undated", "review", "excluded"}
+	assert result["summary"]["excluded"] == 1 and result["undated"] == 1
+
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
+@pytest.mark.parametrize("company,currency", [("A", "CNY"), ("B", "MXN")])
+def test_comparison_exposes_prior_review_counts_in_the_exact_authorized_window(database, monkeypatch, backend, company, currency):
+	seed, _ = database
+	ownership = {"company": company, "currency": currency, **({"entity": ""} if not company else {})}
+	seed([line("now", amount="200", **ownership),
+		line("prior", amount="100", month="2026-10", application_date="2026-10-10", **ownership),
+		line("prior-invalid", amount=None, issues=["amount"], month="2026-10", application_date="2026-10-10", **ownership),
+		line("after-window", amount=None, issues=["amount"], month="2026-10", application_date="2026-10-30", **ownership),
+		line("other-owner", company="Other", amount=None, issues=["amount"], month="2026-10", application_date="2026-10-10")],
+		companies=(company,) if company else ())
+	converter = legacy.converter
+	monkeypatch.setattr(legacy, "converter", lambda: converter(rate))
+	result = (reporting if backend == "sql" else legacy).query({"company": company or legacy.regions.GROUP_COMPANY})
+	assert result["summary"]["review"] == result["summary"]["excluded"] == 0
+	comparison = result["regions"][0]["comparison"]
+	assert comparison["percent"] == "100.0" and set(comparison["warnings"]) == {"review", "excluded"}
+	assert comparison["periods"] == {"current": {"review": 0, "excluded": 0}, "previous": {"review": 1, "excluded": 1}}
+	assert "periods" not in result["comparison"]  # Preserve the legacy global response.
+
+
+
+@pytest.mark.parametrize("backend", ["sql", "snapshot"])
 @pytest.mark.parametrize("company,currency", [("A", "CNY"), ("B", "MXN")])
 @pytest.mark.parametrize("scenario", ["hidden_fx_only", "history", "amount", "unknown_issue", "local_fx_missing", "incomplete", "undated", "zero_baseline"])
-def test_local_comparison_ignores_only_hidden_currency_fx(database, monkeypatch, backend, company, currency, scenario):
+def test_local_comparison_uses_verified_sums_with_explicit_review_caveats(database, monkeypatch, backend, company, currency, scenario):
 	seed, _ = database
 	def missing(code, day):
 		raise legacy.fx.RateUnavailable()
@@ -268,7 +309,11 @@ def test_local_comparison_ignores_only_hidden_currency_fx(database, monkeypatch,
 	service = reporting if backend == "sql" else legacy
 	result = service.query({"company": company})
 	region = result["regions"][0]
-	assert region["comparison"]["percent"] == ("100.0" if scenario == "hidden_fx_only" else None)
+	comparable = scenario in {"hidden_fx_only", "history", "unknown_issue", "incomplete", "undated"}
+	assert region["comparison"]["percent"] == ("100.0" if comparable else None)
+	assert region["comparison"]["basis"] == "verified"
+	assert region["comparison"]["status"] == ("comparable" if comparable else {
+		"amount": "no_current_verified", "local_fx_missing": "amount_unavailable", "zero_baseline": "previous_zero"}[scenario])
 	# General review and the legacy comparison retain all original issues.
 	assert result["comparison"]["percent"] is None
 	assert "exchange_rate" in service.detail("prior", {"month": "2026-10"})["row"]["issues"]

@@ -387,3 +387,12 @@ Detail amount in original currency,Detail amount in original currency
 CN Cash Journal Entry,Cash Journal
 Source name missing,Source name missing
 "These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again.","These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again."
+Verified expenditure compared with last month,Verified expenditure compared with last month
+No verified expenditure this month,No verified expenditure this month
+No verified expenditure last month,No verified expenditure last month
+Comparison exchange rate unavailable,Comparison exchange rate unavailable
+Last month's verified expenditure was zero,Last month's verified expenditure was zero
+Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.,Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.
+Current period: {0} lines need review; {1} unverified lines excluded.,Current period: {0} lines need review; {1} unverified lines excluded.
+Previous period: {0} lines need review; {1} unverified lines excluded.,Previous period: {0} lines need review; {1} unverified lines excluded.
+Some expenses in the comparison periods still need review.,Some expenses in the comparison periods still need review.

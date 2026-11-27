@@ -45,12 +45,7 @@ def comparison(condition, params, f, metadata, undated, *, currency=None):
 		{**params, "month": period, "end": window[end]}, review_currency=currency)[0]
 		for period, end in ((month, "to_date"), (previous, "previous_to"))]
 	current, prior = summaries
-	currency = currency or "CNY"
-	known = metadata["complete"] and not undated and all(row["count"] and not row["review"]
-		and row["amounts"][currency] is not None for row in summaries)
-	baseline = Decimal(prior["amounts"][currency] or 0)
-	percent = str(((Decimal(current["amounts"][currency]) / baseline - 1) * 100).quantize(Decimal("0.1"))) if known and baseline > 0 else None
-	return {"percent": percent, "window": window}
+	return service.comparison_result(current, prior, window, metadata, undated, currency=currency)
 
 
 def query(values=None, start=0):

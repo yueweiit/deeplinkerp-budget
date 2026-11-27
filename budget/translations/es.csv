@@ -982,3 +982,12 @@ Detail amount in original currency,Importe de esta línea en moneda original
 CN Cash Journal Entry,Libro de caja
 Source name missing,Falta el nombre de origen
 "These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again.","Estas líneas de gasto no tienen un nombre de origen identificable y no pueden compartir una asignación de empresa. Revise la asignación del campo de entidad o departamento de la plantilla, o complete las aprobaciones originales y vuelva a sincronizar."
+Verified expenditure compared with last month,Variación mensual de gastos verificados
+No verified expenditure this month,No hay gastos verificados este mes
+No verified expenditure last month,No hay gastos verificados el mes anterior
+Comparison exchange rate unavailable,Falta el tipo de cambio para la comparación
+Last month's verified expenditure was zero,El gasto verificado del mes anterior fue cero
+Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.,Para el mes actual se comparan los mismos días transcurridos y los gastos aprobados y verificados de ambos períodos. Los demás datos pendientes de revisión no impiden la comparación; la integridad del origen y las líneas excluidas se indican por separado.
+Current period: {0} lines need review; {1} unverified lines excluded.,Período actual: {0} líneas pendientes de revisión; {1} líneas no verificadas excluidas.
+Previous period: {0} lines need review; {1} unverified lines excluded.,Período anterior: {0} líneas pendientes de revisión; {1} líneas no verificadas excluidas.
+Some expenses in the comparison periods still need review.,Algunos gastos de los períodos comparados siguen pendientes de revisión.

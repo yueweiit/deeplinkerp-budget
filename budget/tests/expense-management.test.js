@@ -2,7 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 global.frappe = {
   datetime: { get_today: () => "2026-11-24" },
-  format: (value) => String(value),
+  format: (value, options = {}) => ["Currency", "Float"].includes(options.fieldtype)
+    ? Number(value).toFixed(options.precision ?? 2) : String(value),
 };
 global.DeepLinkERPMexicoExpenseMoney =
   require("../../../deeplinkerp_branding/deeplinkerp_branding/public/js/mexico_expense_money.js")(
@@ -42,6 +43,48 @@ test("local amount preserves cents and unavailable currency is not zero", () => 
   assert.match(money(amounts, "MXN"), /MXN.*—/);
   assert.doesNotMatch(money(amounts, "MXN"), /CNY|0\.00/);
   assert.match(money(amounts, null), /Region not configured/);
+});
+
+test("verified comparison remains visible with review notices and explains unavailable baselines", () => {
+  const work=Object.create(Workbench.prototype);
+  Object.assign(work,{view:'overview',filters:{},content(html){this.html=html;},data:{
+    metadata:{complete:false,has_data:true},summary:{review:2,pending:1,excluded:1},undated:14,company_rows:[],
+    regions:[{region:'cn',label:'China',currency:'CNY',summary:{amounts:{CNY:'200'},applications:1,count:1},
+      comparison:{percent:'100.0',status:'comparable',basis:'verified'}}]
+  }});
+  work.render();
+  assert.match(work.html,/\+100\.0%/);
+  assert.match(work.html,/Source data incomplete/);
+  assert.match(work.html,/14 lines without application dates/);
+  assert.doesNotMatch(work.html,/Not comparable/);
+  for(const [status,label] of Object.entries({no_current_verified:'No verified expenditure this month',
+    no_previous_verified:'No verified expenditure last month',amount_unavailable:'Comparison exchange rate unavailable',
+    previous_zero:"Last month's verified expenditure was zero"})) {
+    work.data.regions[0].comparison={percent:null,status};work.render();
+    assert(work.html.includes(label.replace(/'/g, "&#39;")));
+    assert.doesNotMatch(work.html,/Not comparable/);
+  }
+});
+
+test("comparison shows previous-period review caveats even when the current month has no issues", () => {
+  const work=Object.create(Workbench.prototype);
+  const comparison={percent:'100.0',status:'comparable',basis:'verified',warnings:['review','excluded'],
+    periods:{current:{review:0,excluded:0},previous:{review:3,excluded:2}}};
+  Object.assign(work,{view:'overview',filters:{},content(html){this.html=html;},data:{
+    metadata:{complete:true,has_data:true},summary:{review:0,pending:0,excluded:0},undated:0,company_rows:[],
+    regions:[{region:'cn',label:'China',currency:'CNY',summary:{amounts:{CNY:'200'},applications:1,count:1},comparison}]
+  }});
+  work.render();
+  assert.match(work.html,/\+100\.0%/);
+  assert.match(work.html,/Previous period: 3 lines need review; 2 unverified lines excluded\./);
+  assert.doesNotMatch(work.html,/Current period:/);
+  assert.doesNotMatch(work.html,/em-data-notice/);
+  comparison.periods.current={review:2,excluded:1};work.render();
+  assert.match(work.html,/Current period: 2 lines need review; 1 unverified lines excluded\./);
+  delete comparison.periods;work.render();
+  assert.match(work.html,/Some expenses in the comparison periods still need review\./);
+  comparison.warnings=[];work.render();
+  assert.doesNotMatch(work.html,/Some expenses in the comparison periods still need review\./);
 });
 
 test("regional cards and company rows display one currency per region and company", () => {

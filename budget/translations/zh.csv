@@ -982,3 +982,12 @@ Detail amount in original currency,本条明细原币金额
 CN Cash Journal Entry,日记账
 Source name missing,来源名称缺失
 "These expense lines have no identifiable source name and cannot share a company mapping. Check the template's entity or department field mapping, or complete the original approvals, then synchronize again.",这些费用明细没有可识别的来源名称，不能共用一条公司映射。请检查模板中承担主体或部门的字段映射，或补齐审批原单后重新同步。
+Verified expenditure compared with last month,已核实支出环比
+No verified expenditure this month,本月暂无已核实支出
+No verified expenditure last month,上月暂无已核实支出
+Comparison exchange rate unavailable,比较所需汇率缺失
+Last month's verified expenditure was zero,上月已核实支出为零
+Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.,本月按与上月相同的已过天数比较，两期均使用已核实的已通过支出。其他待核对项不阻止比较；来源完整性及未计入明细单独提示。
+Current period: {0} lines need review; {1} unverified lines excluded.,本期：{0} 条待核对，{1} 条未核实明细未计入。
+Previous period: {0} lines need review; {1} unverified lines excluded.,上期：{0} 条待核对，{1} 条未核实明细未计入。
+Some expenses in the comparison periods still need review.,比较期间仍有费用待核对。

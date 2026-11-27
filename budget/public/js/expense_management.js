@@ -56,6 +56,17 @@
       return `<span class="em-muted">${esc(t("Region not configured"))}</span>`;
     return `<span class="em-money"><strong><span class="em-currency">${currency}</span> ${textMoney(amounts?.[currency])}</strong></span>`;
   }
+  function comparisonNotes(comparison) {
+    const labels = {current: "Current period: {0} lines need review; {1} unverified lines excluded.",
+      previous: "Previous period: {0} lines need review; {1} unverified lines excluded."};
+    const notes = Object.entries(labels).flatMap(([period, label]) => {
+      const counts = comparison?.periods?.[period];
+      return counts && (counts.review || counts.excluded) ? [t(label, [counts.review, counts.excluded])] : [];
+    });
+    if (!notes.length && comparison?.warnings?.some(code => ["review", "excluded"].includes(code)))
+      notes.push(t("Some expenses in the comparison periods still need review."));
+    return notes.map(note => `<span class="em-warning">${esc(note)}</span>`).join("");
+  }
   function sourceLabels(row) {
     const path = [...(row.source_path || [])];
     const groups = {hr: "Personnel budget", office: "Office premises budget", operation: "Operating budget"};
@@ -471,8 +482,12 @@
         html += `<div class="em-kpis"><article class="em-kpi em-primary"><span>${esc(t("Verified approved expenditure"))}</span>
           ${regions.map((region) => `<div class="em-regional-kpi"><span class="em-region-label">${esc(t(region.label))}</span>${money(region.summary.amounts, region.currency)}
             <button class="em-link" data-action="details" data-region="${esc(region.region)}">${esc(t("{0} applications · {1} lines", [region.summary.applications, region.summary.count]))}</button></div>`).join("") || `<span>${esc(t("Region not configured"))}</span>`}
-          </article><article class="em-kpi"><span>${esc(t("Compared with the same period last month"))}</span>
-          ${regions.map((region) => `<div class="em-regional-kpi"><span class="em-region-label">${esc(t(region.label))}</span><strong class="em-number">${region.comparison?.percent == null ? esc(t("Not comparable")) : `${Number(region.comparison.percent) > 0 ? "+" : ""}${esc(region.comparison.percent)}%`}</strong></div>`).join("")}
+          </article><article class="em-kpi"><span>${esc(t("Verified expenditure compared with last month"))}</span>
+          ${regions.map((region) => {
+            const labels = {no_current_verified: "No verified expenditure this month", no_previous_verified: "No verified expenditure last month",
+              amount_unavailable: "Comparison exchange rate unavailable", previous_zero: "Last month's verified expenditure was zero"};
+            return `<div class="em-regional-kpi"><span class="em-region-label">${esc(t(region.label))}</span><strong class="em-number">${region.comparison?.percent == null ? esc(t(labels[region.comparison?.status] || "Not comparable")) : `${Number(region.comparison.percent) > 0 ? "+" : ""}${esc(region.comparison.percent)}%`}</strong>${comparisonNotes(region.comparison)}</div>`;
+          }).join("")}
           ${button("policy", "Comparison details", "", "em-subtle")}</article>
           <article class="em-kpi"><span>${esc(t("Data Review"))}</span><button class="em-number em-link" data-action="review">${s.review + d.undated}</button><span class="em-muted">${esc(t("{0} pending approval lines", [s.pending]))}</span></article></div>`;
       }
@@ -644,7 +659,7 @@
         "OA categories are used directly. Unified classification is optional for cross-template summaries and category-level budget comparisons.",
         "CNY and MXN are converted independently from original amounts using the application month-start rate.",
         "Missing exchange rates are shown as unavailable; no partial currency total is presented.",
-        "Current-month comparison uses matching elapsed days. Incomplete sources, unverified data or missing history disable comparison.",
+        "Current-month comparison uses matching elapsed days and verified approved expenditure in both periods. Other review items do not prevent comparison; source completeness and excluded lines are shown separately.",
         "Budgets keep their budget month. The latest approved budget per subsidiary is used; a missing budget is not zero.",
       ];
       let message = `<ul class="em-policy">${lines

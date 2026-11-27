@@ -383,8 +383,32 @@ def comparison(rows, f, metadata, undated, *, currency=None):
 	groups = {period: [row for row in rows if row.get("month") == period and row.get("application_date")
 		and row["application_date"] <= window[end]] for period, end in ((month, "to_date"), (previous, "previous_to"))}
 	current, prior = (summarize(groups[period], review_currency=currency) for period in (month, previous))
+	return comparison_result(current, prior, window, metadata, undated, currency=currency)
+
+
+def comparison_result(current, prior, window, metadata, undated, *, currency=None):
+	"""Regional cards compare their displayed verified sums, with review caveats."""
+	if currency:
+		result = {"percent": None, "window": window, "basis": "verified", "currency": currency,
+			"current": current["amounts"][currency], "previous": prior["amounts"][currency],
+			"periods": {name: {key: value[key] for key in ("review", "excluded")}
+				for name, value in (("current", current), ("previous", prior))},
+			"warnings": [code for code, present in (("source_incomplete", not metadata["complete"]),
+				("undated", undated), ("review", current["review"] or prior["review"]),
+				("excluded", current["excluded"] or prior["excluded"])) if present]}
+		if not current["count"]:
+			return {**result, "status": "no_current_verified"}
+		if not prior["count"]:
+			return {**result, "status": "no_previous_verified"}
+		if result["current"] is None or result["previous"] is None:
+			return {**result, "status": "amount_unavailable"}
+		baseline = Decimal(result["previous"])
+		if baseline <= 0:
+			return {**result, "status": "previous_zero"}
+		return {**result, "status": "comparable",
+			"percent": str(((Decimal(result["current"]) / baseline - 1) * 100).quantize(Decimal("0.1")))}
 	# Omitted currency keeps the legacy global comparison and review rules.
-	currency = currency or "CNY"
+	currency = "CNY"
 	known = metadata["complete"] and not undated and all(value["count"] and not value["review"]
 		and value["amounts"][currency] is not None for value in (current, prior))
 	baseline = Decimal(prior["amounts"][currency] or 0)
