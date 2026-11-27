@@ -40,7 +40,39 @@ def _current_month():
 	return str(today())[:7]
 
 
-def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=None):
+def _file_edits(edits):
+	if edits in (None, ""):
+		return {}
+	if isinstance(edits, str):
+		if len(edits) > formats.MAX_BYTES:
+			frappe.throw("流水修改内容过多，请分批导入")
+		try:
+			edits = json.loads(edits)
+		except ValueError:
+			frappe.throw("流水修改格式无效")
+	if not isinstance(edits, dict) or len(edits) > formats.MAX_MOVEMENTS:
+		frappe.throw("流水修改格式无效")
+	rows = {}
+	size = 0
+	allowed_fields = set(formats.REVIEW_FIELDS)
+	for index, values in edits.items():
+		if not re.fullmatch(r"[1-9][0-9]{0,4}", str(index), re.ASCII) or int(index) > formats.MAX_ROWS:
+			frappe.throw("修改的流水行号无效")
+		if not isinstance(values, dict) or not values or values.keys() - allowed_fields:
+			frappe.throw("流水修改包含无效字段")
+		if ("income" in values) != ("expense" in values):
+			frappe.throw("修改金额时请提供该行的收入和支出")
+		for key, value in values.items():
+			if not isinstance(value, str) or len(value) > (12000 if key == "summary" else 80) or "\x00" in value:
+				frappe.throw("流水修改值无效")
+			size += len(value)
+		rows[int(index)] = values
+	if size > formats.MAX_BYTES:
+		frappe.throw("流水修改内容过多，请分批导入")
+	return rows
+
+
+def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=None, edits=None, review_offset=None):
 	if not isinstance(content_base64, str) or len(content_base64) > 4 * ((formats.MAX_BYTES + 2) // 3):
 		frappe.throw("请选择 6 MB 以内的银行流水文件")
 	if not isinstance(filename, str) or not filename or len(filename) > 255:
@@ -56,6 +88,7 @@ def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=
 			frappe.throw("列映射格式无效")
 	if mapping is not None and (not isinstance(mapping, dict) or len(mapping) > len(formats.ALIASES)):
 		frappe.throw("列映射格式无效")
+	edits = _file_edits(edits)
 	try:
 		parsed = formats.parse_statement(
 			payload,
@@ -63,11 +96,15 @@ def _read(filename, content_base64, mapping, *, header_row=None, suggest_layout=
 			mapping,
 			header_row=None if header_row == "" else header_row,
 			suggest_layout=suggest_layout,
+			edits=edits,
+			review_offset=review_offset,
 		)
 	except formats.StatementError as exc:
 		frappe.throw(str(exc))
 	columns = parsed["mapping_used"]
 	binding = columns if parsed["header_row"] is None else [parsed["header_row"], columns]
+	if edits:
+		binding = [binding, edits]
 	return hashlib.sha256(payload).hexdigest(), binding, parsed
 
 
@@ -91,6 +128,14 @@ def _ready(parsed):
 	return bool(parsed["rows"]) and not parsed["errors"] and not parsed["needs_mapping"]
 
 
+def _check_opening_date(doc, parsed):
+	for row in parsed["rows"]:
+		if row["date"] < str(doc.opening_date):
+			parsed["errors"].append(
+				{"row": row["source_row"], "field": "date", "message": "流水日期早于账簿启用日"}
+			)
+
+
 def _preview(parsed, version, token):
 	rows = parsed["rows"]
 	return {
@@ -99,7 +144,7 @@ def _preview(parsed, version, token):
 		"error_count": len(parsed["errors"]),
 		"errors": parsed["errors"][:MAX_PREVIEW_ROWS],
 		"rows": [
-			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof")}
+			{k: v for k, v in row.items() if k not in ("raw_cells", "source_key", "weak_file_proof", "file_review")}
 			for row in rows[:MAX_PREVIEW_ROWS]
 		],
 		"income_total": format(sum((Decimal(r["income"] or 0) for r in rows), Decimal(0)), ".2f"),
@@ -109,17 +154,42 @@ def _preview(parsed, version, token):
 
 
 @frappe.whitelist(methods=["POST"])
-def preview_import(book, filename, content_base64, mapping=None, header_row=None, use_ai=None):
+def preview_import(
+	book, filename, content_base64, mapping=None, header_row=None, use_ai=None, edits=None, review_offset=None
+):
 	ai_requested = use_ai in (1, "1")
-	doc = _store().authorize_book(book, "create" if ai_requested else "read")
+	if review_offset is not None:
+		if (
+			not re.fullmatch(r"[0-9]{1,5}", str(review_offset), re.ASCII)
+			or int(review_offset) >= formats.MAX_MOVEMENTS
+		):
+			frappe.throw("预览行范围无效")
+		review_offset = int(review_offset)
+	doc = _store().authorize_book(book, "create" if ai_requested or edits or review_offset is not None else "read")
 	suggest_layout = None
 	if ai_requested:
 		from budget.services.bank_journal_ai import infer_layout
 
 		suggest_layout = infer_layout
 	file_hash, mapping, parsed = _read(
-		filename, content_base64, mapping, header_row=header_row, suggest_layout=suggest_layout
+		filename,
+		content_base64,
+		mapping,
+		header_row=header_row,
+		suggest_layout=suggest_layout,
+		edits=edits,
+		review_offset=review_offset,
 	)
+	_check_opening_date(doc, parsed)
+	review = {}
+	if review_offset is not None:
+		visible = {row["source_row"] for row in parsed["review_rows"]}
+		review = {
+			"review_rows": parsed["review_rows"],
+			"review_total": parsed["review_total"],
+			"review_page_size": formats.REVIEW_PAGE_SIZE,
+			"review_errors": [issue for issue in parsed["errors"] if issue.get("row") in visible],
+		}
 	version = doc.revision
 	token = _sign(doc, Path(filename).suffix.lower(), file_hash, mapping, version) if _ready(parsed) else ""
 	return {
@@ -139,15 +209,17 @@ def preview_import(book, filename, content_base64, mapping=None, header_row=None
 			)
 		},
 		**_preview(parsed, version, token),
+		**review,
 	}
 
 
 @frappe.whitelist(methods=["POST"])
 def apply_import(
-	book, filename, content_base64, mapping=None, preview_id=None, version=None, request_id=None, header_row=None
+	book, filename, content_base64, mapping=None, preview_id=None, version=None, request_id=None, header_row=None, edits=None
 ):
 	doc = _store().authorize_book(book)
-	file_hash, mapping, parsed = _read(filename, content_base64, mapping, header_row=header_row)
+	file_hash, mapping, parsed = _read(filename, content_base64, mapping, header_row=header_row, edits=edits)
+	_check_opening_date(doc, parsed)
 	if (
 		not _ready(parsed)
 		or version is None
@@ -157,7 +229,7 @@ def apply_import(
 			_sign(doc, Path(filename).suffix.lower(), file_hash, mapping, version), preview_id
 		)
 	):
-		frappe.throw("流水文件、列映射或账本预览已变化，请重新预览后导入")
+		frappe.throw("流水文件、列对应、修改值或账簿预览已变化，请重新校验后导入")
 	if not isinstance(request_id, str) or not request_id.strip():
 		frappe.throw("导入请求缺少操作编号")
 	return _store().apply_batch(
@@ -187,11 +259,7 @@ def _read_rows(book, company, account, currency, rows, extra):
 		parsed = formats.parse_rows(rows)
 	except formats.StatementError as exc:
 		frappe.throw(str(exc))
-	for row in parsed["rows"]:
-		if row["date"] < str(doc.opening_date):
-			parsed["errors"].append(
-				{"row": row["source_row"], "field": "date", "message": "流水日期早于账簿启用日"}
-			)
+	_check_opening_date(doc, parsed)
 	return doc, parsed
 
 

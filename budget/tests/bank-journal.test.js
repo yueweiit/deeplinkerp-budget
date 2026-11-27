@@ -63,6 +63,21 @@ test("the Desk asset loader receives a CSS path and manages its own version para
         globalThis.location=savedLocation;
     }
 });
+test("bank import opens a compact editor and keeps only the active mapping fields collapsed", () => {
+    const {importTable, importMapping}=require("../public/js/bank_journal.js");
+    const result={headers:["日期","摘要","收入","支出","余额","流水号","部门"],mapping_used:{date:0,summary:1,income:2,expense:3,balance:4,bank_ref:5,dept:6}};
+    const mapped=importMapping(result, result.mapping_used);
+    assert.match(mapped,/<details[^>]*><summary>列对应/);
+    assert.doesNotMatch(mapped,/<details[^>]*\bopen|归属部门|银行流水号|收支方向/);
+    const signed=importMapping(result,{date:0,amount:2,direction:3});
+    assert.match(signed,/data-map="amount"/);
+    assert.doesNotMatch(signed,/data-map="income"/);
+    const table=importTable([{source_row:8,date:"坏日期",summary:'来源 <tag>\n第二行',income:"0.00"}], [{row:8,field:"date",message:"日期无效"}]);
+    for (const key of ["date","summary","income","expense","balance"]) assert.match(table,new RegExp('data-field="'+key+'"'));
+    assert.match(table,/aria-invalid="true"/);
+    assert.match(table,/&lt;tag&gt;\n第二行/);
+    assert.match(table,/value="0\.00"/);
+});
 test("DingTalk preview starts with importable rows and keeps read-only groups separate", () => {
     const {syncPreview}=require("../public/js/bank_journal.js");
     const markup=syncPreview([

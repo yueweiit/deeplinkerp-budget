@@ -61,6 +61,57 @@ def test_bad_rows_and_invalid_base64_cannot_be_applied(book):
 	store.apply_batch.assert_not_called()
 
 
+def test_file_review_binds_corrected_cells_and_preserves_bank_movement_identity(book):
+	store, encoded = book
+	base = api.preview_import("book", "流水.csv", encoded, review_offset=0)
+	assert base["review_rows"][0]["source_row"] == 2
+	edits = {"2": {"income": "1.75", "expense": "", "summary": "已核对"}}
+	preview = api.preview_import("book", "流水.csv", encoded, edits=edits, review_offset=0)
+	assert preview["review_rows"][0]["income"] == preview["income_total"] == "1.75"
+	assert preview["review_rows"][0]["summary"] == "已核对"
+	store.apply_batch.assert_not_called()
+
+	def apply(info, changes):
+		return api.apply_import(
+			"book", "流水.csv", encoded, info["mapping_used"], info["preview_id"], 4, "review-test", edits=changes
+		)
+
+	with pytest.raises(ValueError, match="预览已变化"):
+		apply(base, edits)
+	with pytest.raises(ValueError, match="预览已变化"):
+		apply(preview, {"2": {"income": "1.99", "expense": "", "summary": "已核对"}})
+	apply(base, None)
+	origin = store.apply_batch.call_args.args[1][0]["source_key"]
+	apply(preview, edits)
+	row = store.apply_batch.call_args.args[1][0]
+	assert (row["source_key"], row["income"], row["summary"]) == (origin, "1.75", "已核对")
+	assert row["file_review"]["original"]["income"] == "1.00"
+
+
+def test_file_review_pages_include_invalid_rows_and_validate_entire_file(book):
+	store, _ = book
+	lines = ["日期,收入,余额", "2026-11-16,1,101", "错误日期,误识别,102", "2026-11-18,1,103"]
+	encoded = base64.b64encode("\n".join(lines).encode()).decode()
+	bad = api.preview_import("book", "流水.csv", encoded, review_offset=1)
+	assert bad["review_total"] == 3 and not bad["preview_id"]
+	assert bad["review_rows"][0]["date"] == "错误日期"
+	assert bad["review_rows"][0]["income"] == "误识别"
+	edits = {"3": {"date": "2026-11-17", "income": "1", "expense": ""}}
+	receipts = set()
+	for offset in (0, 2):
+		preview = api.preview_import("book", "流水.csv", encoded, edits=edits, review_offset=offset)
+		assert preview["preview_id"] and preview["income_total"] == "3.00"
+		assert preview["review_rows"][0]["source_row"] == offset + 2
+		receipts.add(preview["preview_id"])
+	assert len(receipts) == 1
+	bad_balance = api.preview_import("book", "流水.csv", encoded, edits={"3": {**edits["3"], "balance": "103"}})
+	assert not bad_balance["preview_id"] and bad_balance["errors"][0]["field"] == "balance"
+	for changes in ({"1": {"date": "2026-11-10"}}, {"4": {"bank_ref": "fake"}}):
+		with pytest.raises(ValueError, match="修改"):
+			api.preview_import("book", "流水.csv", encoded, edits=changes)
+	store.apply_batch.assert_not_called()
+
+
 def test_export_default_month_and_explicit_all(book, monkeypatch):
 	store, _ = book
 	store.export_rows = Mock(

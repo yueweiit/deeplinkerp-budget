@@ -23,6 +23,8 @@ MAX_COLS = 160
 MAX_CELLS = 1500000
 MAX_UNPACKED = 48 * 1024 * 1024
 HEADER_SCAN = 40
+REVIEW_PAGE_SIZE = 100
+REVIEW_FIELDS = ("date", "summary", "income", "expense", "balance")
 CENT = Decimal("0.01")
 HEADERS = (
 	"Años\n年",
@@ -336,18 +338,11 @@ def _bank_reference(value):
 	return ref
 
 
-def _parse_row(raw, cols, original):
-	def read(key):
-		return _at(raw, cols.get(key))
+def _file_date(read, original):
+	return "-".join(_str(read(k)).strip() for k in ("year", "month", "day")) if original else read("date")
 
-	day = (
-		_date("-".join(_str(read(k)).strip() for k in ("year", "month", "day")))
-		if original
-		else _date(read("date"))
-	)
-	currency = _str(read("currency")).strip().upper()
-	if currency and currency not in ("人民币", "人民币元", "CNY", "RMB", "156"):
-		raise StatementError("该账簿使用人民币，请核实来源币种", "currency")
+
+def _file_amounts(read, cols):
 	income = _money(read("income"), "income")
 	expense = _money(read("expense"), "expense")
 	if "amount" in cols:
@@ -370,16 +365,35 @@ def _parse_row(raw, cols, original):
 			expense = str(-amount)
 		else:
 			income = str(amount)
+	return income, expense
+
+
+def _parse_row(raw, cols, original, edits=None):
+	def read(key):
+		return _at(raw, cols.get(key))
+
+	edits = edits or {}
+	day = _date(edits["date"] if "date" in edits else _file_date(read, original))
+	currency = _str(read("currency")).strip().upper()
+	if currency and currency not in ("人民币", "人民币元", "CNY", "RMB", "156"):
+		raise StatementError("该账簿使用人民币，请核实来源币种", "currency")
+	if "income" in edits:
+		income, expense = (_money(edits[key], key) for key in ("income", "expense"))
+	else:
+		income, expense = _file_amounts(read, cols)
 	income, expense = _movement(income, expense)
+	balance = _money(edits.get("balance", read("balance")), "balance")
+	if "balance" in edits and balance is None and _money(read("balance"), "balance") is not None:
+		raise StatementError("原流水有余额，请填写核对后的余额", "balance")
 	value = {
 		"date": day,
 		"income": income,
 		"expense": expense,
-		"balance": _money(read("balance"), "balance"),
+		"balance": balance,
 		"refs": _references(read("refs")),
 		"bank_ref": _bank_reference(read("bank_ref")),
 	}
-	value.update({k: _str(read(k)).strip() for k in TEXT_COLS.values()})
+	value.update({k: _str(edits.get(k, read(k))).strip() for k in TEXT_COLS.values()})
 	try:
 		clean_row(value)
 	except ValueError as exc:
@@ -389,6 +403,34 @@ def _parse_row(raw, cols, original):
 	if original:
 		value["raw_cells"] = [_str(_at(raw, i)) for i in range(14)]
 	return value
+
+
+def _review_values(raw, cols, original):
+	"""Expose individual source cells even when their row cannot yet be imported."""
+	def read(key):
+		return _at(raw, cols.get(key))
+
+	def display(value):
+		return "" if value is None else str(value).strip()[:12000]
+
+	day = read("date")
+	if original:
+		day = "-".join(display(read(k)) for k in ("year", "month", "day"))
+	try:
+		day = _date(day)
+	except StatementError:
+		pass
+	try:
+		income, expense = _file_amounts(read, cols)
+	except StatementError:
+		income, expense = read("income"), read("expense")
+	return {
+		"date": display(day),
+		"summary": display(read("summary")),
+		"income": display(income),
+		"expense": display(expense),
+		"balance": display(read("balance")),
+	}
 
 
 def _record_key(*values):
@@ -449,14 +491,16 @@ def _order_and_validate(result, supplied_opening):
 			balance = stated
 
 
-def _append_row(result, row, row_number, occurrences, seen_ids):
+def _append_row(result, row, row_number, occurrences, seen_ids, *, source=None, repaired_key=None):
 	if row["bank_ref"]:
 		if row["bank_ref"] in seen_ids:
 			raise StatementError("同一批次中银行流水号重复，请核对该行", "bank_ref")
 		seen_ids.add(row["bank_ref"])
 		key = _record_key("bank-reference", row["bank_ref"])
+	elif repaired_key:
+		key = repaired_key
 	else:
-		identity = (row["date"], row["income"], row["expense"], row["balance"], row["summary"])
+		identity = tuple((source or row)[field] for field in ("date", "income", "expense", "balance", "summary"))
 		occurrences[identity] += 1
 		key = _record_key("bank-movement", *identity, occurrences[identity])
 	row.update(source_row=row_number, source_key=key)
@@ -576,7 +620,9 @@ def _check_prior_rows(sheet, first, header_index, cols):
 				raise StatementError("所选表头前已有疑似流水，请核对表头行", "date")
 
 
-def parse_statement(content, filename, mapping=None, *, header_row=None, suggest_layout=None):
+def parse_statement(
+	content, filename, mapping=None, *, header_row=None, suggest_layout=None, edits=None, review_offset=None
+):
 	"""Parse a bank file, report each invalid row and return canonical decimal strings."""
 	sheet, final_terminator = _read(content, filename)
 	first = _first_nonempty(sheet)
@@ -596,6 +642,8 @@ def parse_statement(content, filename, mapping=None, *, header_row=None, suggest
 		ai_notice="",
 		opening_date=None,
 		errors=[],
+		review_rows=[],
+		review_total=0,
 	)
 	original = len(sheet) > first + 2 and list(sheet[first + 1][:14]) == list(HEADERS)
 	start = first
@@ -669,21 +717,52 @@ def parse_statement(content, filename, mapping=None, *, header_row=None, suggest
 		result["mapping_used"] = cols
 	occurrences = Counter()
 	seen_ids = set()
+	edits = edits or {}
+	unused_edits = set(edits)
+	file_hash = hashlib.sha256(content).hexdigest() if edits else None
+	closing_line = None
 	for i, raw in enumerate(sheet[start:], start + 1):
 		if not any(c not in (None, "") for c in raw):
 			continue
+		transaction = False
+		row = None
+		changes = edits.get(i)
 		try:
 			if original and not any(c not in ("", None) for j, c in enumerate(raw) if j != 11):
 				if result["template"]["closing_row"] is not None:
 					raise StatementError("发现重复的期末余额行", "balance")
 				result["template"]["closing_row"] = _str(_at(raw, 11))
+				closing_line = i
 				continue
 			if original and result["template"]["closing_row"] is not None:
 				raise StatementError("期末余额行之后仍有流水", "date")
-			row = _parse_row(raw, cols, original)
-			_append_row(result, row, i, occurrences, seen_ids)
+			transaction = True
+			unused_edits.discard(i)
+			source, repaired_key = None, None
+			if changes:
+				# Keep the normal receipt identity for a corrected row. Unparseable
+				# source rows still have a stable identity within this exact file.
+				try:
+					source = _parse_row(raw, cols, original)
+				except StatementError:
+					repaired_key = _record_key("bank-file-row", file_hash, i)
+			row = _parse_row(raw, cols, original, changes)
+			if changes:
+				before = source or _review_values(raw, cols, original)
+				changed = {field: before[field] for field in changes if (before[field] or "") != (row[field] or "")}
+				if changed:
+					row["file_review"] = {"file_sha256": file_hash, "source_row": i, "original": changed}
+			_append_row(result, row, i, occurrences, seen_ids, source=source, repaired_key=repaired_key)
 		except StatementError as exc:
 			result["errors"].append({"row": i, "field": exc.field, "message": str(exc)})
+		if transaction:
+			index = result["review_total"]
+			result["review_total"] += 1
+			if review_offset is not None and review_offset <= index < review_offset + REVIEW_PAGE_SIZE:
+				values = row if row is not None else {**_review_values(raw, cols, original), **(changes or {})}
+				result["review_rows"].append({"source_row": i, **{field: values[field] for field in REVIEW_FIELDS}})
+	if unused_edits:
+		raise StatementError(f"第 {min(unused_edits)} 行不是可修改的流水行", "edits")
 	if not result["rows"] and not result["errors"]:
 		result["errors"].append({"row": start + 1, "field": "date", "message": "文件未包含交易流水"})
 	if not result["errors"]:
@@ -697,18 +776,12 @@ def parse_statement(content, filename, mapping=None, *, header_row=None, suggest
 					candidate = date(year + int(month == 12), month % 12 + 1, 1).isoformat()
 					if candidate <= result["opening_date"]:
 						result["opening_date"] = candidate
-		if original:
-			last = result["rows"][-1].get("balance")
 			end = result["template"]["closing_row"]
-			if end is not None and _money(end, "balance") != last:
+			if end is not None and _money(end, "balance") != result["rows"][-1]["balance"]:
 				result["errors"].append(
-					{
-						"row": start + len(result["rows"]) + 1,
-						"field": "balance",
-						"message": "期末余额与最后一笔流水不符",
-					}
+					{"row": closing_line, "field": "balance", "message": "期末余额与最后一笔流水不符"}
 				)
-	if len(result["rows"]) > MAX_MOVEMENTS:
+	if result["review_total"] > MAX_MOVEMENTS:
 		raise StatementError("单次最多导入 10,000 笔流水，请按月份拆分")
 	return result
 
@@ -742,7 +815,10 @@ def _export_cell(row):
 				cells[i] = _excel_text(raw[i])
 		for i, key in enumerate(("income", "expense", "balance"), 9):
 			actual = _money(row.get(key), key)
-			previous = _money(raw[i], key)
+			try:
+				previous = _money(raw[i], key)
+			except StatementError:
+				continue  # An invalid original cell may have been repaired during import.
 			if previous == actual or (key != "balance" and actual is None and previous == "0.00"):
 				cells[i] = raw[i]
 	return cells

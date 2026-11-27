@@ -619,7 +619,10 @@ def apply_batch(
 				frappe.throw("银行流水号过长。")
 			origin_id, receipt = _source_record(doc, source, key)
 			fingerprint = batch_digest(row)
-			if source == "Import" and row["bank_ref"] and raw.get("balance") not in (None, ""):
+			review = raw.get("file_review") if source == "Import" else None
+			if source == "Import" and raw.get("balance") not in (None, "") and (
+				row["bank_ref"] or (review and "balance" in review["original"])
+			):
 				fingerprint = digest([fingerprint, money(raw["balance"])])
 			if raw.get("weak_file_proof"):
 				fingerprint = digest([fingerprint, raw["weak_file_proof"]])
@@ -652,6 +655,8 @@ def apply_batch(
 				counts["created"] += 1
 			if row["bank_ref"] and not current.reference_number:
 				current.reference_number = row["bank_ref"]
+			if review:
+				extra.setdefault("file_review", {**review, "confirmed_by": frappe.session.user})
 			if source == "Import" and raw.get("raw_cells") is not None:
 				cells = raw["raw_cells"]
 				if (

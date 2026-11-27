@@ -76,6 +76,22 @@ def test_changed_amounts_and_monthly_carry_forward():
 	assert len(read) == 8 and all(len(r) == 42 for r in read)
 
 
+def test_native_template_repair_keeps_original_cell_evidence_and_exports_corrected_amount():
+	raw = sample_journal().replace(b"6.70", b"invalid")
+	bad = journal.parse_statement(raw, "银行.csv", review_offset=0)
+	assert bad["review_rows"][1]["expense"] == "invalid"
+	assert bad["errors"][0]["row"] == 5
+	parsed = journal.parse_statement(raw, "银行.csv", edits={5: {"income": "", "expense": "6.70"}})
+	assert not parsed["errors"]
+	assert parsed["rows"][1]["raw_cells"][10] == "invalid"
+	output = journal.export_journal(
+		parsed["rows"], opening=parsed["opening"], account_label=parsed["account_label"], template=parsed["template"]
+	)
+	assert output == raw.replace(b"invalid", "￥6.70".encode())
+	with pytest.raises(journal.StatementError, match="不是可修改的流水行"):
+		journal.parse_statement(raw, "银行.csv", edits={6: {"balance": "2000"}})
+
+
 def test_generic_overlapping_files_and_repeat_occurrences():
 	header = ["交易日期", "摘要", "收入金额", "支出金额"]
 	a = ["20261103", "示例", "0.00", "10.25"]
