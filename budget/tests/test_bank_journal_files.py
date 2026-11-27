@@ -175,3 +175,76 @@ def test_structured_contract_scope_size_and_date(book, monkeypatch):
 	monkeypatch.setattr(api.formats, "MAX_BYTES", 25)
 	with pytest.raises(ValueError, match="6 MiB"):
 		api.preview_rows(**scope, rows=rows)
+
+
+@pytest.mark.parametrize("extension", ["csv", "xlsx"])
+def test_ai_layout_reads_original_values_and_binds_header_to_confirmation(book, monkeypatch, extension):
+	from budget.services import bank_journal_ai as ai_layout
+
+	store, _ = book
+	raw = (
+		"Example Private Account 001234567890\n"
+		"过账日,资金流入额,资金流出额,账面余款,业务说明,Currency code\n"
+		"2026-11-17,27.34,,127.34,Private memo 7788,CNY\n"
+		"2026-11-18,,10.12,117.22,Private memo 9900,CNY"
+	)
+	payload = raw.encode()
+	if extension == "xlsx":
+		from io import BytesIO
+
+		from openpyxl import Workbook
+
+		workbook = Workbook()
+		for row in raw.splitlines():
+			workbook.active.append(row.split(","))
+		output = BytesIO()
+		workbook.save(output)
+		payload = output.getvalue()
+	filename = f"native.{extension}"
+	encoded = base64.b64encode(payload).decode()
+
+	def selected(candidates):
+		safe_input = str(candidates)
+		for value in ("001234567890", "2026-11-17", "Private", "27.34", "117.22", "7788"):
+			assert value not in safe_input
+		return {"header_row": 2, "columns": {
+			"date": 0, "income": 1, "expense": 2, "balance": 3, "summary": 4, "currency": 5,
+		}}
+
+	model = Mock(side_effect=selected)
+	monkeypatch.setattr(ai_layout, "request_layout", model)
+	preview = api.preview_import("book", filename, encoded, use_ai=1)
+	assert preview["mapping_source"] == "deepseek" and preview["header_row"] == 2
+	assert preview["errors"] == [] and preview["preview_id"]
+	assert [row["summary"] for row in preview["rows"]] == ["Private memo 7788", "Private memo 9900"]
+	assert (preview["income_total"], preview["expense_total"]) == ("27.34", "10.12")
+	store.apply_batch.assert_not_called()
+	kwargs = dict(
+		mapping=preview["mapping_used"], version=preview["version"],
+		preview_id=preview["preview_id"], request_id="ai-import-1",
+	)
+	with pytest.raises(ValueError):
+		api.apply_import("book", filename, encoded, header_row=1, **kwargs)
+	assert api.apply_import("book", filename, encoded, header_row=2, **kwargs) == {"added": 1}
+	model.assert_called_once()
+
+
+def test_unusable_ai_mapping_keeps_manual_preview_and_cannot_skip_transactions(book, monkeypatch):
+	from budget.services import bank_journal_ai as ai_layout
+
+	store, good = book
+	raw = (
+		"过账日,资金流入额,资金流出额,账面余款,业务说明\n"
+		"2026-11-17,27.34,,127.34,第一笔\n"
+		"过账日,资金流入额,资金流出额,账面余款,业务说明\n"
+		"2026-11-18,,10.12,117.22,第二笔"
+	)
+	encoded = base64.b64encode(raw.encode()).decode()
+	model = Mock(return_value={"header_row": 3, "columns": {"date": 0, "income": 1, "expense": 2}})
+	monkeypatch.setattr(ai_layout, "request_layout", model)
+	assert api.preview_import("book", "local.csv", good, use_ai=1)["preview_id"]
+	model.assert_not_called()
+	assert api.preview_import("book", "local.csv", encoded, use_ai=1)["needs_mapping"]
+	with pytest.raises(ValueError, match="表头前"):
+		api.preview_import("book", "local.csv", encoded, header_row=3, mapping=model.return_value["columns"])
+	store.apply_batch.assert_not_called()

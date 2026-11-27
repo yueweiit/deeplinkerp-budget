@@ -187,7 +187,7 @@
         return '<table class="bj-preview"><thead><tr>'+head+'</tr></thead><tbody>'+body+'</tbody></table>';
     }
     const mappingFields=[["date","交易日期"],["summary","摘要"],["income","收入"],["expense","支出"],["amount","交易金额（收支同列）"],
-        ["direction","收支方向"],["balance","余额"],["refs","钉钉单号"],["bank_ref","银行流水号"],["category","类别"],["level2","二级明细"],
+        ["direction","收支方向"],["balance","余额"],["currency","币种"],["refs","钉钉单号"],["bank_ref","银行流水号"],["category","类别"],["level2","二级明细"],
         ["level3","三级明细"],["project","所属项目"],["dept","归属部门"],["invoice","发票寄送信息"]];
     function errorList(errors) {
         if (!errors?.length) return "";
@@ -392,17 +392,18 @@
             const {d,el,action}=this.openDialog("导入银行流水",'<label>选择 CSV 或 XLSX 文件<input type="file" accept=".csv,.xlsx" name="statement"></label>'+
                 '<div data-mapping></div><div data-result aria-live="polite"></div>');
             const fileInput=el.querySelector("[name=statement]"),mappingBox=el.querySelector("[data-mapping]"),resultBox=el.querySelector("[data-result]");
-            let preview=null,data="",revision=0,changedMapping=false;
+            let preview=null,data="",revision=0,changedMapping=false,headerRow=null;
             function mapping(){
                 if(!changedMapping)return null;
                 return Object.fromEntries([...mappingBox.querySelectorAll("[data-map]")].filter(e=>e.value!=="").map(e=>[e.dataset.map,Number(e.value)]));
             }
             function invalidate(){++revision;preview=null;resultBox.replaceChildren();action("预览导入",read);}
-            fileInput.onchange=()=>{data="";mappingBox.replaceChildren();changedMapping=false;invalidate();};
+            fileInput.onchange=()=>{data="";headerRow=null;mappingBox.replaceChildren();changedMapping=false;invalidate();};
             mappingBox.addEventListener("change",()=>{changedMapping=true;invalidate();});
             const apply=async()=>{
                 if(!preview)throw Error("请重新预览文件。");
-                const args={book,filename:fileInput.files[0].name,content_base64:data,mapping:mapping(),preview_id:preview.preview_id,version:preview.version};
+                const args={book,filename:fileInput.files[0].name,content_base64:data,mapping:preview.mapping_used,
+                    header_row:preview.header_row,preview_id:preview.preview_id,version:preview.version};
                 await call("apply_import",{...args,request_id:retryKey(receipt,{book,preview_id:preview.preview_id,version:preview.version})});
                 d.hide();await this.load();root.frappe.show_alert({message:"流水已导入",indicator:"green"});
             };
@@ -413,19 +414,23 @@
                 const v=++revision,bytes=data||await fileData(file);if(v!==revision)return;
                 data=bytes;
                 const selected=mapping();
-                const res=await call("preview_import",{book,filename:file.name,content_base64:bytes,mapping:selected});if(v!==revision)return;
-                const headers=res.headers || [], map=selected || res.suggested_mapping || res.mapping || {};
+                const res=await call("preview_import",{book,filename:file.name,content_base64:bytes,mapping:selected,
+                    header_row:headerRow,use_ai:!changedMapping&&headerRow===null?1:0});if(v!==revision)return;
+                headerRow=res.header_row ?? null;
+                const headers=res.headers || [], map=res.mapping_used || selected || res.suggested_mapping || {};
                 if(headers.length&&!res.account_label){
                     const choices=[["","未使用"],...headers.map((h,i)=>[i,(i+1)+" · "+h])];
-                    mappingBox.innerHTML='<details '+(res.needs_mapping?"open":"")+'><summary>银行列与日记账字段对应</summary><div class="bj-form">'+mappingFields.map(([key,label])=>'<label>'+
+                    mappingBox.innerHTML='<details '+(res.needs_mapping||res.mapping_source==="deepseek"?"open":"")+'><summary>银行列与日记账字段对应</summary><div class="bj-form">'+mappingFields.map(([key,label])=>'<label>'+
                         esc(label)+'<select data-map="'+key+'">'+optionsList(choices)+'</select></label>').join("")+'</div></details>';
                     mappingBox.querySelectorAll("select").forEach(s=>s.value=map[s.dataset.map]??"");
                 }
                 preview=res;
                 const rows=res.rows || [],total=res.row_count ?? res.total ?? rows.length;
-                resultBox.innerHTML='<h5>导入预览 · '+esc(total)+' 笔</h5>'+errorList(res.errors)+
+                resultBox.innerHTML='<h5>导入预览 · '+esc(total)+' 笔</h5>'+
+                    (res.mapping_source==="deepseek"?'<p class="text-muted">DeepSeek 已识别列对应。请核对收支方向和金额。</p>':"")+
+                    (res.ai_notice?'<p class="text-muted">'+esc(res.ai_notice)+'</p>':"")+errorList(res.errors)+
                     (res.needs_mapping?'<p>请核对上方列对应关系，再次预览。</p>':"")+
-                    previewTable(rows.slice(0,25),[["date","日期"],["summary","摘要"],["income","收入"],["expense","支出"]])+
+                    previewTable(rows.slice(0,25),[["date","日期"],["summary","摘要"],["income","收入"],["expense","支出"],["balance","余额"]])+
                     (total>25?'<p class="text-muted">此处显示前 25 笔。</p>':"");
                 if(!res.needs_mapping&&!res.errors?.length&&res.preview_id&&total>0)action("确认导入",apply);
                 else action("重新预览",read);
