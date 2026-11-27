@@ -17,6 +17,7 @@ const {
   money,
   readFilters,
   shiftMonth,
+  amountReconciliation,
 } = require("../public/js/expense_management.js");
 
 test("current month defaults and corrupt bookmarks cannot break the month picker", () => {
@@ -40,7 +41,7 @@ test("current month defaults and corrupt bookmarks cannot break the month picker
 });
 
 test("native Desk anchor navigation preserves all drilldown filters after route serialization", () => {
-  const expected = {month: "2026-10", company: "A & B + 中国", region: "cn", category: "salary",
+  const expected = {month: "2026-10", company: "A & B + 中国", region: "cn", category: "",
     source_category: "b".repeat(64), measure: "approved"};
   let anchorClick;
   const jquery = () => ({on: (event, selector, handler) => {anchorClick = handler;}});
@@ -59,7 +60,7 @@ test("native Desk anchor navigation preserves all drilldown filters after route 
   vm.runInContext(fs.readFileSync(path.join(__dirname, "../../../frappe/frappe/public/js/frappe/router.js"), "utf8"), context);
   context.frappe.router.route = () => {};
   context.frappe.router.show_external_link_warning_if_needed = () => false;
-  const target = new URL("/desk/expense-details?expense_filters=" + encodeURIComponent(JSON.stringify(expected)), context.location);
+  const target = new URL("/desk/expense-details?expense_filters=" + encodeURIComponent(JSON.stringify({...expected, category: "salary"})), context.location);
   anchorClick({currentTarget: {hostname: target.hostname, pathname: target.pathname, search: target.search, hash: "",
     getAttribute: name => name === "href" ? target.href : null}, preventDefault() {}});
   // Execute Frappe's actual click handler and router, rather than only checking
@@ -219,15 +220,67 @@ test("month navigation crosses years correctly", () => {
   assert.equal(shiftMonth("2026-12", 1), "2027-01");
 });
 
-test("source category bookmarks and drilldowns retain exact scope alongside optional legacy filters", () => {
+test("source category bookmarks discard the retired management filter while retaining the visible scope", () => {
   const filters = {month: "2026-10", company: "A", source_category: "a".repeat(64), category: "service"};
-  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters))), {...filters, region: "", measure: ""});
+  assert.deepEqual(readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters))), {...filters, category: "", region: "", measure: ""});
   const work = Object.create(Workbench.prototype);
   work.filters = filters;
   let target;
   work.go = (view, values) => {target = {view, values};};
   work.click({target: {closest: () => ({dataset: {action: "source-category", category: "b".repeat(64)}})}});
   assert.deepEqual(target, {view: "details", values: {source_category: "b".repeat(64), measure: "approved", region: ""}});
+});
+
+test("unified controls offer one original expense category selector without a second classification section", () => {
+  const previous = global.DeepLinkERPMexicoExpenseDateRange;
+  const panel = {}, key = "a".repeat(64), work = Object.create(Workbench.prototype);
+  global.DeepLinkERPMexicoExpenseDateRange = {wholeMonths: () => ({}), MonthPicker: class {destroy() {}}};
+  Object.assign(work, {view: "details", current: () => true,
+    filters: {month: "2026-11", company: "A", region: "cn", category: "salary", source_category: key},
+    options: {companies: ["A"], categories: {salary: "Salaries"},
+      source_categories: [{key, source_path: ["Services", "Rent"]}]},
+    host: {querySelector: selector => selector === ".em-controls" ? panel : {}}});
+  try {
+    work.controls();
+    assert.equal((panel.innerHTML.match(/data-filter="source_category"/g) || []).length, 1);
+    assert.match(panel.innerHTML, /Expense category/);
+    assert.match(panel.innerHTML, /Services \/ Rent/);
+    assert.doesNotMatch(panel.innerHTML, /data-filter="category"|Unified classification|Management category|em-classification-options/);
+  } finally {global.DeepLinkERPMexicoExpenseDateRange = previous;}
+});
+
+test("stale page state cannot carry the retired management filter into queries exports URLs or drilldowns", () => {
+  const work = Object.create(Workbench.prototype), source = "a".repeat(64);
+  const previous = {location: global.location, history: global.history, setRoute: global.frappe.set_route};
+  let writtenURL, routed;
+  Object.assign(work, {filters: {month: "2026-10", company: "A", region: "cn", category: "salary",
+    source_category: source, measure: "approved"}, current: () => true, controls() {}, load() {}});
+  global.location = new URL("https://expense.test/desk/expense-details?sidebar=Expense%20Management#keep");
+  global.history = {state: null, replaceState: (_state, _title, url) => {writtenURL = new URL(url, global.location);}};
+  global.frappe.set_route = (route, options) => {routed = {route, options};};
+  try {
+    // Every query, detail and export sends this same normalized filter payload.
+    for (const view of ["overview", "analysis", "budget", "details", "review"]) {
+      work.view = view;
+      assert.deepEqual(work.requestFilters(), {...work.filters, category: "", view});
+    }
+    work.go("details", {category: "office"});
+    assert.equal(routed.options.expense_filters.category, "");
+    assert.equal(routed.options.expense_filters.source_category, source);
+    work.syncURL();
+    assert.equal(work.filters.category, "");
+    assert.equal(JSON.parse(writtenURL.searchParams.get("expense_filters")).category, "");
+    assert.equal(writtenURL.searchParams.get("sidebar"), "Expense Management");
+    assert.equal(writtenURL.hash, "#keep");
+    work.update({month: "2026-09", category: "tax"});
+    assert.equal(work.filters.category, "");
+    assert.equal(work.filters.source_category, source);
+    assert.equal(work.filters.month, "2026-09");
+  } finally {
+    global.location = previous.location;
+    global.history = previous.history;
+    global.frappe.set_route = previous.setRoute;
+  }
 });
 
 test("composition has one keyboard entry per row and keeps exact filters when returning to analysis", () => {
@@ -246,7 +299,7 @@ test("composition has one keyboard entry per row and keeps exact filters when re
     const dataset = Object.fromEntries([...attrs.matchAll(/data-([a-z]+)="([^"]*)"/g)].map(([, key, value]) => [key, value]));
     work.click({target: {closest: () => ({dataset})}});
   }
-  const filters = {...work.filters, source_category: selected, region: "cn", measure: "approved"};
+  const filters = {...work.filters, category: "", source_category: selected, region: "cn", measure: "approved"};
   assert.deepEqual(routes, [{route: "expense-details", options: {expense_filters: filters}}]);
   work.filters = readFilters("?expense_filters=" + encodeURIComponent(JSON.stringify(filters)));
   work.click({target: {closest: () => ({dataset: {action: "analysis"}})}});
@@ -267,7 +320,7 @@ test("expense composition and detail tables use escaped OA paths without requiri
   const analysis = work.analysis(), details = work.details();
   assert.match(analysis, /data-action="source-category"/);
   assert.match(analysis, /Services &lt;source&gt; \/ Payroll/);
-  assert.match(details, /OA expense category/);
+  assert.match(details, /Expense category/);
   assert.match(details, /Services &lt;source&gt; \/ Payroll/);
   assert.doesNotMatch(details, /Unclassified|Needs review/);
   work.data.rows[0].source_path = [];
@@ -288,7 +341,7 @@ test("native expense detail displays source category and subcategory separately"
         amount: "990", currency: "MXN", amounts: {CNY: "346.50", MXN: "990"}, rates: {CNY: "0.35", MXN: "1"},
         issues: [], description: "Original approval text"}})});
     await work.detail("a");
-    assert.match(body.innerHTML, /OA expense category<\/dt><dd>Services/);
+    assert.match(body.innerHTML, /Expense category<\/dt><dd>Services/);
     assert.match(body.innerHTML, /OA expense subcategory<\/dt><dd>Payroll/);
     assert.match(body.innerHTML, /Original approval text/);
     assert.doesNotMatch(body.innerHTML, /Management category|Needs review/);
@@ -301,6 +354,7 @@ test("allocated detail distinguishes original expense from selected amount and e
   global.frappe.ui = {Dialog: class {
     constructor() {body = {}; this.fields_dict = {body: {$wrapper: [body]}};}
     show() {}
+    hide() {}
   }};
   try {
     const work = Object.create(Workbench.prototype);
@@ -316,6 +370,11 @@ test("allocated detail distinguishes original expense from selected amount and e
     assert.match(body.innerHTML, /Source row<\/dt><dd>4/);
     assert.match(body.innerHTML, /&lt;img/);
     assert.doesNotMatch(body.innerHTML, /<img/);
+    work.call = async () => ({row: {number: "approval", amount_reviewed: true,
+      amounts: {}, rates: {}, issues: []}, original_expense: {amount: "6400.00", currency: "MXN", unverified: true}});
+    await work.detail("reviewed");
+    assert.match(body.innerHTML, /Approval amount confirmed for reporting/);
+    assert.doesNotMatch(body.innerHTML, /excluded from verified expenditure/);
   } finally {global.frappe.ui = previous;}
 });
 
@@ -452,4 +511,96 @@ test("an obsolete response cannot clear a newer request's loading state", async 
   assert.equal(await second, true);
   assert.equal(work.loading, false);
   assert.equal(work.data.company, "A");
+});
+
+test("unverified source amount and execution location remain distinct from reporting region", async () => {
+  const previous = global.frappe.ui;
+  let body;
+  global.frappe.ui = {Dialog: class {
+    constructor() {body = {}; this.fields_dict = {body: {$wrapper: [body]}};}
+    show() {}
+  }};
+  try {
+    const work = Object.create(Workbench.prototype);
+    Object.assign(work, {detailSeq: 0, filters: {}, view: "review", options: {}, current: () => true,
+      call: async () => ({row: {number: "approval", company: "A", region: "cn", display_currency: "CNY",
+        amount: null, currency: "MXN", amounts: {CNY: null}, rates: {}, issues: ["total"]},
+        original_expense: {origin: "header", amount: "6400.00", currency: "MXN", split_count: 1,
+          unverified: true, execution_region: "Mexico<script>bad</script>"}})});
+    await work.detail("a");
+    assert.match(body.innerHTML, /Original expense amount<\/dt><dd>MXN 6,?400\.00/);
+    assert.match(body.innerHTML, /excluded from verified expenditure/);
+    assert.match(body.innerHTML, /Reporting region<\/dt><dd>China/);
+    assert.match(body.innerHTML, /Execution Region<\/dt><dd>Mexico&lt;script&gt;/);
+    assert.doesNotMatch(body.innerHTML, /<script>/);
+  } finally {global.frappe.ui = previous;}
+});
+
+function amountEvidence() {
+  return {source_key: "source", revision: "revision", fingerprint: "fingerprint", can_confirm: true,
+    currency: "MXN", header_amount: "6400.00", tables: [{label: '<img src=x onerror="bad()">', total: "6401.00",
+      calculated_total: "6400.00", difference: "1.00", rows: [
+        {row_number: "1", quantity: "4710", unit_price: "0.64", amount: "3015.00", calculated_amount: "3014.40", difference: "0.60"},
+        {row_number: "2", quantity: "1200", unit_price: "0.6400", amount: "768.00", calculated_amount: "768.00", difference: "0.00"}]}]};
+}
+
+test("amount reconciliation shows exact header, details and row differences with escaped evidence", () => {
+  const data = amountEvidence();
+  const html = amountReconciliation(data);
+  assert.match(html, /6,?400\.00/);
+  assert.match(html, /6,?401\.00/);
+  assert.match(html, /0\.60/);
+  assert.match(html, /0\.6400/);
+  assert.equal((html.match(/class="em-amount-mismatch"/g) || []).length, 1);
+  assert.match(html, /data-confirm-amount/);
+  assert.match(html, /maxlength="1000" required/);
+  assert.doesNotMatch(html, /<img/);
+  data.can_confirm = false;
+  data.review = {state: "confirmed", amount: "6400.00", currency: "MXN", note: "<script>unsafe</script>", reviewed_by: "Manager", reviewed_at: "2026-11-27"};
+  assert.doesNotMatch(amountReconciliation(data), /data-confirm-amount|<script>/);
+  assert.match(amountReconciliation(data), /Approval amount confirmed/);
+  data.review.state = "stale";
+  data.can_confirm = true;
+  assert.match(amountReconciliation(data), /Source changed; the previous amount confirmation is no longer valid/);
+  assert.match(amountReconciliation(data), /data-confirm-amount/);
+});
+
+test("confirmation requires a reason, sends only server identities and prevents duplicate clicks", async () => {
+  const request = pending(), calls = [], alerts = [];
+  const submit = {disabled: false}, input = {value: "   ", focus() {this.focused = true;}}, error = {};
+  const elements = {"[data-confirm-amount]": submit, "[data-amount-note]": input, "[data-amount-error]": error};
+  const body = {querySelector: key => elements[key]}, dialog = {hide() {this.hidden = true;}};
+  const work = Object.create(Workbench.prototype);
+  Object.assign(work, {dialog, current: () => true, load: async () => {work.reloaded = true;},
+    call: (method, args) => {calls.push({method, args}); return request.promise;}});
+  const oldAlert = global.frappe.show_alert;
+  global.frappe.show_alert = value => alerts.push(value);
+  try {
+    await work.confirmAmount("line", amountEvidence(), dialog, body);
+    assert.equal(calls.length, 0);
+    assert.equal(error.textContent, "A review note is required");
+    input.value = " Verified amount ";
+    const saving = work.confirmAmount("line", amountEvidence(), dialog, body);
+    assert(submit.disabled && input.disabled);
+    await work.confirmAmount("line", amountEvidence(), dialog, body);
+    assert.deepEqual(calls, [{method: "confirm_approval_amount", args: {key: "line", source_key: "source",
+      expected_revision: "revision", expected_fingerprint: "fingerprint", note: "Verified amount"}}]);
+    request.resolve({ok: true});
+    await saving;
+    assert(dialog.hidden && work.reloaded && alerts.length === 1);
+    assert(!submit.disabled && !input.disabled);
+  } finally {global.frappe.show_alert = oldAlert;}
+});
+
+test("failed confirmation preserves the reason and shows an error without a success message", async () => {
+  const submit = {disabled: false}, input = {value: "Checked the approval"}, error = {};
+  const elements = {"[data-confirm-amount]": submit, "[data-amount-note]": input, "[data-amount-error]": error};
+  const body = {querySelector: key => elements[key]}, dialog = {hide() {assert.fail("must stay open");}};
+  const work = Object.create(Workbench.prototype);
+  Object.assign(work, {dialog, current: () => true, call: async () => {throw {responseJSON: {
+    exc_type: "ValidationError", _server_messages: JSON.stringify([JSON.stringify({message: "Source changed"})])}};}});
+  await work.confirmAmount("line", amountEvidence(), dialog, body);
+  assert.equal(error.textContent, "Source changed");
+  assert.equal(input.value, "Checked the approval");
+  assert(!submit.disabled && !input.disabled);
 });

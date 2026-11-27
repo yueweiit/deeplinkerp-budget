@@ -105,3 +105,14 @@ def matches(aliases, corp, kind, name):
 		return False
 	return ((corp, None, name.strip()) in aliases
 		or kind in {"entity", "department"} and (corp, kind, " ".join(name.split())) in aliases)
+
+
+def allocation_scope(aliases, corp, original, entry):
+	"""Shared Group attribution for report projections and monetary write guards."""
+	if not original or entry.get("assignment_mode") != "automatic":
+		return False, False
+	explicit = matches(aliases, corp, original.get("entity_kind"), original.get("source_entity"))
+	unnamed = (entry.get("region") == "pending" and not entry.get("matched_company")
+		and entry.get("assignment_issue") == "unmapped_company"
+		and not str(original.get("source_entity") or "").strip())
+	return bool(explicit or unnamed), explicit

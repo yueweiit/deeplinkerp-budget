@@ -997,3 +997,38 @@ Current period: {0} lines need review; {1} unverified lines excluded.,Período a
 Previous period: {0} lines need review; {1} unverified lines excluded.,Período anterior: {0} líneas pendientes de revisión; {1} líneas no verificadas excluidas.
 Some expenses in the comparison periods still need review.,Algunos gastos de los períodos comparados siguen pendientes de revisión.
 This source is assigned to Group. Change its ownership in Configure OA Synchronization.,Este origen está asignado al grupo. Cambie su asignación en Configurar sincronización de OA.
+Approval creation date,Fecha de creación de la aprobación
+Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.,Los gastos sin fecha de solicitud o con la fecha vacía utilizan la fecha de creación de la aprobación. Las fechas no válidas o contradictorias siguen requiriendo revisión.
+Expense categories come directly from the original approvals.,Las categorías de gasto proceden de las aprobaciones originales.
+Budget differences and execution rates are unavailable when filtering by expense category.,No se calculan las diferencias ni los porcentajes de ejecución del presupuesto al filtrar por categoría de gasto.
+Reporting region,Región de imputación
+Amount verification,Verificación del importe
+Source amount recognized; excluded from verified expenditure until review is resolved.,Importe original identificado; no se incluye en los gastos verificados hasta resolver la revisión.
+Amount reconciliation,Conciliación de importes
+Approval details,Detalles de la aprobación
+Approval amount,Importe de la aprobación
+Calculated detail total,Total calculado de cantidad por precio unitario
+Detail total minus approval amount,Diferencia (total de detalles menos importe de aprobación)
+Quantity × unit price,Cantidad × precio unitario
+Row difference,Diferencia de la fila
+Row difference is the detail amount minus quantity × unit price. All amounts below are in the original currency.,La diferencia de la fila es el importe del detalle menos cantidad por precio unitario. Todos los importes siguientes están en la moneda original.
+Approval amount confirmed,Importe de aprobación confirmado
+Source changed; the previous amount confirmation is no longer valid,El origen cambió; la confirmación anterior del importe ya no es válida
+Adopted approval amount,Importe de aprobación adoptado
+Reviewed By,Revisado por
+Reviewed At,Fecha de revisión
+Review Note,Nota de revisión
+Reason for adopting the approval amount,Motivo para adoptar el importe de aprobación
+Confirmation uses the approval amount for expense reports and preserves the original approval and detail amounts.,"Al confirmar, los informes de gastos usarán el importe de aprobación y se conservarán los importes originales de la aprobación y sus detalles."
+Confirm using approval amount,Confirmar el uso del importe de aprobación
+Approval amount confirmed. Expense reports are being updated.,Importe de aprobación confirmado. Se están actualizando los informes de gastos.
+Only whole-approval expenses without separate allocations can use this confirmation.,Esta confirmación solo está disponible para gastos por aprobación completa sin asignaciones separadas; revise primero otros problemas de origen.
+The approval must be approved before confirming its amount.,La solicitud debe estar aprobada antes de confirmar su importe.
+Invalid expense amount confirmation.,La solicitud de confirmación del importe no es válida.
+This approval cannot use whole-approval amount confirmation. Review its source and allocation first.,Esta aprobación no admite la confirmación del importe total. Revise primero la fuente y la asignación del gasto.
+A review note is required,Se requiere una nota de revisión
+Expense source changed; reload and review again,La fuente del gasto cambió; vuelva a cargar y revisar
+Expense allocation changed; reload and review again,La asignación del gasto cambió; vuelva a cargar y revisar
+Amount confirmation failed. Reload the approval and retry.,No se pudo confirmar el importe. Vuelva a cargar la aprobación e inténtelo de nuevo.
+"Resolve other source amount, currency or allocation issues before confirming the approval amount.","Resuelva primero otros problemas de importes, moneda o asignación de la fuente antes de confirmar el importe de aprobación."
+Approval amount confirmed for reporting; original detail differences are retained.,Importe aprobado confirmado para los informes; se conservan las diferencias originales del detalle.

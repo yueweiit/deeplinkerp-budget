@@ -403,3 +403,39 @@ Current period: {0} lines need review; {1} unverified lines excluded.,Current pe
 Previous period: {0} lines need review; {1} unverified lines excluded.,Previous period: {0} lines need review; {1} unverified lines excluded.
 Some expenses in the comparison periods still need review.,Some expenses in the comparison periods still need review.
 This source is assigned to Group. Change its ownership in Configure OA Synchronization.,This source is assigned to Group. Change its ownership in Configure OA Synchronization.
+Approval creation date,Approval creation date
+Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.,Expenses without an application date or with a blank date use the approval creation date. Invalid or conflicting dates still require review.
+Expense categories come directly from the original approvals.,Expense categories come directly from the original approvals.
+Budget differences and execution rates are unavailable when filtering by expense category.,Budget differences and execution rates are unavailable when filtering by expense category.
+Reporting region,Reporting region
+Amount verification,Amount verification
+Source amount recognized; excluded from verified expenditure until review is resolved.,Source amount recognized; excluded from verified expenditure until review is resolved.
+Execution Region,Execution Region
+Amount reconciliation,Amount reconciliation
+Approval details,Approval details
+Approval amount,Approval amount
+Calculated detail total,Calculated detail total
+Detail total minus approval amount,Detail total minus approval amount
+Quantity × unit price,Quantity × unit price
+Row difference,Row difference
+Row difference is the detail amount minus quantity × unit price. All amounts below are in the original currency.,Row difference is the detail amount minus quantity × unit price. All amounts below are in the original currency.
+Approval amount confirmed,Approval amount confirmed
+Source changed; the previous amount confirmation is no longer valid,Source changed; the previous amount confirmation is no longer valid
+Adopted approval amount,Adopted approval amount
+Reviewed By,Reviewed By
+Reviewed At,Reviewed At
+Review Note,Review Note
+Reason for adopting the approval amount,Reason for adopting the approval amount
+Confirmation uses the approval amount for expense reports and preserves the original approval and detail amounts.,Confirmation uses the approval amount for expense reports and preserves the original approval and detail amounts.
+Confirm using approval amount,Confirm using approval amount
+Approval amount confirmed. Expense reports are being updated.,Approval amount confirmed. Expense reports are being updated.
+Only whole-approval expenses without separate allocations can use this confirmation.,Only whole-approval expenses without separate allocations can use this confirmation.
+The approval must be approved before confirming its amount.,The approval must be approved before confirming its amount.
+Invalid expense amount confirmation.,Invalid expense amount confirmation.
+This approval cannot use whole-approval amount confirmation. Review its source and allocation first.,This approval cannot use whole-approval amount confirmation. Review its source and allocation first.
+A review note is required,A review note is required
+Expense source changed; reload and review again,Expense source changed; reload and review again
+Expense allocation changed; reload and review again,Expense allocation changed; reload and review again
+Amount confirmation failed. Reload the approval and retry.,Amount confirmation failed. Reload the approval and retry.
+"Resolve other source amount, currency or allocation issues before confirming the approval amount.","Resolve other source amount, currency or allocation issues before confirming the approval amount."
+Approval amount confirmed for reporting; original detail differences are retained.,Approval amount confirmed for reporting; original detail differences are retained.

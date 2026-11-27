@@ -75,6 +75,12 @@ def get_detail(key, filters=None):
 	return service.detail(key, filters)
 
 
+@frappe.whitelist(methods=["POST"])
+def confirm_approval_amount(key, source_key, expected_revision, expected_fingerprint, note):
+	from ..services.expense_amount_review import confirm
+	return confirm(key, source_key, expected_revision, expected_fingerprint, note)
+
+
 def source_labels(row):
 	path = list(row.get("source_path") or [])
 	if path and row.get("kind") == "budget":
@@ -99,7 +105,7 @@ def export_data(filters=None):
 	rows, f, metadata = service.export_rows(filters)
 	headers = ("Approval number", "Subsidiary", "Application date", "Reporting month", "Approval status", "OA expense category", "OA expense subcategory",
 		"Detail item", "Original amount", "Currency", "Region", "Reporting currency", "Reported amount", "Exchange rate date",
-		"Exchange rate", "Date source", "Verified approved expenditure", "Included in regional scope", "Review issues", "Management category (optional)")
+		"Exchange rate", "Date source", "Verified approved expenditure", "Included in regional scope", "Review issues", "Management category (optional)", "Approval amount confirmed")
 	issues = service.ISSUES
 	statuses = dict(zip(service.approvals.STATUSES, ("Approved", "In progress", "Rejected", "Terminated", "Withdrawn", "Unknown")))
 	data = [[_("Expense Management")], [_("Reporting month"), f["month"]],
@@ -124,11 +130,12 @@ def export_data(filters=None):
 			row["line_label"] or row["description"], excel_amount(row["amount"]), row["currency"],
 			_(service.regions.REGIONS[row["region"]]["label"]) if row["region"] else _("Region not configured"),
 			currency, excel_amount(row["amounts"].get(currency)), row["rate_date"], row["rates"].get(currency),
-			_({"submission": "OA submission date", "budget": "Budget month"}.get(row["date_basis"], "Application date")),
+			_({"submission": "Approval creation date", "budget": "Budget month"}.get(row["date_basis"], "Application date")),
 			_("Yes") if verified else _("No"),
 			_("Yes") if verified and row["region"] in service.regions.REGIONS else _("No"),
 			"; ".join(_(issues.get(issue, "Needs review")) for issue in row["issues"]),
-			_(service.management.rules_service.CATEGORIES[row["management_category"]]) if row["management_category"] else ""])
+			_(service.management.rules_service.CATEGORIES[row["management_category"]]) if row["management_category"] else "",
+			_("Yes") if row.get("amount_reviewed") else _("No")])
 	return workbook(data, f"expenses-{f['month']}.xlsx")
 
 
@@ -144,7 +151,7 @@ def export_budget(filters):
 		[_("OA expense category"), source_filter_label(result["filters"], result["metadata"])],
 		[_("Management category"), _(service.management.rules_service.CATEGORIES.get(result["filters"]["category"], "Unclassified" if result["filters"]["category"] else "All"))],
 		[_("Budgets keep their budget month. The latest approved budget per subsidiary is used; a missing budget is not zero.")],
-		*([[_("Budget differences and execution rates are unavailable when filtering by OA category. Use unified categories for category-level budget comparisons.")]] if result["filters"]["source_category"] else []),
+		*([[_("Budget differences and execution rates are unavailable when filtering by expense category.")]] if result["filters"]["source_category"] else []),
 		[_("Snapshot complete"), _("Yes") if result["metadata"]["complete"] else _("No")], [],
 		[_(label) for label in ("Subsidiary", "Region", "Reporting currency", "Effective budget", "Approved budget occupation", "Budget difference", "Budget execution rate")]]
 	for row in result["budgets"]:

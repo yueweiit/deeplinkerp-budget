@@ -66,7 +66,9 @@ def original_expense(kind, source, selected, row):
 		# Amounts and display labels do not identify a source version: another
 		# original line may occupy the same allocation index after a refresh.
 		# Old publications without this internal revision cannot prove provenance.
-		if (source.get("state") != "confirmed" or not selected.get("source_available", True)
+		from deeplinkerp_branding.services.regional_expense_automatic import is_automatic
+		automatic = is_automatic(regional.decode(source.allocations_json))
+		if (source.get("state") != "confirmed" and not automatic or not selected.get("source_available", True)
 				or not row.get("allocation_modified")
 				or row["allocation_modified"] != str(source.get("modified") or "")):
 			return None
@@ -82,10 +84,29 @@ def original_expense(kind, source, selected, row):
 		current = {"company": selected.get("company"), "status": header.get("approval_status"),
 			"description": original.get("description"), "line_label": original.get("description"),
 			"source_path": regional.contract.management_path(original)}
-		if not current_line(row, selected.get("amount"), currency, current):
+		# A current automatic row can be blocked by source arithmetic or company
+		# validation while its source amount is known. Show that evidence as
+		# unverified, without making it an eligible report/allocation amount.
+		unverified = automatic and row.get("amount") is None
+		comparison = {**row, "amount": selected.get("amount")} if unverified else row
+		if (unverified and not same_amount(selected.get("amount"), original.get("amount"))
+				or not current_line(comparison, selected.get("amount"), currency, current)):
 			return None
 		parts = [entry for entry in regional.decode(source.allocations_json) if entry.get("line_key") == original["line_key"]]
-		return projected_preview({**original, "currency": currency}, header, split_count=len(parts))
+		result = projected_preview({**original, "currency": currency}, header, split_count=len(parts))
+		if unverified:
+			result["unverified"] = True
+		# Execution location is source evidence, not the subsidiary's country.
+		raw, template = decode(source.get("source_json") or "{}"), decode(source.get("template_json") or "{}")
+		if isinstance(raw, dict) and isinstance(template, dict):
+			from deeplinkerp_branding.services.mexico_expense_projection import text
+			from deeplinkerp_branding.services import mexico_expense_templates as templates
+			fields = decode(raw.get("form_component_values") or (raw.get("raw_payload") or {}).get("formComponentValues") or [])
+			if isinstance(fields, list) and all(isinstance(field, dict) for field in fields):
+				resolved, errors = templates.resolve(fields, template, schema={"region": templates.FIELDS["region"]})
+				if not errors and text(resolved.get("region", {}).get("value")):
+					result["execution_region"] = text(resolved["region"]["value"])
+		return result
 	if kind == "native":
 		if not current_line(row, selected.get("amount"), selected.get("currency"), selected):
 			return None

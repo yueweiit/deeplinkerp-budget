@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 
 from deeplinkerp_branding.services import mexico_expenses as mx
-from deeplinkerp_branding.services.regional_expenses import application_date_info, management_date
+from deeplinkerp_branding.services.regional_expenses import application_date_info, management_date, management_application_date
 from . import cn_approval_contract as contract, cn_approval_settings as settings
 
 
@@ -54,6 +54,8 @@ def preview(row, business_timezone, corporations, processors):
 				for key in problems)
 		if "cn" in templates:
 			item = contract.project(raw, templates["cn"])
+			if templates["cn"]["approval_type"] != "budget" and "mx" not in templates:
+				applied, _basis = management_application_date(raw, templates["cn"], business_timezone)
 			# Shared templates use the effective management date, not the CN
 			# adapter's stricter legacy date rule. All other issues stay visible.
 			issues.update(_(contract.ISSUES[key]) for key in item["issues"] if key != "period" or not applied)
