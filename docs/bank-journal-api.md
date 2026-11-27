@@ -30,7 +30,7 @@
 
 1. 在支持 OpenAPI 的工具中导入本文的 OpenAPI 文件。给工具配置自定义认证请求头，名称填写 `Authorization`，值填写 `token <API_KEY>:<API_SECRET>`。认证信息放在工具的凭据设置中。
 2. 每次导入先调用 `getJournalOptions`。用 `message.companies` 生成公司选项，包含尚未建账簿的已授权公司。用户选公司后，从该公司下的 `message.books[].account` 生成账户选项，并用该项的 `name` 作为账簿标识。公司改变时重新选择账户。
-3. 目标账户缺少账簿且 `can_create=true` 时，用用户提供或银行原单明确列示的账户、启用日期和期初余额调用 `createJournalBook`，再用返回的 `message.book` 继续。期初资料缺失或有冲突时，先核实具体字段。
+3. 目标账户缺少账簿且 `can_create=true` 时，原始文件可以直接按公司预览，确认时一起建账。结构化 JSON 明细仍可先调用 `createJournalBook`，再用返回的 `message.book` 继续。期初资料缺失或有冲突时，先核实具体字段。
 4. CSV 或 XLSX 调用 `previewJournalFile`，从其他格式提取的结构化明细调用 `previewJournalRows`。显示选定的公司、银行账户、笔数和收支合计。用户确认后再调用对应的 `applyJournalFile` 或 `applyJournalRows`，并保留原请求和回执。
 
 专用接入用户通过 `Bank Journal Import API` 角色限制到本页列出的接口。管理员用 ERP 的 `User Permission` 逐一授权目标公司，选择 `Company`，启用「适用于所有单据类型」和「隐藏下级」，再核对该公司的可用账簿。
@@ -153,6 +153,8 @@ jq '.message | {operation,version,created,matched,skipped}' "$work/receipt.json"
 ## 原始 CSV 或 Excel
 
 `preview_import` 的请求体包含 `book`、带扩展名的 `filename` 和 `content_base64`。可选 `mapping` 形如 `{"date":0,"summary":2,"expense":5}`，整数为从 0 开始的列序号。传原始文件字节的标准 Base64，保留编码和换行。来源表明确标有账户时，核对预览中的 `account_label` 与选定的账户。通用流水可能没有这个字段的值，应以银行原单和用户选择为准。
+
+导入新账簿时，传 `company` 并省略 `book`。传 `use_ai=1` 可为陌生表头启用 DeepSeek，传 `review_offset=0` 读取首屏可编辑的流水。核对返回的 `book_settings` 中的账户、启用日和人民币期初余额。缺项列在 `book_issues` 中，可用 `account`、`opening_date`、`opening` 补齐后再次预览。需要修改流水时，通过 `edits` 按原表行号提交修改，收支两列一起传。提交确认沿用同一公司、文件、账簿参数、修改值及返回的 `header_row`、`mapping_used`（作为 `mapping`）。确认成功后，`message.book` 是新账簿编号。取消预览即可放弃本次建账。
 
 可以复用上例的 `work/target.json` 和 `post` 函数。下面的 `FILE` 是本地文件路径。
 

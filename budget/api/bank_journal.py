@@ -115,43 +115,60 @@ def _lock_company_book(company, name):
 	)
 
 
-@frappe.whitelist(methods=["POST"])
-def create_book(company=None, account=None, opening=None, opening_date=None):
+def authorize_book_creation(company):
+	_doctype_permission("read")
 	_doctype_permission("create")
 	if not isinstance(company, str) or not company.strip():
 		frappe.throw("请选择银行账簿所属公司。")
 	if company not in allowed_companies():
 		frappe.throw("没有此公司的权限。", frappe.PermissionError)
+
+
+def book_settings(company, account, opening, opening_date):
+	issues = []
 	if not isinstance(account, str) or not account.strip() or len(account.strip()) > 140:
-		frappe.throw("请填写银行账户的账簿名称。")
-	account = account.strip()
+		issues.append({"field": "account", "message": "请填写银行账户的账簿名称。"})
+	account = account.strip() if isinstance(account, str) else ""
 	try:
 		amount = money(opening)
 	except ValueError:
-		frappe.throw("请提供明确的人民币期初余额，最多保留两位小数。")
+		amount = None
+		issues.append({"field": "opening", "message": "请提供明确的人民币期初余额，最多保留两位小数。"})
 	try:
-		start = as_date(opening_date)
+		start = as_date(opening_date).isoformat()
 	except ValueError:
-		frappe.throw("请填写有效的账簿启用日期（YYYY-MM-DD）。")
-	name = digest([company, account])
+		start = None
+		issues.append({"field": "opening_date", "message": "请填写有效的账簿启用日期（YYYY-MM-DD）。"})
+	return frappe._dict(
+		name=digest([company, account]), company=company, account=account, opening=amount, opening_date=start, revision=0
+	), issues
+
+
+def book_exists(name):
+	return bool(frappe.db.exists(BOOK, name))
+
+
+def _insert_book(settings):
+	frappe.get_doc(dict(
+		doctype=BOOK, company=settings.company, account=settings.account, opening=settings.opening,
+		opening_date=settings.opening_date, revision=0, next_sequence=0,
+	)).insert(ignore_permissions=True, set_name=settings.name)
+
+
+@frappe.whitelist(methods=["POST"])
+def create_book(company=None, account=None, opening=None, opening_date=None):
+	authorize_book_creation(company)
+	settings, issues = book_settings(company, account, opening, opening_date)
+	if issues:
+		frappe.throw(issues[0]["message"])
 	with _transaction():
-		existing = _lock_current_snapshot(lambda: _lock_company_book(company, name))
+		existing = _lock_current_snapshot(lambda: _lock_company_book(company, settings.name))
 		if existing:
-			if money(existing.opening) != amount or str(existing.opening_date) != str(start):
+			if money(existing.opening) != settings.opening or str(existing.opening_date) != settings.opening_date:
 				frappe.throw("该账户已有账簿，期初设置不同。")
 		else:
-			frappe.get_doc(
-				dict(
-					doctype=BOOK,
-					company=company,
-					account=account,
-					opening=amount,
-					opening_date=start,
-					revision=0,
-					next_sequence=0,
-				)
-			).insert(ignore_permissions=True, set_name=name)
-	return {"name": name, "book": name, "account": account, "company": company}
+			_insert_book(settings)
+	return {"name": settings.name, "book": settings.name, "account": settings.account, "company": company}
 
 
 def _wire(native):
@@ -337,7 +354,7 @@ def _lock_current_snapshot(acquire):
 			frappe.db.savepoint("bank_journal_change")
 
 
-def _begin(book, permission, version, request_id, kind, payload):
+def _begin(book, permission, version, request_id, kind, payload, *, replay_only=False):
 	if not isinstance(request_id, str) or not re.fullmatch(r"[0-9A-Za-z_-]{8,100}", request_id):
 		frappe.throw("操作标识无效，请刷新页面后重试。")
 	doc = _lock_current_snapshot(lambda: authorize_book(book, permission, lock=True))
@@ -348,6 +365,8 @@ def _begin(book, permission, version, request_id, kind, payload):
 		if previous.digest != fingerprint:
 			frappe.throw("同一操作标识已用于其他内容。")
 		return doc, ident, fingerprint, _json(previous.result_json)
+	if replay_only:
+		frappe.throw("该账户已有账簿，请选择该账户后导入银行流水。", frappe.TimestampMismatchError)
 	if str(version) != str(doc.revision or 0):
 		frappe.throw("账簿已更新，请刷新后重新核对。", frappe.TimestampMismatchError)
 	return doc, ident, fingerprint, None
@@ -582,6 +601,7 @@ def apply_batch(
 	opening_date=None,
 	template=None,
 	request_facts=None,
+	new_book=None,
 ):
 	source = _source(source)
 	if not isinstance(rows, list) or len(rows) > MAX_BATCH:
@@ -592,7 +612,15 @@ def apply_batch(
 		opening = money(opening)
 	payload = [rows, opening, str(opening_date or ""), template] if request_facts is None else request_facts
 	with _transaction(), managed():
-		doc, ident, fp, done = _begin(book, "create", version, request_id, source, payload)
+		replay_only = False
+		if new_book is not None:
+			# Lock in the same order as manual creation. Only the original receipt
+			# may replay once another request has created the proposed book.
+			existing = _lock_current_snapshot(lambda: _lock_company_book(new_book.company, book))
+			replay_only = bool(existing)
+			if not existing:
+				_insert_book(new_book)
+		doc, ident, fp, done = _begin(book, "create", version, request_id, source, payload, replay_only=replay_only)
 		if done:
 			return done
 		changes, checks, claimed = [], [], set()
