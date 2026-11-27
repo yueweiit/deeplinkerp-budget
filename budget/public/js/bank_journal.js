@@ -483,51 +483,57 @@
         importDialog(newBook=false) {
             const book=newBook?"":this.book,company=this.company,currency=newBook?"":this.bookCurrency,receipt={};
             const currencies=this.opts.currencies || [];
-            const settings=newBook?'<div class="bj-import-book" data-book-settings>'+
+            const settings=newBook?'<div class="bj-import-book" data-book-settings hidden>'+
                 field("account","银行账户名称","","text",'maxlength="140"')+currencySelect(currencies)+
                 field("opening_date","启用日期","","date")+openingField+
-                '<small data-currency-hint role="status" hidden></small><div data-book-issues role="status"></div></div>':"";
+                '<div data-book-issues role="status"></div></div>':"";
             const modes=newBook?"":importModeFields(Boolean(this.opts.can_write && this.opts.can_delete));
-            const {d,el,action,error,check,run}=this.openDialog(newBook?"导入新账簿":"导入银行流水",settings+modes+'<div class="bj-import-toolbar">'+
+            const {d,el,action,error,check}=this.openDialog(newBook?"导入新账簿":"导入银行流水",modes+'<div class="bj-import-toolbar">'+
                 '<label class="bj-import-file"><input type="file" accept=".csv,.xlsx" name="statement" aria-label="选择 CSV 或 XLSX 文件"></label>'+
-                '<div data-mapping></div></div><div data-result></div>',{companyOnly:newBook});
+                '<div data-mapping></div></div>'+settings+'<div data-result></div>',{companyOnly:newBook});
             el.classList.add("bj-import-dialog");
             el.closest(".modal-dialog")?.classList.add("bj-import-modal");
             const fileInput=el.querySelector("[name=statement]");
             const mappingBox=el.querySelector("[data-mapping]"),resultBox=el.querySelector("[data-result]");
-            let preview=null, data="", revision=0, offset=0, selected=null, headerRow=null, edits={};
+            const primary=d.get_primary_btn();
+            const showAction=(label,fn)=>{action(label,fn);primary.removeClass("hide");};
+            let preview=null, data="", pendingBytes=null, revision=0, offset=0, readingOffset=null, selected=null, headerRow=null;
+            let edits={}, bookEdits={}, autoExclude=true;
             const bookFields=el.querySelector("[data-book-settings]");
-            const bookEdits={},excludedRows=new Set(),originalRows=new Map();
+            const bookInputs=Array.from(bookFields?.querySelectorAll("input[name],select[name]") || []);
+            const excludedRows=new Set(),restoredRows=new Set(),originalRows=new Map();
             let layoutPreview=null,parts=false,signed=false;
-            const validate=()=>read(offset);
+            // File selection stays available during reads. A superseded read must not hold the dialog's write lock.
+            const showReadAction=(label,nextOffset=offset)=>showAction(label,()=>{void read(nextOffset);});
             const invalidate=label=>{
                 ++revision;
+                readingOffset=null;
                 preview=null;
                 error("");
                 resultBox.querySelector("[data-range-notice]")?.remove();
                 resultBox.querySelector("[data-opening-adjustment]")?.remove();
                 const status=resultBox.querySelector("[data-validation]");
                 if(status)status.textContent=label;
-                action("重新校验",validate);
+                showReadAction("重新校验");
             };
             const mode=()=>newBook?"append":el.querySelector('[name="import-mode"]:checked')?.value;
             el.querySelector(".bj-import-modes")?.addEventListener("change",()=>{
-                invalidate("导入方式已更改，请重新预览");
-                action("预览流水",validate);
+                if(!fileInput.files.length)return;
+                invalidate("导入方式已更改");
+                return read(0);
             });
             const newTarget=el.querySelector("[data-import-new]");
             newTarget?.addEventListener("click",()=>{check();d.hide();this.importDialog(true);});
-            function showBookSettings(res={}) {
+            function showBookSettings(res) {
                 if(!bookFields)return;
-                const issues=res.book_issues||[];
-                bookFields.querySelectorAll("input[name],select[name]").forEach(input=>{
-                    input.value=input.name==="currency"?(bookEdits.currency||""):(bookEdits[input.name]??res.book_settings?.[input.name]??"");
+                bookFields.hidden=!res;
+                const issues=res?.book_issues||[];
+                bookInputs.forEach(input=>{
+                    const value=bookEdits[input.name] ?? res?.book_settings?.[input.name] ?? (input.name==="currency"?res?.currency:"") ?? "";
+                    if(input.value!==String(value))input.value=String(value);
                     input.setAttribute("aria-invalid",String(issues.some(issue=>issue.field===input.name)));
+                    if(input.name==="currency")setOpeningUnit(bookFields,input.value);
                 });
-                const hint=bookFields.querySelector("[data-currency-hint]");
-                const suggestion=!bookEdits.currency && currencies.includes(res.suggested_currency)?res.suggested_currency:"";
-                hint.textContent=suggestion?"文件标注 "+suggestion+"，请选择账簿币种确认。":"";
-                hint.hidden=!suggestion;
                 bookFields.querySelector("[data-book-issues]").innerHTML=errorList(issues);
             }
             if(bookFields){
@@ -540,19 +546,19 @@
                     if(!target.matches("select[name]"))return;
                     editBook(target);
                     setOpeningUnit(bookFields,target.value);
-                    bookFields.querySelector("[data-currency-hint]").hidden=Boolean(bookEdits.currency);
                 };
             }
             fileInput.onchange=()=>{
                 ++revision;
-                data=""; preview=null; layoutPreview=null; selected=null; headerRow=null; offset=0; edits={};
-                excludedRows.clear(); originalRows.clear(); parts=false; signed=false;
+                data=""; pendingBytes=null; readingOffset=null; preview=null; layoutPreview=null; selected=null; headerRow=null; offset=0;
+                edits={}; bookEdits={}; excludedRows.clear(); restoredRows.clear(); originalRows.clear(); autoExclude=true; parts=false; signed=false;
                 error("");
                 mappingBox.replaceChildren();
                 resultBox.replaceChildren();
                 if(newTarget)newTarget.hidden=Boolean(fileInput.files.length);
                 showBookSettings();
-                action("预览流水",validate);
+                primary.addClass("hide");
+                if(fileInput.files.length)return read(0);
             };
             mappingBox.onchange=event=>{
                 const input=event.target;
@@ -568,15 +574,10 @@
                     if(input.value==="")delete selected[input.dataset.map];
                     else selected[input.dataset.map]=Number(input.value);
                 }else return;
-                // A different set of amount columns can change which original rows may be excluded.
-                const hadExclusions=excludedRows.size>0;
-                if(hadExclusions){
-                    excludedRows.clear();
-                    resultBox.replaceChildren();
-                    offset=0;
-                }
+                autoExclude=true;
+                offset=0;
+                resultBox.replaceChildren();
                 invalidate("列对应尚未校验");
-                if(hadExclusions)error("列对应已变更，请重新预览并核对需要排除的原行。");
             };
             resultBox.oninput=event=>{
                 const input=event.target;
@@ -600,7 +601,13 @@
                 if(toggle){
                     const number=Number(toggle.dataset.excludeRow),tr=toggle.closest("[data-source-row]");
                     const exclude=!excludedRows.has(number);
-                    if(exclude)excludedRows.add(number);else excludedRows.delete(number);
+                    if(exclude){
+                        excludedRows.add(number);
+                        restoredRows.delete(number);
+                    }else{
+                        excludedRows.delete(number);
+                        restoredRows.add(number);
+                    }
                     tr.classList.toggle("bj-import-excluded",exclude);
                     tr.querySelectorAll("[data-field]").forEach(input=>{
                         input.disabled=exclude;
@@ -615,15 +622,16 @@
                     return;
                 }
                 const button=event.target.closest("[data-review-offset]");
-                if(button)run(async()=>{check();await read(Number(button.dataset.reviewOffset));});
+                if(button)return read(Number(button.dataset.reviewOffset));
             };
-            function fileArgs(file,confirmed){
-                const target=newBook?{...confirmed,company,...bookEdits,currency:bookEdits.currency||null}:{book,currency,mode:mode()};
+            function fileArgs(file){
+                const target=newBook?{company}:{book,currency,mode:mode()};
                 return {...target,filename:file.name,content_base64:data,...importReviewArgs(edits,excludedRows)};
             }
-            const apply=async()=>{
-                if(!preview?.preview_id)throw Error("请先重新校验流水。");
-                const args={...fileArgs(fileInput.files[0],preview.book_settings),mapping:preview.mapping_used,header_row:preview.header_row,
+            const apply=async signedPreview=>{
+                if(preview!==signedPreview || !preview?.preview_id)throw Error("请先重新校验流水。");
+                const confirmed=Object.fromEntries(bookInputs.map(input=>[input.name,input.value.trim()]));
+                const args={...fileArgs(fileInput.files[0]),...confirmed,mapping:preview.mapping_used,header_row:preview.header_row,
                     preview_id:preview.preview_id,version:preview.version};
                 const controls=Array.from(el.querySelectorAll("input,textarea,select,button")).filter(input=>!input.disabled);
                 controls.forEach(input=>input.disabled=true);
@@ -640,37 +648,76 @@
             };
             async function read(nextOffset){
                 const file=fileInput.files[0];
-                if(!mode())throw Error("请选择新增流水或按文件日期覆盖。");
-                if(!file)throw Error("请先选择银行流水文件。");
-                if(file.size>6*1024*1024)throw Error("请选择 6 MB 以内的银行流水文件。");
-                if(!newBook&&!currency)throw Error("未取得所选账簿的币种，请重新读取账簿。");
+                if(!file || readingOffset===nextOffset)return;
                 const v=++revision;
+                readingOffset=nextOffset;
                 preview=null;
-                action("重新校验",validate);
-                let res;
+                primary.addClass("hide");
+                error("");
                 try{
-                    const bytes=data||await fileData(file);
+                    check();
+                    if(!mode()){error("请选择新增流水或按文件日期覆盖。");return;}
+                    if(file.size>6*1024*1024)throw Error("请选择 6 MB 以内的银行流水文件。");
+                    if(!newBook&&!currency)throw Error("未取得所选账簿的币种，请重新读取账簿。");
+                    if(!layoutPreview)resultBox.innerHTML='<p class="text-muted" role="status">正在读取流水…</p>';
+                    else {
+                        const status=resultBox.querySelector("[data-validation]");
+                        if(status)status.textContent="正在校验…";
+                    }
+                    const bytes=data||await (pendingBytes ||= fileData(file));
                     if(v!==revision)return;
                     data=bytes;
-                    res=await call("preview_import",{...fileArgs(file),mapping:selected,header_row:headerRow,
+                    const args=fileArgs(file);
+                    if(newBook)Object.assign(args,bookEdits,{suggest_book_defaults:1});
+                    if(autoExclude){
+                        args.auto_exclude=1;
+                        delete args.excluded_rows;
+                    }
+                    const res=await call("preview_import",{...args,mapping:selected,header_row:headerRow,
                         use_ai:layoutPreview===null?1:0,review_offset:nextOffset});
-                }catch(e){if(v===revision)throw e;return;}
-                if(v!==revision)return;
-                check();
-                headerRow=res.header_row ?? null;
-                selected=res.mapping_used || selected || res.suggested_mapping || null;
+                    if(v!==revision)return;
+                    check();
+                    headerRow=res.header_row ?? null;
+                    selected=res.mapping_used || selected || res.suggested_mapping || null;
+                    showBookSettings(res);
+                    if(autoExclude){
+                        const proposed=res.excluded_source_rows || [];
+                        if(res.excluded_count!=null && res.excluded_count!==proposed.length)throw Error("未取得完整的排除行号，请重试。");
+                        excludedRows.clear();
+                        for(const number of proposed)if(!restoredRows.has(number))excludedRows.add(number);
+                        autoExclude=false;
+                        // A remapping can change eligible rows. Sign the operator's retained choices and edits.
+                        if(excludedRows.size!==proposed.length || importReviewArgs(edits,excludedRows).edits!==args.edits){
+                            readingOffset=null;
+                            return read(nextOffset);
+                        }
+                    }
+                    renderReview(res,nextOffset);
+                }catch(e){
+                    if(v!==revision)return;
+                    pendingBytes=null;
+                    if(!layoutPreview)resultBox.replaceChildren();
+                    const status=resultBox.querySelector("[data-validation]");
+                    if(status)status.textContent="校验未完成";
+                    error(reason(e));
+                    showReadAction("重试",nextOffset);
+                }finally{if(v===revision)readingOffset=null;}
+            }
+            function renderReview(res,nextOffset){
+                const focused=el.ownerDocument?.activeElement;
+                const focusedRow=focused?.closest("[data-source-row]")?.dataset.sourceRow;
+                const focusedField=focused?.dataset.field;
                 const mappingOpen=mappingBox.querySelector("details")?.open;
                 signed=selected?.amount!=null || (res.needs_mapping && signed);
                 parts=hasDateParts(selected) || (res.needs_mapping && parts);
                 mappingBox.innerHTML=importMapping(res,selected||{},signed,mappingOpen,parts);
                 layoutPreview=res;
                 preview=res;
-                showBookSettings(res);
                 const grid=resultBox.querySelector(".bj-import-grid");
                 const position=nextOffset===offset?[grid?.scrollTop||0,grid?.scrollLeft||0]:[0,0];
                 const rows=res.review_rows || [], total=res.review_total||0, pageSize=res.review_page_size||100;
                 const problems=res.error_count||0;
-                const unit=newBook?bookEdits.currency:currency;
+                const unit=newBook?bookFields.querySelector('[name="currency"]').value:currency;
                 const excludedCount=res.excluded_count??excludedRows.size;
                 const start=nextOffset+1, end=nextOffset+rows.length;
                 const paging=total>pageSize?'<nav aria-label="流水预览分页"><button type="button" class="btn btn-default btn-xs" data-review-offset="'+
@@ -686,13 +733,21 @@
                     (problems?'<details class="bj-import-issues"><summary>'+problems+' 处需核对</summary>'+errorList(res.errors)+'</details>':"")+
                     (res.needs_mapping&&res.ai_notice?'<p class="text-muted">'+esc(res.ai_notice)+'</p>':"");
                 resultBox.querySelector(".bj-import-grid")?.scrollTo({top:position[0],left:position[1]});
+                if(nextOffset===offset && focusedRow && focusedField){
+                    const input=resultBox.querySelector('[data-source-row="'+focusedRow+'"] [data-field="'+focusedField+'"]');
+                    if(input && !input.disabled){
+                        input.focus({preventScroll:true});
+                        input.setSelectionRange(focused.selectionStart,focused.selectionEnd);
+                    }
+                }
                 offset=nextOffset;
                 const confirmedCurrency=unit && unit===res.currency && (!newBook||currencies.includes(unit));
-                if(confirmedCurrency&&!res.needs_mapping&&!problems&&!res.book_issues?.length&&res.preview_id&&res.row_count>0)action(newBook?"建账并导入":
-                    res.impact?"确认覆盖这段日期":"确认新增流水",apply);
-                else action("重新校验",validate);
+                const replace=mode()==="replace_range";
+                if(confirmedCurrency && (!replace || res.impact) && !res.needs_mapping && !problems && !res.book_issues?.length && res.preview_id && res.row_count>0){
+                    showAction(newBook?"建账并导入":replace?"确认覆盖这段日期":"确认新增流水",()=>apply(res));
+                }else showReadAction("重新校验");
             }
-            action("预览流水",validate);
+            primary.addClass("hide");
         }
         async syncDialog(){
             const {book,month}=this,receipt={};

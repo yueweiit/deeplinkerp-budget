@@ -261,20 +261,28 @@ function importDialogFixture(t, reply, newBook=true) {
     const fields=Object.fromEntries(["account","currency","opening","opening_date"].map(name=>[name,{
         name,value:"",setAttribute(){},matches:selector=>selector.includes(name==="currency"?"select":"input"),
     }]));
-    const file={files:[{name:"estado.xlsx",size:100}]}, mapping=region(), result=region(), settings=region();
-    const issues=region(),hint=region(),openingLabel=region(),mode={value:"append"};
+    const file={files:[]}, mapping=region(), result=region(), settings=region();
+    const issues=region(),openingLabel=region(),mode={value:"append"};
+    const modes={addEventListener(_event,handler){this.change=handler;}};
     settings.querySelectorAll=selector=>Object.values(fields).filter(field=>field.matches(selector));
-    settings.querySelector=s=>s.includes("issues")?issues:s.includes("hint")?hint:s==="[data-opening-label]"?openingLabel:null;
+    settings.querySelector=s=>s.includes("issues")?issues:s==="[data-opening-label]"?openingLabel:
+        fields[s.match(/name="([^"]+)"/)?.[1]] || region();
     const el={classList,closest:()=>null,querySelectorAll:()=>[],querySelector(s){
         if(s.includes("statement"))return file;
         if(s.includes("book-settings"))return newBook?settings:null;
         if(s.includes("mapping"))return mapping;
         if(s.includes("data-result"))return result;
-        if(s.includes("import-mode")&&s.includes("checked"))return mode;
-        if(s.includes("currency-hint"))return hint;
+        if(s.includes("import-mode")&&s.includes("checked"))return mode.value?mode:null;
+        if(s===".bj-import-modes")return newBook?null:modes;
         return null;
     }};
-    const view={calls:[],fields,result,hint,openingLabel,chooseFile:()=>file.onchange()};
+    const view={calls:[],fields,result,settings,openingLabel,
+        chooseFile(name="estado.xlsx",size=100){file.files=name?[{name,size}]:[];return file.onchange();},
+        pickMode(value){mode.value=value;return modes.change();},
+        map(key,index){mapping.onchange({target:{value:String(index),dataset:{map:key},matches:s=>s==="[data-map]"}});},
+    };
+    const primary={addClass(){view.primaryHidden=true;},removeClass(){view.primaryHidden=false;},
+        toggleClass(_name,hidden){view.primaryHidden=hidden;}};
     const old={frappe:globalThis.frappe,FileReader:globalThis.FileReader};
     t.after(()=>Object.assign(globalThis,old));
     globalThis.FileReader=class {readAsDataURL(){this.result="data:application/octet-stream;base64,WA==";this.onload();}};
@@ -285,8 +293,20 @@ function importDialogFixture(t, reply, newBook=true) {
     },show_alert(){}};
     const app=Object.assign(Object.create(Workbench.prototype),{company:"A",book:newBook?"":"B",month:"2026-11",
         books:[{name:"B",company:"A",account:"Banco",currency:"MXN"}],opts:{currencies:["CNY","MXN","USD"]},
-        openDialog(_title,html){view.html=html;return {d:{hide(){}},el,check(){},error(){},run:fn=>{view.pending=fn();},
-            action:(label,run)=>{view.label=label;view.submit=run;}};},
+        openDialog(_title,html){
+            view.html=html;settings.hidden=/<div[^>]*data-book-settings[^>]* hidden[^>]*>/.test(html);
+            let busy=false;
+            return {d:{hide(){},get_primary_btn:()=>primary},el,check(){},error(text){view.error=text;},
+                action:(label,run)=>{
+                    view.label=label;view.primaryHidden=false;
+                    view.submit=async()=>{
+                        if(busy)return;
+                        busy=true;
+                        try{await run();}finally{busy=false;}
+                        await new Promise(resolve=>setImmediate(resolve));
+                    };
+                }};
+        },
         async initialize(){},async load(){}});
     app.importDialog(newBook);
     view.edit=(name,value)=>{
@@ -306,43 +326,69 @@ function importDialogFixture(t, reply, newBook=true) {
             toggle(){result.onclick({target:toggle});}};
     };
     view.page=next=>{
-        result.onclick({target:{closest:s=>s==="[data-review-offset]"?{dataset:{reviewOffset:String(next)}}:null}});
-        return view.pending;
+        return result.onclick({target:{closest:s=>s==="[data-review-offset]"?{dataset:{reviewOffset:String(next)}}:null}}) || view.pending;
     };
     return view;
 }
 
-test("new file import previews incomplete books, preserves input during late replies and binds the confirmed currency",async t=>{
-    const mapping={year:0,month:1,day:2,income:3,balance:4};
+const bankDefaults={account:"识别账户",opening:"120.00",opening_date:"2023-01-01",currency:"MXN"};
+const filePreview={review_rows:[{source_row:5,date:"2023-01-01",income:"5.00"}],review_total:1,row_count:1,
+    mapping_used:{year:0,month:1,day:2,income:3,balance:4},header_row:4,headers:["年","月","日","收入","余额"],
+    version:0,currency:"MXN",book_settings:bankDefaults,excluded_source_rows:[],preview_id:"verified"};
+
+test("choosing a file reveals four editable defaults and its first signed preview can be confirmed directly",async t=>{
+    const view=importDialogFixture(t,method=>method==="apply_import"?{book:"B",created:270}:
+        {...filePreview,excluded_source_rows:[274,275],excluded_count:2,review_total:272,row_count:270});
+    assert.ok(view.html.indexOf('name="statement"')<view.html.indexOf("data-book-settings"));
+    assert.equal(view.settings.hidden,true);
+    assert.equal(view.primaryHidden,true);
+    await view.chooseFile();
+    assert.deepEqual(view.calls.map(x=>x.name),["preview_import"]);
+    const initial=view.calls[0].args;
+    assert.equal(initial.company,"A");
+    assert.equal(initial.suggest_book_defaults,1);
+    assert.equal(initial.auto_exclude,1);
+    assert.ok(!initial.currency);
+    assert.ok(!("excluded_rows" in initial));
+    assert.equal(view.settings.hidden,false);
+    for(const [name,value] of Object.entries(bankDefaults))assert.equal(view.fields[name].value,value);
+    assert.equal(view.openingLabel.textContent,"期初余额（MXN）");
+    assert.match(view.result.innerHTML,/收入（MXN）/);
+    assert.match(view.result.innerHTML,/待导入 270 笔[^]*已排除 2 行/);
+    assert.equal(view.label,"建账并导入");
+    await view.submit();
+    assert.deepEqual(view.calls.map(x=>x.name),["preview_import","apply_import"]);
+    const args=view.calls[1].args;
+    for(const [name,value] of Object.entries(bankDefaults))assert.equal(args[name],value);
+    assert.deepEqual(args.mapping,filePreview.mapping_used);
+    assert.equal(args.preview_id,filePreview.preview_id);
+    assert.equal(args.header_row,4);
+    assert.deepEqual(JSON.parse(args.excluded_rows),[274,275]);
+    for(const key of ["suggest_book_defaults","auto_exclude","month"])assert.ok(!(key in args));
+});
+
+test("incomplete book settings are editable and typing during validation keeps the newer account and amount",async t=>{
     let delay,resolvePreview;
-    const base={review_rows:[{source_row:5,date:"2023-01-01",income:"5.00"}],review_total:1,row_count:1,
-        mapping_used:mapping,header_row:4,headers:["年","月","日","收入","余额"],version:0};
     const view=importDialogFixture(t,(method,args)=>{
         if(method==="apply_import")return {book:"B",created:1};
         if(delay)return new Promise(resolve=>{resolvePreview=resolve;});
-        return {...base,book_settings:{account:"识别账户",opening:"120.00",opening_date:"2023-01-01",currency:args.currency},
-            suggested_currency:"MXN",book_issues:args.currency?[]:[{field:"currency",message:"请选择账簿币种"}],
-            currency:args.currency,preview_id:args.currency?"fresh-token":"",
+        const currency=args.currency || "";
+        return {...filePreview,currency,preview_id:currency?"fresh-token":"",
+            book_settings:{...bankDefaults,...(args.account?{account:args.account}:{}),opening:args.opening||bankDefaults.opening,currency},
+            book_issues:currency?[]:[{field:"currency",message:"请选择账簿币种"}],
             opening_adjustment:args.opening?{file_opening:"120.00",book_opening:args.opening,difference:"5.00",closing:"130.00"}:null};
     });
-    assert.match(view.html,/name="account"/);
-    assert.doesNotMatch(view.html,/data-book-settings hidden/);
-    view.edit("account","手工账户");
-    view.chooseFile();
-    await view.submit();
-    assert.equal(view.calls[0].args.account,"手工账户");
-    assert.equal(view.calls[0].args.currency,null);
+    await view.chooseFile();
     assert.equal(view.fields.currency.value,"");
-    assert.equal(view.fields.opening.value,"120.00");
-    assert.match(view.hint.textContent,/MXN/);
     assert.doesNotMatch(view.label,/建账并导入/);
     view.edit("currency","MXN");
-    assert.equal(view.openingLabel.textContent,"期初余额（MXN）");
     view.edit("opening","125.00");
+    assert.equal(view.openingLabel.textContent,"期初余额（MXN）");
     delay=true;
     const pending=view.submit();
+    await Promise.resolve();
     view.edit("account","最终账户");
-    resolvePreview({...base,book_settings:{account:"过时账户",opening:"1.00"},preview_id:"stale-token"});
+    resolvePreview({...filePreview,book_settings:{account:"过时账户",opening:"1.00"},preview_id:"stale-token"});
     await pending;
     assert.equal(view.fields.account.value,"最终账户");
     assert.equal(view.fields.opening.value,"125.00");
@@ -359,66 +405,255 @@ test("new file import previews incomplete books, preserves input during late rep
     assert.equal(args.account,"最终账户");
     assert.equal(args.opening,"125.00");
     assert.equal(args.preview_id,"fresh-token");
-    assert.deepEqual(args.mapping,mapping);
-    assert.equal(args.header_row,4);
     assert.deepEqual(JSON.parse(args.excluded_rows),[]);
-    assert.ok(!("month" in args));
 });
 
-test("appending uses the selected book currency in preview and confirmation without depending on the displayed month",async t=>{
-    const view=importDialogFixture(t,(method)=>method==="apply_import"?{created:1,matched:0,skipped:0}:
-        {review_rows:[{source_row:5,date:"2023-01-01",income:"5.00"}],review_total:1,row_count:1,version:0,
-            currency:"MXN",preview_id:"bound",mapping_used:{date:0,income:1}},false);
-    view.chooseFile();
+test("selecting another file discards old edits and a late preview cannot replace the new file",async t=>{
+    let resolveFirst;
+    const view=importDialogFixture(t,(method,args)=>{
+        if(method==="apply_import")return {book:"B",created:1};
+        if(args.filename==="first.csv" && args.account==="手工账户")return new Promise(resolve=>{resolveFirst=resolve;});
+        return {...filePreview,preview_id:args.filename,book_settings:{...bankDefaults,account:args.filename},
+            excluded_source_rows:args.filename==="first.csv"?[275]:[]};
+    });
+    await view.chooseFile("first.csv");
+    view.edit("account","手工账户");
+    view.sourceRow(5,{income:"5.00",expense:""}).edit("income","7.00");
+    const pending=view.submit();
+    await Promise.resolve();
+    await view.chooseFile("second.csv");
+    assert.equal(view.fields.account.value,"second.csv");
+    const args=view.calls.at(-1).args;
+    assert.ok(!args.account);
+    assert.deepEqual(JSON.parse(args.edits),{});
+    assert.equal(args.auto_exclude,1);
     await view.submit();
+    assert.equal(view.calls.at(-1).name,"apply_import");
+    resolveFirst({...filePreview,preview_id:"old"});
+    await pending;
+    assert.equal(view.fields.account.value,"second.csv");
+    assert.equal(view.calls.at(-1).args.filename,"second.csv");
+    assert.equal(view.calls.at(-1).args.preview_id,"second.csv");
+    assert.deepEqual(JSON.parse(view.calls.at(-1).args.excluded_rows),[]);
+});
+
+test("a signed replacement must show its range impact before confirmation",async t=>{
+    const view=importDialogFixture(t,()=>filePreview,false);
+    await view.pickMode("replace_range");
+    await view.chooseFile();
+    assert.doesNotMatch(view.label,/确认/);
+});
+
+test("manual currency survives remapping while the server can still propose defaults for the other fields",async t=>{
+    const view=importDialogFixture(t,(_method,args)=>({...filePreview,currency:args.currency||"MXN"}));
+    await view.chooseFile();
+    view.edit("currency","USD");
+    view.map("summary",2);
+    await view.submit();
+    const {args}=view.calls.at(-1);
+    assert.equal(args.currency,"USD");
+    assert.equal(args.suggest_book_defaults,1);
+    assert.ok(!args.account);
+});
+
+test("renaming a new book refreshes its suggested currency before the next confirmation",async t=>{
+    const view=importDialogFixture(t,(method,args)=>{
+        if(method==="apply_import")return {book:"B",created:1};
+        const account=args.account ?? "普通账户";
+        const currency=args.currency ?? (account==="BBVA"?"MXN":"CNY");
+        return {...filePreview,currency,book_settings:{...bankDefaults,account,currency},preview_id:account+"-"+currency};
+    });
+    await view.chooseFile();
+    assert.equal(view.fields.currency.value,"CNY");
+    view.edit("account","BBVA");
+    await view.submit();
+    const reviewed=view.calls.at(-1).args;
+    assert.equal(reviewed.suggest_book_defaults,1);
+    assert.equal(reviewed.account,"BBVA");
+    for(const name of ["currency","opening_date","opening","auto_exclude"])assert.ok(!(name in reviewed));
+    assert.equal(view.fields.currency.value,"MXN");
+    assert.equal(view.openingLabel.textContent,"期初余额（MXN）");
+    assert.equal(view.label,"建账并导入");
+    await view.submit();
+    assert.deepEqual(view.calls.map(({name})=>name),["preview_import","preview_import","apply_import"]);
+    const applied=view.calls.at(-1).args;
+    assert.equal(applied.preview_id,"BBVA-MXN");
+    for(const [name,value] of Object.entries({...bankDefaults,account:"BBVA"}))assert.equal(applied[name],value);
+    assert.ok(!("suggest_book_defaults" in applied));
+});
+
+test("correcting the first movement refreshes inferred date and opening, while explicit book values survive paging",async t=>{
+    const original={date:"2023-01-05",income:"5.00",expense:"",balance:"125.00"};
+    const view=importDialogFixture(t,(method,args)=>{
+        if(method==="apply_import")return {book:"B",created:1};
+        const first={...original,...JSON.parse(args.edits)[5]};
+        const opening=args.opening ?? (Number(first.balance)-Number(first.income)).toFixed(2);
+        const opening_date=args.opening_date ?? first.date;
+        return {...filePreview,review_rows:[{source_row:5,...first}],review_total:101,review_page_size:100,
+            book_settings:{...bankDefaults,opening,opening_date},preview_id:opening_date+"-"+opening};
+    });
+    await view.chooseFile();
+    assert.equal(view.fields.opening_date.value,"2023-01-05");
+    assert.equal(view.fields.opening.value,"120.00");
+    const first=view.sourceRow(5,original);
+    first.edit("date","2022-12-20");
+    first.edit("income","20.00");
+    await view.submit();
+    const inferred=view.calls.at(-1).args;
+    for(const name of Object.keys(bankDefaults))assert.ok(!(name in inferred));
+    assert.equal(view.fields.opening_date.value,"2022-12-20");
+    assert.equal(view.fields.opening.value,"105.00");
+    assert.equal(view.label,"建账并导入");
+    view.edit("opening_date","2022-12-01");
+    view.edit("opening","80.00");
+    first.edit("date","2022-12-15");
+    first.edit("income","25.00");
+    await view.page(100);
+    const page=view.calls.at(-1).args;
+    assert.equal(page.suggest_book_defaults,1);
+    assert.deepEqual([page.opening_date,page.opening],["2022-12-01","80.00"]);
+    for(const name of ["account","currency","auto_exclude"])assert.ok(!(name in page));
+    assert.deepEqual(JSON.parse(page.edits)[5],{date:"2022-12-15",income:"25.00",expense:""});
+    assert.equal(view.fields.opening_date.value,"2022-12-01");
+    assert.equal(view.fields.opening.value,"80.00");
+    assert.equal(view.label,"建账并导入");
+    await view.submit();
+    assert.deepEqual(view.calls.map(({name})=>name),["preview_import","preview_import","preview_import","apply_import"]);
+    const applied=view.calls.at(-1).args;
+    assert.equal(applied.preview_id,"2022-12-01-80.00");
+    for(const [name,value] of Object.entries({...bankDefaults,opening_date:"2022-12-01",opening:"80.00"})){
+        assert.equal(applied[name],value);
+    }
+});
+
+test("clearing the currency keeps the empty override and still requests defaults for the other fields",async t=>{
+    const view=importDialogFixture(t,()=>filePreview);
+    await view.chooseFile();
+    view.edit("currency","");
+    await view.submit();
+    const reviewed=view.calls.at(-1).args;
+    assert.equal(reviewed.suggest_book_defaults,1);
+    assert.equal(reviewed.currency,"");
+    assert.equal(view.fields.currency.value,"");
+    assert.doesNotMatch(view.label,/建账并导入/);
+});
+
+test("a failed file read offers a retry and clearing the chooser removes the old action and defaults",async t=>{
+    let fail=true;
+    const view=importDialogFixture(t,()=>{
+        if(fail)throw Error("网络中断");
+        return filePreview;
+    });
+    await view.chooseFile();
+    assert.match(view.error,/网络中断/);
+    assert.match(view.label,/重试/);
+    assert.equal(view.settings.hidden,true);
+    fail=false;
+    await view.submit();
+    assert.equal(view.label,"建账并导入");
+    assert.equal(view.settings.hidden,false);
+    await view.chooseFile("");
+    assert.equal(view.settings.hidden,true);
+    assert.equal(view.primaryHidden,true);
+    assert.equal(view.result.innerHTML,"");
+});
+
+test("appending uses the existing book currency and does not send new-book suggestions",async t=>{
+    const view=importDialogFixture(t,method=>method==="apply_import"?{created:1,matched:0,skipped:0}:filePreview,false);
+    await view.chooseFile();
+    assert.equal(view.label,"确认新增流水");
     await view.submit();
     assert.deepEqual(view.calls.map(x=>x.name),["preview_import","apply_import"]);
     for(const {args} of view.calls){
         assert.equal(args.book,"B");
         assert.equal(args.currency,"MXN");
-        assert.ok(!("month" in args));
+        assert.equal(args.mode,"append");
+        for(const key of ["company","account","opening","suggest_book_defaults","month"])assert.ok(!(key in args));
     }
 });
 
-test("an incomplete statement posts 270 rows only after both original amountless rows are explicitly excluded",async t=>{
-    const amountless={date:"2023-02-01",summary:"原文",income:"",expense:"",balance:"5.00"};
-    const view=importDialogFixture(t,(method,args)=>{
-        const excluded=JSON.parse(args.excluded_rows),edits=JSON.parse(args.edits);
-        assert.ok(excluded.every(n=>!edits[n]));
-        if(method==="apply_import")return {created:270};
-        const ready=excluded.length===2;
-        const rows=args.review_offset===200?[274,275].map(source_row=>({source_row,...amountless,
-            excludable:true,excluded:excluded.includes(source_row),...edits[source_row]})):
-            [{source_row:5,date:"2023-01-01",income:"5.00"}];
-        return {currency:"MXN",preview_id:ready?"270-verified":"",mapping_used:{date:0,income:1},version:0,
-            review_rows:rows,review_total:272,row_count:270,review_page_size:100,excluded_count:excluded.length,
-            error_count:ready?0:2-excluded.length};
-    },false);
-    view.chooseFile();
-    await view.submit();
-    assert.doesNotMatch(view.label,/确认新增/);
-    await view.page(200);
-    const item=view.sourceRow(274,amountless),last=view.sourceRow(275,amountless);
-    item.edit("summary","人工备注");
-    item.toggle();
-    assert.equal(item.cells.summary.value,"原文");
-    assert.equal(item.cells.summary.disabled,true);
-    await view.submit();
-    assert.deepEqual(JSON.parse(view.calls.at(-1).args.excluded_rows),[274]);
-    assert.doesNotMatch(view.label,/确认新增/);
-    item.toggle();
-    assert.equal(item.cells.summary.value,"人工备注");
-    assert.equal(item.cells.summary.disabled,false);
-    await view.submit();
-    assert.deepEqual(JSON.parse(view.calls.at(-1).args.edits),{274:{summary:"人工备注"}});
-    item.toggle();
-    last.toggle();
-    await view.page(0);
-    assert.match(view.label,/确认新增/);
-    assert.match(view.result.innerHTML,/待导入 270 笔[^]*已排除 2 行/);
+test("files wait for an explicit mode when replacement is available and changing mode invalidates its signature",async t=>{
+    const impact={start:"2023-01-01",end:"2023-01-31",old_count:10,new_count:1,old_closing:"4.00",new_closing:"5.00"};
+    const view=importDialogFixture(t,(method,args)=>method==="apply_import"?{created:1,matched:0,skipped:0}:
+        {...filePreview,preview_id:args.mode,impact:args.mode==="replace_range"?impact:null},false);
+    await view.pickMode("");
+    await view.chooseFile();
+    assert.equal(view.calls.length,0);
+    await view.pickMode("replace_range");
+    assert.equal(view.calls.at(-1).args.mode,"replace_range");
+    assert.match(view.result.innerHTML,/原有 10 笔将替换为 1 笔/);
+    assert.equal(view.label,"确认覆盖这段日期");
+    await view.pickMode("append");
+    assert.equal(view.label,"确认新增流水");
     await view.submit();
     const {name,args}=view.calls.at(-1);
     assert.equal(name,"apply_import");
-    assert.deepEqual(JSON.parse(args.excluded_rows),[274,275]);
-    assert.deepEqual(JSON.parse(args.edits),{});
+    assert.equal(args.mode,"append");
+    assert.equal(args.preview_id,"append");
+});
+
+test("blank rows from later pages can be restored, corrected and signed without reapplying automatic exclusions",async t=>{
+    const amountless={date:"2023-02-01",summary:"原文",income:"",expense:"",balance:"5.00"};
+    const view=importDialogFixture(t,(method,args)=>{
+        const edits=JSON.parse(args.edits);
+        const excluded=args.auto_exclude?[274,275]:JSON.parse(args.excluded_rows);
+        assert.ok(excluded.every(n=>!edits[n]));
+        if(method==="apply_import")return {created:271};
+        const ready=[274,275].every(n=>excluded.includes(n)||edits[n]?.income);
+        const rows=args.review_offset===200?[274,275].map(source_row=>({source_row,...amountless,
+            excludable:true,excluded:excluded.includes(source_row),...edits[source_row]})):filePreview.review_rows;
+        return {...filePreview,preview_id:ready?"verified-rows":"",review_rows:rows,review_total:272,
+            row_count:270+(edits[274]?.income?1:0),review_page_size:100,excluded_count:excluded.length,
+            ...(args.auto_exclude?{excluded_source_rows:excluded}:{}),error_count:ready?0:1};
+    },false);
+    await view.chooseFile();
+    assert.equal(view.label,"确认新增流水");
+    await view.page(200);
+    assert.deepEqual(JSON.parse(view.calls.at(-1).args.excluded_rows),[274,275]);
+    assert.match(view.result.innerHTML,/data-exclude-row="274"[^>]*>恢复/);
+    const item=view.sourceRow(274,amountless);
+    item.toggle();
+    assert.equal(item.cells.income.disabled,false);
+    await view.submit();
+    assert.deepEqual(JSON.parse(view.calls.at(-1).args.excluded_rows),[275]);
+    assert.doesNotMatch(view.label,/确认新增/);
+    item.edit("summary","人工备注");
+    item.edit("income","2.00");
+    item.toggle();
+    assert.equal(item.cells.summary.value,"原文");
+    assert.equal(item.cells.income.disabled,true);
+    item.toggle();
+    assert.equal(item.cells.summary.value,"人工备注");
+    assert.equal(item.cells.income.value,"2.00");
+    await view.page(0);
+    assert.equal(view.label,"确认新增流水");
+    assert.match(view.result.innerHTML,/待导入 271 笔[^]*已排除 1 行/);
+    await view.submit();
+    const {name,args}=view.calls.at(-1);
+    assert.equal(name,"apply_import");
+    assert.deepEqual(JSON.parse(args.excluded_rows),[275]);
+    assert.deepEqual(JSON.parse(args.edits),{274:{summary:"人工备注",income:"2.00",expense:""}});
+    assert.equal(view.calls.filter(({args})=>args.auto_exclude).length,1);
+});
+
+test("mapping changes reconsider safe rows while keeping a restored row and its pending corrections",async t=>{
+    const amountless={date:"2023-02-01",summary:"原文",income:"",expense:"",balance:"5.00"};
+    const view=importDialogFixture(t,(_method,args)=>{
+        const edits=JSON.parse(args.edits);
+        const excluded=args.auto_exclude?[274,275,276].filter(n=>!edits[n]):JSON.parse(args.excluded_rows);
+        return {...filePreview,mapping_used:args.mapping||{date:0,income:1},excluded_source_rows:excluded,
+            review_rows:[274,275,276].map(source_row=>({source_row,...amountless,excludable:true,excluded:excluded.includes(source_row)}))};
+    },false);
+    await view.chooseFile();
+    const corrected=view.sourceRow(274,amountless);
+    corrected.toggle();
+    corrected.edit("income","1.00");
+    view.sourceRow(275,amountless).toggle();
+    view.map("summary",2);
+    await view.submit();
+    const reads=view.calls.slice(1).map(call=>call.args);
+    assert.equal(reads.filter(args=>args.auto_exclude).length,1);
+    assert.deepEqual(JSON.parse(reads.at(-1).edits),{274:{income:"1.00",expense:""}});
+    assert.deepEqual(JSON.parse(reads.at(-1).excluded_rows),[276]);
+    assert.equal(reads.at(-1).mapping.summary,2);
 });
