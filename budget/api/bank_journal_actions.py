@@ -16,6 +16,12 @@ def _month(month):
 	return month_bounds(month, frappe.utils.today())[0]
 
 
+def _sync_book(book):
+	doc = store.authorize_book(book, "create")
+	store.require_oa_currency(doc)
+	return doc
+
+
 def _token(doc, month, version, rows):
 	from frappe.utils.password import get_encryption_key
 
@@ -42,7 +48,7 @@ def _preview(doc, month, version):
 
 @frappe.whitelist()
 def preview_sync(book, month=None):
-	doc = store.authorize_book(book, "create")
+	doc = _sync_book(book)
 	month = _month(month)
 	version = int(doc.revision or 0)
 	rows, token = _preview(doc, month, version)
@@ -54,13 +60,14 @@ def preview_sync(book, month=None):
 		"version": version,
 		"company": doc.company,
 		"account": doc.account,
+		"currency": store.book_currency(doc),
 		"month": month,
 	}
 
 
 @frappe.whitelist(methods=["POST"])
 def apply_sync(book, month, preview_id, version, request_id, selection):
-	doc = store.authorize_book(book, "create")
+	doc = _sync_book(book)
 	month = _month(month)
 	selections = json.loads(selection) if isinstance(selection, str) else selection
 	if not isinstance(selections, list) or not 1 <= len(selections) <= oa.ARCHIVE_LIMIT:

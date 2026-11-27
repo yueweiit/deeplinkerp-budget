@@ -312,3 +312,215 @@ def test_structured_duplicates_and_balances():
 	assert [r["source_row"] for r in valid["rows"]] == [2, 1]
 	assert journal.parse_rows([rows[0], rows[0]])["errors"][0]["field"] == "bank_ref"
 	assert journal.parse_rows([dict(rows[0], balance="2.22"), rows[1]])["errors"][0]["row"] == 1
+
+
+def split_journal(*, formula="=L3+J4-K4", cached=None):
+	from zipfile import ZipFile
+
+	from openpyxl import Workbook
+
+	workbook = Workbook()
+	sheet = workbook.active
+	sheet.append(["Private Account 001234567890"])
+	sheet.append([*journal.HEADERS[:13], "备注"])
+	sheet.append([""] * 8 + ["期初余额", None, None, 0, None, "收款店铺名"])
+	sheet.append([2026, 10, 5, "PAY-00001", "收入", "货款", "其他", "一", "第一笔", 12.31, None, formula, None, "独立备注"])
+	sheet.append([2026, 10, 6, None, None, None, None, None, "第二笔", None, 2, "=L4+J5-K5"])
+	sheet.append([2026, 10, 7, None, None, None, None, None, "待核一", None, None, "=L5+J6-K6"])
+	sheet.append([2026, 10, 7, None, None, None, None, None, "待核二"])
+	out = io.BytesIO()
+	workbook.save(out)
+	if cached is None:
+		return out.getvalue()
+	outbuffer = io.BytesIO()
+	with ZipFile(out) as source, ZipFile(outbuffer, "w") as target:
+		for name in source.namelist():
+			data = source.read(name)
+			if name == "xl/worksheets/sheet1.xml":
+				data = data.replace(b"</f><v></v>", ("</f><v>" + cached + "</v>").encode(), 1)
+				if cached.startswith("#"):
+					data = data.replace(b'<c r="L4">', b'<c r="L4" t="e">')
+			target.writestr(name, data)
+	return outbuffer.getvalue()
+
+
+def test_ai_split_mapping_keeps_independent_fields_and_replays_without_model(monkeypatch):
+	from budget.services import bank_journal_ai
+
+	calls = []
+	def model(candidates):
+		calls.append(candidates)
+		assert [c["header_row"] for c in candidates] == [2]
+		for value in ("001234567890", "PAY-00001", "独立备注", "第一笔", "12.31"):
+			assert value not in str(candidates)
+		return {"header_row": 2, "columns": {"year": 0, "month": 1, "day": 2, "income": 9,
+			"expense": 10, "balance": 11, "dept": 13}}
+	monkeypatch.setattr(bank_journal_ai, "request_layout", model)
+	raw = split_journal()
+	parsed = journal.parse_statement(raw, "bank.xlsx", currency="MXN", review_offset=0, suggest_layout=bank_journal_ai.infer_layout)
+	assert len(calls) == 1 and parsed["mapping_source"] == "deepseek"
+	assert parsed["header_row"] == 2 and parsed["mapping_used"]["remark"] == 13
+	assert "dept" not in parsed["mapping_used"] and "date" not in parsed["mapping_used"]
+	first = parsed["rows"][0]
+	assert (first["date"], first["category"], first["level2"], first["level3"], first["project"]) == (
+		"2026-10-05", "收入", "货款", "其他", "一")
+	assert (first["summary"], first["dept"], first["remark"], first["refs"]) == ("第一笔", "", "独立备注", ["PAY-00001"])
+	assert (parsed["opening"], parsed["opening_date"], parsed["suggested_currency"]) == ("0.00", "2026-10-05", None)
+	assert parsed["review_total"] == 4 and [r["row"] for r in parsed["errors"]] == [6, 7]
+	assert [r["excludable"] for r in parsed["review_rows"]] == [False, False, True, True]
+	assert [r["balance"] for r in parsed["review_rows"]] == ["12.31", "10.31", "10.31", ""]
+	fixed = journal.parse_statement(raw, "bank.xlsx", parsed["mapping_used"], header_row=2, currency="MXN",
+		review_offset=0, edits={7: {"income": "", "expense": "0.31"}}, excluded_rows=[6])
+	assert not fixed["errors"] and fixed["rows"][-1]["expense"] == "0.31"
+	assert [r["excluded"] for r in fixed["review_rows"]] == [False, False, True, False]
+	assert fixed["review_rows"][0]["remark"] == "独立备注" and fixed["review_total"] == 4
+
+
+def test_unknown_split_labels_can_be_inferred_and_invalid_ai_falls_back(monkeypatch):
+	from budget.services import bank_journal_ai
+
+	file = csv_bytes([["accounting year", "posting month", "calendar day", "received funds", "paid funds"],
+					  ["2026", "9", "1", "8", ""]])
+	monkeypatch.setattr(bank_journal_ai, "request_layout", lambda c: {
+		"header_row": 1, "columns": {"year": 0, "month": 1, "day": 2, "income": 3, "expense": 4}})
+	parsed = journal.parse_statement(file, "bank.csv", suggest_layout=bank_journal_ai.infer_layout)
+	assert parsed["rows"][0]["date"] == "2026-09-01" and parsed["mapping_source"] == "deepseek"
+	monkeypatch.setattr(bank_journal_ai, "request_layout", lambda c: {"header_row": 2, "columns": {"year": 99}})
+	fallback = journal.parse_statement(split_journal(), "bank.xlsx", suggest_layout=bank_journal_ai.infer_layout)
+	assert len(fallback["rows"]) == 2 and fallback["mapping_source"] != "deepseek"
+
+
+@pytest.mark.parametrize(("formula", "cached"), [
+	("=L3+J4-K4", "99.00"), ("=L3+J4-K6", "12.31"), ("=SUM(J4)", "12.31"), ("=L3+J4-K4", "#VALUE!")
+])
+def test_unverified_excel_balance_blocks_even_if_review_edits_replace_it(formula, cached):
+	file = split_journal(formula=formula, cached=cached)
+	for edits in (None, {4: {"balance": "12.31"}}):
+		result = journal.parse_statement(file, "bank.xlsx", currency="MXN", edits=edits, review_offset=0)
+		assert any(x["row"] == 4 and x["field"] == "balance" for x in result["errors"])
+	assert not result["review_rows"][0]["excludable"]
+
+
+def test_balance_exclusions_require_blank_source_amounts_and_no_source_conflict():
+	raw = csv_bytes([["日期", "收入", "支出", "余额", "币种", "交易流水号"],
+		["20261101", "20", "", "20", "MXN"], ["20261102", "", "", "20", "MXN"],
+		["20261102", "", "", "", "MXN"], ["20261102", "", "", "22", "MXN"],
+		["20261102", "", "", "", "USD"], ["20261135", "", "", "", "MXN"],
+		["20261103", "0", "", "", "MXN"], ["20261103", "", "", "", "MXN", "valid-bank-id"]])
+	result = journal.parse_statement(raw, "bank.csv", currency="MXN", review_offset=0)
+	assert [r["source_row"] for r in result["review_rows"] if r["excludable"]] == [3, 4]
+	for invalid in (1, 2, 5, 6, 7, 8, 9, 45):
+		with pytest.raises(journal.StatementError, match="排除"):
+			journal.parse_statement(raw, "bank.csv", currency="MXN", excluded_rows=[invalid])
+	with pytest.raises(journal.StatementError, match="排除"):
+		journal.parse_statement(raw, "bank.csv", currency="MXN", excluded_rows=[3], edits={3: {"summary": "变更"}})
+	assert journal.parse_statement(raw, "bank.csv", currency="MXN", edits={2: {"balance": ""}})["errors"][0]["field"] == "balance"
+
+
+def test_currency_evidence_survives_remaps_and_edits_and_dollar_needs_a_choice():
+	raw = csv_bytes([["币种", "MXN"], ["日期", "收入", "余额"], ["20261001", "MXN 2.00", "$ 2.00"]])
+	data = journal.parse_statement(raw, "bank.csv", currency=None)
+	assert data["suggested_currency"] == "MXN" and not data["errors"] and data["rows"][0]["balance"] == "2.00"
+	assert journal.parse_statement(raw, "bank.csv", currency="USD")["errors"]
+	raw = csv_bytes([["日期", "收入", "余额"], ["20261001", "$2", "$2"]])
+	assert journal.parse_statement(raw, "bank.csv", currency=None)["suggested_currency"] is None
+	assert not journal.parse_statement(raw, "bank.csv", currency="MXN")["errors"]
+	assert journal.parse_statement(raw, "bank.csv", currency="CNY")["errors"]
+	raw = csv_bytes([["日期", "收入（USD）", "支出", "币种", "余额"], ["20261001", "2.00", "", "USD", "2"]])
+	data = journal.parse_statement(raw, "bank.csv", {"date": 0, "income": 1}, currency="MXN",
+		edits={2: {"income": "2", "expense": ""}})
+	assert data["suggested_currency"] == "USD" and not data["rows"] and data["errors"][0]["field"] == "currency"
+	raw = csv_bytes([["日期", "收入", "币种"], ["20261001", "3", "美元"], ["20261002", "4", "墨西哥比索"]])
+	data = journal.parse_statement(raw, "bank.csv", currency=None)
+	assert data["suggested_currency"] is None and any(i["field"] == "currency" for i in data["errors"])
+
+
+def test_non_cny_export_round_trip_preserves_currency_and_separate_notes():
+	row = {"date": "2026-11-06", "income": "120.30", "balance": "120.30", "dept": "销售", "remark": "收款门店"}
+	exported = journal.export_journal([row], opening="0", account_label="银行", currency="MXN")
+	assert "￥".encode() not in exported and b"MXN 120.30" in exported
+	parsed = journal.parse_statement(exported, "export.csv", currency="MXN")
+	assert parsed["errors"] == [] and parsed["suggested_currency"] == "MXN" and parsed["opening"] == "0.00"
+	assert (parsed["rows"][0]["dept"], parsed["rows"][0]["remark"]) == ("销售", "收款门店")
+	assert journal.export_journal(parsed["rows"], opening=parsed["opening"], account_label=parsed["account_label"],
+		currency="MXN", template=parsed["template"]) == exported
+
+
+def test_remapping_cannot_hide_raw_amount_currency_or_let_a_payment_be_excluded():
+	rows = [["日期", "收入", "支出（USD）", "其他"], ["20261101", "2", "", ""], ["20261102", "", "4", ""]]
+	mapping = {"date": 0, "income": 1}
+	raw = csv_bytes(rows)
+	with pytest.raises(journal.StatementError, match="排除"):
+		journal.parse_statement(raw, "bank.csv", mapping, currency="USD", excluded_rows=[3])
+	rows[0][2] = "支出"
+	rows[2][2] = "USD 4"
+	data = journal.parse_statement(csv_bytes(rows), "bank.csv", mapping, currency="MXN",
+		edits={3: {"income": "8", "expense": ""}})
+	assert any(i["row"] == 3 and i["field"] == "currency" for i in data["errors"])
+	rows[0] = ["日期", "收入", "币种", "币种"]
+	rows[1] = ["20261101", "2", "MXN", "USD"]
+	data = journal.parse_statement(csv_bytes(rows[:2]), "bank.csv", mapping, currency="MXN")
+	assert data["errors"][0]["field"] == "currency"
+
+
+def test_excel_currency_formats_keep_explicit_codes_distinct_from_locale_and_dollar():
+	from openpyxl import Workbook
+
+	def with_format(fmt):
+		book = Workbook()
+		book.active.append(["日期", "收入", "余额"])
+		book.active.append(["20261101", 2, 2])
+		book.active["B2"].number_format = fmt
+		out = io.BytesIO()
+		book.save(out)
+		return out.getvalue()
+	for fmt in ('[$MXN-80A]#,##0.00', '"MXN" #,##0.00'):
+		raw = with_format(fmt)
+		assert journal.parse_statement(raw, "bank.xlsx", currency=None)["suggested_currency"] == "MXN"
+		assert journal.parse_statement(raw, "bank.xlsx", currency="USD")["errors"][0]["field"] == "currency"
+	for fmt in ('[$$-409]#,##0.00', r'\$#,##0.00'):
+		raw = with_format(fmt)
+		assert journal.parse_statement(raw, "bank.xlsx", currency=None)["suggested_currency"] is None
+		assert not journal.parse_statement(raw, "bank.xlsx", currency="MXN")["errors"]
+		assert journal.parse_statement(raw, "bank.xlsx", currency="CNY")["errors"][0]["field"] == "currency"
+
+
+def test_arbitrary_mapped_formula_cannot_be_hidden_by_an_edit():
+	from openpyxl import Workbook
+
+	book = Workbook()
+	book.active.append(["日期", "收入"])
+	book.active.append(["20261101", "=1+8"])
+	out = io.BytesIO()
+	book.save(out)
+	data = journal.parse_statement(out.getvalue(), "bank.xlsx", edits={2: {"income": "9", "expense": ""}})
+	assert not data["rows"] and data["errors"][0]["field"] == "income"
+
+
+def test_foreign_export_identifies_currency_even_when_original_template_only_had_dollars():
+	raw = sample_journal().replace("￥".encode(), b"$")
+	first = journal.parse_statement(raw, "example.csv", currency="MXN")
+	assert not first["errors"] and first["suggested_currency"] is None
+	data = journal.export_journal(first["rows"], opening=first["opening"], account_label=first["account_label"],
+		template=first["template"], currency="MXN")
+	assert b"$" not in data and b"MXN 1,010.00" in data
+	copy = journal.parse_statement(data, "export.csv", currency=None)
+	assert not copy["errors"] and copy["suggested_currency"] == "MXN"
+
+
+def test_native_looking_header_without_carry_row_keeps_first_transaction():
+	header = list(journal.HEADERS)
+	raw = csv_bytes([["银行流水"], header,
+		["2026", "6", "5", "", "", "", "", "", "入账", "4.00", "", "4.00"],
+		["2026", "6", "9", "", "", "", "", "", "支出", "", "1.50", "2.50"]])
+	res = journal.parse_statement(raw, "bank.csv", currency="MXN")
+	assert not res["errors"] and len(res["rows"]) == 2 and res["opening"] == "0.00"
+
+
+def test_disclosed_money_in_a_native_looking_extra_column_is_checked():
+	raw = csv_bytes([["银行流水"], [*journal.HEADERS, "交易币种"],
+		[""] * 8 + ["期初余额", "", "", "0.00"],
+		["2026", "6", "5", "", "", "", "", "", "入账", "4.00", "", "4.00", "", "", "MXN"]])
+	res = journal.parse_statement(raw, "bank.csv", currency="MXN")
+	assert not res["errors"] and res["suggested_currency"] == "MXN" and res["rows"][0]["income"] == "4.00"
+	assert journal.parse_statement(raw, "bank.csv", currency="USD")["errors"][0]["field"] == "currency"

@@ -2,7 +2,7 @@
 
 供财务、AI 工作流开发人员和 ERP 接口调用方使用。导入成功后，流水出现在所选公司、银行账户和交易月份的「银行日记账」中。接口登记日记账收入和支出，不发起银行付款，也不生成总账凭证。
 
-**选择输入方式。** 有原始 CSV 或 XLSX 时，直接传原文件。ERP 会解析金额、余额和银行流水号，并可保留既有日记账模板。只有 PDF、图片或其他格式时，由调用方的 AI 提取逐笔明细，再提交 JSON。两种方式使用同一账簿和流水去重规则。ERP 不在这些接口中调用模型或执行 OCR。
+**选择输入方式。** 有原始 CSV 或 XLSX 时，直接传原文件。ERP 会解析金额、余额和银行流水号，并可保留既有日记账模板。只有 PDF、图片或其他格式时，由调用方的 AI 提取逐笔明细，再提交 JSON。两种方式使用同一账簿和流水去重规则。文件预览可调用 DeepSeek 识别脱敏表头。交易金额和余额由 ERP 从原文件读取和校验。
 
 **一次导入分三步。** 先选公司和银行账户，再预览笔数、收支合计及问题行，最后确认写入。取得预览回执只表示解析通过。只有确认接口返回操作编号，才表示这次操作已被 ERP 接受。
 
@@ -31,24 +31,25 @@
 1. 在支持 OpenAPI 的工具中导入本文的 OpenAPI 文件。给工具配置自定义认证请求头，名称填写 `Authorization`，值填写 `token <API_KEY>:<API_SECRET>`。认证信息放在工具的凭据设置中。
 2. 每次导入先调用 `getJournalOptions`。用 `message.companies` 生成公司选项，包含尚未建账簿的已授权公司。用户选公司后，从该公司下的 `message.books[].account` 生成账户选项，并用该项的 `name` 作为账簿标识。公司改变时重新选择账户。
 3. 目标账户缺少账簿且 `can_create=true` 时，原始文件可以直接按公司预览，确认时一起建账。结构化 JSON 明细仍可先调用 `createJournalBook`，再用返回的 `message.book` 继续。期初资料缺失或有冲突时，先核实具体字段。
-4. CSV 或 XLSX 调用 `previewJournalFile`，从其他格式提取的结构化明细调用 `previewJournalRows`。显示选定的公司、银行账户、笔数和收支合计。用户确认后再调用对应的 `applyJournalFile` 或 `applyJournalRows`，并保留原请求和回执。
+4. CSV 或 XLSX 调用 `previewJournalFile`，从其他格式提取的结构化明细调用 `previewJournalRows`。显示选定的公司、银行账户、账簿币种、笔数和收支合计。用户确认后再调用对应的 `applyJournalFile` 或 `applyJournalRows`，并保留原请求和回执。
 
 专用接入用户通过 `Bank Journal Import API` 角色限制到本页列出的接口。管理员用 ERP 的 `User Permission` 逐一授权目标公司，选择 `Company`，启用「适用于所有单据类型」和「隐藏下级」，再核对该公司的可用账簿。
 
 ## 创建账簿
 
-使用 `createJournalBook` 时，`company` 取自 `message.companies`，`account` 填该银行账户的完整名称。`opening_date` 为开始记账的日期，`opening` 为该日期首笔交易发生前的人民币余额，使用十进制字符串。确认银行余额为零时填 `"0.00"`。
+使用 `createJournalBook` 时，`company` 取自 `message.companies`，`account` 填该银行账户的完整名称。`currency` 从 `getJournalOptions` 返回的 `currencies` 中选择。`opening_date` 为开始记账的日期，`opening` 为该日期首笔交易发生前的原币余额，使用十进制字符串。确认银行余额为零时填 `"0.00"`。
 
 ```json
 {
   "company": "示例公司",
   "account": "示例银行基本户",
+  "currency": "CNY",
   "opening": "1000.00",
   "opening_date": "2026-11-01"
 }
 ```
 
-成功返回 `message.book`、`message.company` 和 `message.account`，可直接用于流水预览。重复提交同一公司、账户和期初设置时，ERP 返回原账簿。若同名账簿的启用日期或期初余额不同，ERP 返回冲突，按财务确认的账簿继续。
+成功返回 `message.book`、`message.company` 和 `message.account`，可直接用于流水预览。重复提交同一公司、账户和期初设置时，ERP 返回原账簿。若同名账簿的币种、启用日期或期初余额不同，ERP 返回冲突，按财务确认的账簿继续。
 
 ## JSON 明细的请求
 
@@ -96,7 +97,7 @@
 | `category`、`level2`、`level3`、`project` | 类别、二级明细、三级明细、所属项目。没有依据的分类可省略。 |
 | `invoice`、`dept` | 可选的发票寄送信息、归属部门。 |
 
-顶层币种填写 `CNY`。金额用无千分位、无币符的十进制字符串。编号始终使用文本。AI 遇到收支方向不清、账号归属冲突、日期或金额识别不清时，应把原文交给操作人核对。一次传同一账簿 1 至 10,000 笔，明细数组紧凑编码后上限 6 MiB。按银行原单顺序提供，同日顺序会影响余额校验。
+顶层 `currency` 填所选账簿返回的币种，例如 `MXN`。每本账只收本币种流水，所有金额为账户原币。金额用无千分位、无币符的十进制字符串。编号始终使用文本。AI 遇到收支方向不清、账号归属冲突、日期或金额识别不清时，应把原文交给操作人核对。一次传同一账簿 1 至 10,000 笔，明细数组紧凑编码后上限 6 MiB。按银行原单顺序提供，同日顺序会影响余额校验。
 
 ### 预览、确认和回读
 
@@ -132,7 +133,7 @@ rpc "$base/budget.api.bank_journal.get_options" |
   ' > "$work/target.json"
 
 jq -n --slurpfile t "$work/target.json" --slurpfile rows rows.json '
-  {book:$t[0].name,company:$t[0].company,account:$t[0].account,currency:"CNY",rows:$rows[0]}
+  {book:$t[0].name,company:$t[0].company,account:$t[0].account,currency:$t[0].currency,rows:$rows[0]}
 ' > "$work/input.json"
 post preview_rows "$work/input.json" > "$work/preview.json"
 jq '.message | {company,account,row_count,income_total,expense_total,error_count,errors}' "$work/preview.json"
@@ -154,7 +155,7 @@ jq '.message | {operation,version,created,matched,skipped}' "$work/receipt.json"
 
 `preview_import` 的请求体包含 `book`、带扩展名的 `filename` 和 `content_base64`。可选 `mapping` 形如 `{"date":0,"summary":2,"expense":5}`，整数为从 0 开始的列序号。传原始文件字节的标准 Base64，保留编码和换行。来源表明确标有账户时，核对预览中的 `account_label` 与选定的账户。通用流水可能没有这个字段的值，应以银行原单和用户选择为准。
 
-导入新账簿时，传 `company` 并省略 `book`。传 `use_ai=1` 可为陌生表头启用 DeepSeek，传 `review_offset=0` 读取首屏可编辑的流水。核对返回的 `book_settings` 中的账户、启用日和人民币期初余额。缺项列在 `book_issues` 中，可用 `account`、`opening_date`、`opening` 补齐后再次预览。需要修改流水时，通过 `edits` 按原表行号提交修改，收支两列一起传。提交确认沿用同一公司、文件、账簿参数、修改值及返回的 `header_row`、`mapping_used`（作为 `mapping`）。确认成功后，`message.book` 是新账簿编号。取消预览即可放弃本次建账。
+导入新账簿时，传 `company` 并省略 `book`。传 `use_ai=1` 可为陌生表头启用 DeepSeek，传 `review_offset=0` 读取首屏可编辑的流水。新账簿需明确传 `currency` 才可确认。`suggested_currency` 是文件中有明确依据的建议，单独的 `$` 需要用户选择。已有账簿直接用其币种。`book_settings` 提供账户、币种、文件期初及启用日的建议值。可在预览中修改 `opening_date`、`opening` 后重新校验。调整期初会显示 `opening_adjustment`，原表余额用于核对，账簿余额按确认的差额计算。缺项集中在 `book_issues`。需要修改流水时，通过 `edits` 按原表行号提交修改，收支两列一起传。提交确认沿用同一公司、文件、账簿参数、修改值及返回的 `header_row`、`mapping_used`（作为 `mapping`）。确认成功后，`message.book` 是新账簿编号。取消预览即可放弃本次建账。
 
 可以复用上例的 `work/target.json` 和 `post` 函数。下面的 `FILE` 是本地文件路径。
 
@@ -170,8 +171,10 @@ post preview_import "$work/file-input.json" > "$work/file-preview.json"
 jq '.message | {account_label,headers,suggested_mapping,needs_mapping,row_count,income_total,expense_total,error_count,errors}' "$work/file-preview.json"
 ```
 
-- `needs_mapping=true` 时，根据 `headers` 补上 `mapping` 并重新预览。仅在 `needs_mapping=false`、`error_count=0` 且有 `preview_id` 时确认。确认沿用相同文件、参数和列映射，加上此次预览的 `preview_id`、`version` 及新的 `request_id`，调用 `apply_import`。
-- CSV 支持 UTF-8（含 BOM）和 GB18030。XLSX 需仅有一个可见工作表，映射到的公式单元格请先转为值。单文件上限 6 MiB。原件按文件方式导入，才能保留受支持的原表模板；JSON 只包含提取后的明细。
+- `needs_mapping=true` 时，根据 `headers` 补上 `mapping` 并重新预览。仅在 `needs_mapping=false`、`error_count=0` 且有 `preview_id` 时确认。确认沿用相同文件、参数和列映射，加上此次预览的 `preview_id`、`version` 及新的 `request_id`，调用 `apply_import`。跨列日期按 `mapping_used` 中的 `year`、`month`、`day` 合成，也支持单列 `date`。
+- CSV 支持 UTF-8（含 BOM）和 GB18030。XLSX 需仅有一个可见工作表，系统核对受支持的逐笔滚动余额公式。无法核实的公式会在预览中提示。单文件上限 6 MiB。原件按文件方式导入，才能保留受支持的原表模板；JSON 只包含提取后的明细。
+
+有日期和说明、原始收支均为空的行会保留在预览。用户可补金额，或把明确跳过的原表行号放进 `excluded_rows`，例如 `[274,275]`。预览与确认传同一列表；收支有值的行须完整核对。
 
 已有账簿的文件导入支持两种方式。专用 AI 导入账号沿用 `mode=append`（默认），相同来源的流水自动去重。持有本公司流水新增、修改及删除权限的财务用户，在页面选「按文件日期覆盖」时，预览和确认都传 `mode=replace_range`。区间为核对后第一笔至最后一笔流水日期，含首尾和中间日期。预览中的 `impact` 给出旧、新笔数和区间末余额。修改日期或切换方式需要重新预览。区间末余额改变时，后续流水的滚动余额随之重算。
 

@@ -1,4 +1,4 @@
-"""Monthly RMB bank books on the existing, permission-checked native cash journal.
+"""Single-currency bank books on the existing, permission-checked native cash journal.
 
 Book, source and operation records are private service metadata. Each write takes
 one book row lock before touching native entries; Frappe commits the HTTP POST.
@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from decimal import Decimal
 
 import frappe
+from babel.numbers import get_currency_precision, is_currency
 from frappe.desk.reportview import get_match_cond
 
 from budget.services.bank_journal_contract import (
@@ -31,7 +32,7 @@ from budget.services.bank_journal_access import journal_companies as allowed_com
 BOOK = "CN Bank Journal Book"
 OP = "CN Bank Journal Operation"
 ORIGIN = "CN Bank Journal Source"
-CORE = ("posting_date", "direction", "amount", "summary", "dingtalk_approval_number", "reference_number")
+CORE = ("posting_date", "direction", "amount", "currency", "summary", "dingtalk_approval_number", "reference_number")
 ROW_FIELDS = ["name", *CORE, EXTRA, SEQ, VOID]
 MAX_BATCH = 10000
 REPLACE_RANGE = "Replace Range"
@@ -69,6 +70,31 @@ def authorize_replacement():
 		_doctype_permission(permission)
 
 
+def book_currency(doc):
+	"""Books and native entries created before the currency field always used CNY."""
+	return (doc.get("currency") if isinstance(doc, dict) else getattr(doc, "currency", None)) or "CNY"
+
+
+def _supported_currency(row):
+	return is_currency(row.name) and get_currency_precision(row.name) == 2 and row.fraction_units in (None, 0, 100)
+
+
+def supported_currencies():
+	rows = frappe.get_all("Currency", filters={"enabled": 1}, fields=["name", "fraction_units"],
+		order_by="name", limit_page_length=0)
+	return [row.name for row in rows if _supported_currency(row)]
+
+
+def _check_currency(doc, declared):
+	if declared != book_currency(doc):
+		frappe.throw(f"该账户账簿的币种是 {book_currency(doc)}，与所选币种不一致。")
+
+
+def require_oa_currency(doc):
+	if book_currency(doc) != "CNY":
+		frappe.throw("钉钉支出同步的付款金额为人民币（CNY），仅可同步到 CNY 账簿。")
+
+
 @frappe.whitelist()
 def get_options():
 	_doctype_permission("read")
@@ -83,7 +109,7 @@ def get_options():
 		frappe.get_all(
 			BOOK,
 			filters={"company": ["in", companies]},
-			fields=["name", "company", "account"],
+			fields=["name", "company", "account", "currency"],
 			order_by="company, account",
 			limit_page_length=0,
 		)
@@ -104,7 +130,8 @@ def get_options():
 	)
 	return {
 		"companies": companies,
-		"books": books,
+		"books": [{**book, "currency": book_currency(book)} for book in books],
+		"currencies": supported_currencies(),
 		"month": frappe.utils.today()[:7],
 		"legacy_count": int(legacy[0]["n"] or 0) if legacy else 0,
 		"can_sync": perms["create"]
@@ -119,7 +146,7 @@ def get_options():
 def _lock_company_book(company, name):
 	frappe.get_doc("Company", company, for_update=True).check_permission("read")
 	return frappe.db.get_value(
-		BOOK, name, ["name", "opening", "opening_date"], as_dict=True, for_update=True
+		BOOK, name, ["name", "opening", "opening_date", "currency"], as_dict=True, for_update=True
 	)
 
 
@@ -132,23 +159,27 @@ def authorize_book_creation(company):
 		frappe.throw("没有此公司的权限。", frappe.PermissionError)
 
 
-def book_settings(company, account, opening, opening_date):
+def book_settings(company, account, opening, opening_date, currency="CNY"):
 	issues = []
 	if not isinstance(account, str) or not account.strip() or len(account.strip()) > 140:
 		issues.append({"field": "account", "message": "请填写银行账户的账簿名称。"})
 	account = account.strip() if isinstance(account, str) else ""
+	currency = currency.strip().upper() if isinstance(currency, str) else ""
+	if currency not in supported_currencies():
+		issues.append({"field": "currency", "message": "请选择 ERP 中已启用、使用两位小数的币种。"})
 	try:
 		amount = money(opening)
 	except ValueError:
 		amount = None
-		issues.append({"field": "opening", "message": "请提供明确的人民币期初余额，最多保留两位小数。"})
+		issues.append({"field": "opening", "message": "请提供明确的账簿期初余额，最多保留两位小数。"})
 	try:
 		start = as_date(opening_date).isoformat()
 	except ValueError:
 		start = None
 		issues.append({"field": "opening_date", "message": "请填写有效的账簿启用日期（YYYY-MM-DD）。"})
 	return frappe._dict(
-		name=digest([company, account]), company=company, account=account, opening=amount, opening_date=start, revision=0
+		name=digest([company, account]), company=company, account=account, currency=currency,
+		opening=amount, opening_date=start, revision=0
 	), issues
 
 
@@ -157,26 +188,33 @@ def book_exists(name):
 
 
 def _insert_book(settings):
+	currency = book_currency(settings)
+	master = frappe.db.get_value("Currency", {"name": currency, "enabled": 1}, ["name", "fraction_units"],
+		as_dict=True, for_update=True)
+	if not master or not _supported_currency(master):
+		frappe.throw("账簿币种已停用或精度不受支持，请刷新后重新选择。")
 	frappe.get_doc(dict(
-		doctype=BOOK, company=settings.company, account=settings.account, opening=settings.opening,
+		doctype=BOOK, company=settings.company, account=settings.account, currency=currency, opening=settings.opening,
 		opening_date=settings.opening_date, revision=0, next_sequence=0,
 	)).insert(ignore_permissions=True, set_name=settings.name)
 
 
 @frappe.whitelist(methods=["POST"])
-def create_book(company=None, account=None, opening=None, opening_date=None):
+def create_book(company=None, account=None, opening=None, opening_date=None, currency="CNY"):
 	authorize_book_creation(company)
-	settings, issues = book_settings(company, account, opening, opening_date)
+	settings, issues = book_settings(company, account, opening, opening_date, currency)
 	if issues:
 		frappe.throw(issues[0]["message"])
 	with _transaction():
 		existing = _lock_current_snapshot(lambda: _lock_company_book(company, settings.name))
 		if existing:
+			_check_currency(existing, settings.currency)
 			if money(existing.opening) != settings.opening or str(existing.opening_date) != settings.opening_date:
 				frappe.throw("该账户已有账簿，期初设置不同。")
 		else:
 			_insert_book(settings)
-	return {"name": settings.name, "book": settings.name, "account": settings.account, "company": company}
+	return {"name": settings.name, "book": settings.name, "account": settings.account,
+		"company": company, "currency": settings.currency}
 
 
 def _wire(native):
@@ -186,6 +224,7 @@ def _wire(native):
 	values.update(
 		name=native.get("name"),
 		date=str(native.get("posting_date")),
+		currency=book_currency(native),
 		summary=native.get("summary") or "",
 		income=amount if direct == "income" else None,
 		expense=amount if direct == "expense" else None,
@@ -199,8 +238,12 @@ def _wire(native):
 	return values
 
 
+def _entry_scope(book):
+	return {BOOK_FIELD: book.name, VOID: 0, "currency": book_currency(book)}
+
+
 def _rows(book, start=None, end=None):
-	filters = [[BOOK_FIELD, "=", book.name], [VOID, "=", 0]]
+	filters = [[key, "=", value] for key, value in _entry_scope(book).items()]
 	if start:
 		filters.append(["posting_date", ">=", start])
 	if end:
@@ -224,9 +267,9 @@ def _prior(book, before):
 	# when opening the page. Use native list scope for the same authorized set.
 	result = frappe.db.sql(
 		f"""select sum(case when direction='income' then amount else -amount end)
-              from `tab{ENTRY}` where {BOOK_FIELD}=%s and {VOID}=0 and posting_date < %s"""
+              from `tab{ENTRY}` where {BOOK_FIELD}=%s and currency=%s and {VOID}=0 and posting_date < %s"""
 		+ get_match_cond(ENTRY),
-		(book.name, before),
+		(book.name, book_currency(book), before),
 	)
 	return Decimal(str(book.opening)) + Decimal(str(result[0][0] or 0))
 
@@ -247,6 +290,7 @@ def _period(book, month, full=False):
 		book=book.name,
 		company=book.company,
 		account=book.account,
+		currency=book_currency(book),
 		month=month,
 		version=int(book.revision or 0),
 		opening=format(opening, ".2f"),
@@ -304,7 +348,7 @@ def book_ref_rows(book, refs):
 		_wire(r)
 		for r in frappe.get_list(
 			ENTRY,
-			filters={BOOK_FIELD: doc.name, VOID: 0, "name": ["in", sorted(names)]},
+			filters={**_entry_scope(doc), "name": ["in", sorted(names)]},
 			fields=ROW_FIELDS,
 			limit_page_length=0,
 		)
@@ -417,7 +461,7 @@ def _snapshot(doc):
 
 def _authorized_entry(book, name, permission):
 	doc = frappe.get_doc(ENTRY, name, for_update=True)
-	if doc.get(BOOK_FIELD) != book.name or doc.company != book.company or doc.currency != "CNY":
+	if doc.get(BOOK_FIELD) != book.name or doc.company != book.company or doc.currency != book_currency(book):
 		frappe.throw("流水不属于当前账簿。", frappe.PermissionError)
 	doc.check_permission(permission)
 	return doc
@@ -450,11 +494,12 @@ def _write(doc, row, book, *, extra, new):
 			dingtalk_approval_number=references if len(references) <= 140 else row["refs"][0],
 		)
 	)
-	extra.update({key: row[key] for key in (*TEXT, "refs") if key != "summary"})
+	extra.update({key: row[key] for key in (*TEXT, "refs") if key != "summary" and key in row})
 	doc.set(EXTRA, _dump(extra))
 	if new:
 		book.next_sequence = int(book.next_sequence or 0) + 1
-		doc.update({BOOK_FIELD: book.name, SEQ: book.next_sequence, VOID: 0})
+		doc.update({BOOK_FIELD: book.name, SEQ: book.next_sequence, VOID: 0,
+			"company": book.company, "currency": book_currency(book)})
 		doc.insert()
 	else:
 		doc.save()
@@ -478,6 +523,8 @@ def save_row(book, row, version, request_id):
 		doc, ident, fp, done = _begin(
 			book, "write" if name else "create", version, request_id, "Manual", [name, values]
 		)
+		if raw.get("currency") not in (None, ""):
+			_check_currency(doc, raw["currency"])
 		if done:
 			return done
 		current = _authorized_entry(doc, name, "write") if name else frappe.new_doc(ENTRY)
@@ -493,8 +540,6 @@ def save_row(book, row, version, request_id):
 		extra["links"] = {
 			r: url for r in values["refs"] if (url := (new_links.get(r) or extra.get("links", {}).get(r)))
 		}
-		if not name:
-			current.update(dict(company=doc.company, currency="CNY"))
 		_write(current, values, doc, extra=extra, new=not name)
 		return _finish(
 			doc,
@@ -527,7 +572,7 @@ def _matching_entry(book, source, row, claimed):
 	if row.get("bank_ref"):
 		native = frappe.get_list(
 			ENTRY,
-			filters={BOOK_FIELD: book.name, VOID: 0, "reference_number": row["bank_ref"]},
+			filters={**_entry_scope(book), "reference_number": row["bank_ref"]},
 			fields=ROW_FIELDS,
 			limit_page_length=0,
 		)
@@ -574,10 +619,10 @@ def _register(book, source, key, name, entry, fingerprint):
 
 def _range_entries(doc, start, end):
 	filters = {BOOK_FIELD: doc.name, VOID: 0, "posting_date": ["between", [start, end]]}
-	entries = frappe.get_list(ENTRY, filters=filters, fields=["name", "direction", "amount"],
+	entries = frappe.get_list(ENTRY, filters={**filters, "currency": book_currency(doc)}, fields=["name", "direction", "amount"],
 		order_by=f"posting_date asc, {SEQ} asc, name asc", limit_page_length=0)
 	if len(entries) != frappe.db.count(ENTRY, filters):
-		frappe.throw("没有该日期范围内全部流水的访问权限，无法覆盖。", frappe.PermissionError)
+		frappe.throw("所选日期范围内有无权访问或币种不符的流水，无法覆盖。", frappe.PermissionError)
 	return entries
 
 
@@ -632,7 +677,7 @@ def _import_balances(book, checks):
 	fields = ["name", "direction", "amount"]
 	rows = frappe.get_list(
 		ENTRY,
-		filters=[[BOOK_FIELD, "=", book.name], [VOID, "=", 0], ["posting_date", "between", [first, last]]],
+		filters={**_entry_scope(book), "posting_date": ["between", [first, last]]},
 		fields=fields,
 		order_by=f"posting_date asc, {SEQ} asc, name asc",
 		limit_page_length=0,
@@ -665,6 +710,7 @@ def apply_batch(
 	request_facts=None,
 	new_book=None,
 	replace_range=False,
+	import_review=None,
 ):
 	source = _source(source)
 	if not isinstance(rows, list) or len(rows) > MAX_BATCH:
@@ -674,6 +720,8 @@ def apply_batch(
 	if opening is not None:
 		opening = money(opening)
 	payload = [rows, opening, str(opening_date or ""), template] if request_facts is None else request_facts
+	if import_review is not None:
+		payload = [payload, import_review]
 	kind = source
 	if replace_range:
 		if source != "Import" or new_book is not None or not rows:
@@ -687,15 +735,26 @@ def apply_batch(
 			# may replay once another request has created the proposed book.
 			existing = _lock_current_snapshot(lambda: _lock_company_book(new_book.company, book))
 			replay_only = bool(existing)
-			if not existing:
+			if existing:
+				_check_currency(existing, book_currency(new_book))
+			else:
 				_insert_book(new_book)
 		doc, ident, fp, done = _begin(book, "create", version, request_id, kind, payload, replay_only=replay_only)
+		if source == "DingTalk":
+			require_oa_currency(doc)
 		if done:
 			return done
 		changes, checks, claimed = [], [], set()
 		counts = dict(created=0, matched=0, skipped=0)
+		if import_review is not None:
+			counts["import_review"] = import_review
 		# Map once per import so a 10k-row statement does not hit OA per row.
 		clean = [clean_row(raw) for raw in rows]
+		for raw in rows:
+			if raw.get("currency") not in (None, ""):
+				_check_currency(doc, raw["currency"])
+			if "ledger_balance" in raw and (source != "Import" or new_book is None):
+				frappe.throw("仅可按已确认的新账簿期初余额重算流水余额。")
 		lookup = list(dict.fromkeys(ref for row in clean for ref in row["refs"]))
 		all_links = _links(doc.company, lookup)
 		if replace_range:
@@ -724,7 +783,7 @@ def apply_batch(
 			fingerprint = batch_digest(row)
 			review = raw.get("file_review") if source == "Import" else None
 			if source == "Import" and raw.get("balance") not in (None, "") and (
-				row["bank_ref"] or (review and "balance" in review["original"])
+				row["bank_ref"] or (review and "balance" in review.get("original", {}))
 			):
 				fingerprint = digest([fingerprint, money(raw["balance"])])
 			if raw.get("weak_file_proof"):
@@ -755,7 +814,6 @@ def apply_batch(
 				counts["matched"] += 1
 			else:
 				current = frappe.new_doc(ENTRY)
-				current.update(dict(company=doc.company, currency="CNY"))
 				before, extra = None, {"source": source}
 				counts["created"] += 1
 			if row["bank_ref"] and not current.reference_number:
@@ -766,7 +824,7 @@ def apply_batch(
 				cells = raw["raw_cells"]
 				if (
 					not isinstance(cells, list)
-					or len(cells) != 14
+					or len(cells) not in (14, 15)
 					or not all(isinstance(v, str) for v in cells)
 				):
 					frappe.throw("交易行原始列无效。")
@@ -780,7 +838,10 @@ def apply_batch(
 			changes.append(dict(entry=current.name, before=before, origin=origin_id))
 			_register(doc, source, key, origin_id, current.name, fingerprint)
 			if raw.get("balance") not in (None, ""):
-				checks.append((as_date(row["date"]), current.name, Decimal(money(raw["balance"]))))
+				# The bank balance above remains the source fingerprint. A confirmed
+				# opening on a new book affects only its native balance check.
+				ledger_balance = money(raw.get("ledger_balance", raw["balance"]))
+				checks.append((as_date(row["date"]), current.name, Decimal(ledger_balance)))
 		_import_balances(doc, checks)
 		if template and not doc.template_json and not replace_range:
 			changes.append({"template_before": doc.template_json})

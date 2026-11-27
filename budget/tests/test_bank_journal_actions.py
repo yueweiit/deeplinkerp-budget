@@ -67,3 +67,17 @@ def test_stale_changed_company_or_duplicated_reference_blocks(action):
 	with pytest.raises(ValueError):
 		apply()
 	write.assert_not_called()
+
+
+def test_foreign_book_cannot_sync_cny_approvals_even_by_replaying_a_receipt(action):
+	doc, row, _, write, replay = action
+	doc.currency = "MXN"
+	replay.return_value = {"created": 1}
+	with pytest.raises(ValueError, match="CNY"):
+		api.preview_sync(doc.name)
+	with pytest.raises(ValueError, match="CNY"):
+		api.apply_sync(doc.name, "2026-11", "token", 1, "replay-import", [
+			dict(source_key=row["source_key"], date="2026-11-04", expense="25.40")])
+	api.oa.month_candidates.assert_not_called()
+	write.assert_not_called()
+	replay.assert_not_called()

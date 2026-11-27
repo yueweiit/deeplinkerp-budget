@@ -8,6 +8,7 @@
  "field_order": [
   "company",
   "account",
+  "currency",
   "opening",
   "opening_date",
   "revision",
@@ -29,9 +30,20 @@
    "label": "Bank account label"
   },
   {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "default": "CNY",
+   "not_nullable": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
    "fieldname": "opening",
    "fieldtype": "Currency",
    "label": "Opening balance",
+   "options": "currency",
    "precision": "2"
   },
   {

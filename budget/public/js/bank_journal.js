@@ -13,6 +13,8 @@
         const parts = String(value).split(".");
         return parts[0].replace(/\B(?=(\d{3})+(?!\d))/g,",")+"."+(parts[1] || "").padEnd(2,"0");
     };
+    const moneyLabel = (label, currency) => currency ? label+"（"+currency+"）" : label;
+    const amountWithUnit = (value, currency) => amountText(value)+(currency?" "+currency:"");
     const positive = value => /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(String(value)) && /[1-9]/.test(String(value));
     const validMonth = m => /^\d{4}-(?:0[1-9]|1[0-2])$/.test(String(m));
     function monthArgs(book, month) {
@@ -53,8 +55,9 @@
             '<small class="bj-balance-note">保存后重算</small>';
         return input(key,label,row[key]);
     }
-    function rowMarkup(row, {canEdit = false, editing = false, editBusy = false} = {}) {
-        return (editing?'<tr class="bj-editing">':'<tr>')+columns.map(([key,label])=>{
+    function rowMarkup(row, {canEdit = false, editing = false, editBusy = false, currency = ""} = {}) {
+        return (editing?'<tr class="bj-editing">':'<tr>')+columns.map(([key,title])=>{
+            const label=["income","expense","balance"].includes(key)?moneyLabel(title,currency):title;
             let value;
             if (editing) value=editCell(key,label,row);
             else if (key === "date") {
@@ -141,6 +144,14 @@
     function optionsList(choices) {
         return choices.map(([val,label])=>'<option value="'+esc(val)+'">'+esc(label)+'</option>').join("");
     }
+    function currencySelect(currencies) {
+        const choices=[["","请选择币种"],...(currencies||[]).map(code=>[code,code])];
+        return '<label>账簿币种<select name="currency" required>'+optionsList(choices)+'</select></label>';
+    }
+    const openingField='<label><span data-opening-label>期初余额</span><input name="opening" type="text" inputmode="decimal"></label>';
+    function setOpeningUnit(el,currency) {
+        el.querySelector("[data-opening-label]").textContent=moneyLabel("期初余额",currency);
+    }
     const field=(id,label,value="",type="text",attributes="")=>'<label>'+esc(label)+'<input name="'+id+'" type="'+type+'" value="'+esc(value)+'" '+attributes+'></label>';
     const multi=(id,label,value)=>'<label class="bj-wide">'+esc(label)+'<textarea name="'+id+'" rows="2">'+esc(value)+'</textarea></label>';
     const formValue=(el,name)=>el.querySelector('[name="'+name+'"]').value.trim();
@@ -159,8 +170,8 @@
         if(base.name)values.name=base.name;
         return values;
     }
-    function saveMovement(book, version, receipt, row) {
-        const args={book,version,row};
+    function saveMovement(book, version, receipt, row, currency) {
+        const args={book,version,row:{...row,currency}};
         return call("save_row",{...args,request_id:retryKey(receipt,args)});
     }
     function dialog(title, html) {
@@ -188,47 +199,74 @@
             radio("append","新增流水",!canReplace)+(canReplace?radio("replace_range","按文件日期覆盖"):"")+
             '<button type="button" class="btn btn-link btn-xs" data-import-new>导入为新账簿</button></div>';
     }
-    function replacementNotice(impact) {
+    function replacementNotice(impact, currency) {
         if(!impact)return "";
         return '<div class="bj-range-notice" data-range-notice role="status"><strong>'+
             esc(impact.start)+' 至 '+esc(impact.end)+'</strong> · 原有 '+esc(impact.old_count)+
             ' 笔将替换为 '+esc(impact.new_count)+' 笔<span>区间末余额 '+esc(amountText(impact.old_closing))+
-            ' → '+esc(amountText(impact.new_closing))+' 元。区间内文件未列出的旧流水也会撤下。</span></div>';
+            ' → '+esc(amountWithUnit(impact.new_closing,currency))+'。区间内文件未列出的旧流水也会撤下。</span></div>';
     }
-    function importMapping(preview, mapping, signed=mapping.amount!=null, open=false) {
+    function openingNotice(adjustment,currency) {
+        if(!adjustment)return "";
+        return '<div class="bj-range-notice" data-opening-adjustment role="status">文件期初 '+
+            esc(amountText(adjustment.file_opening))+' → 账簿期初 '+esc(amountWithUnit(adjustment.book_opening,currency))+
+            '，账簿期末 '+esc(amountWithUnit(adjustment.closing,currency))+'。</div>';
+    }
+    const dateParts=[["year","年"],["month","月"],["day","日"]];
+    const hasDateParts=mapping=>dateParts.some(([key])=>mapping?.[key]!=null);
+    function switchImportLayout(mapping, kind, value) {
+        const next={...mapping};
+        const drop=kind==="date"?(value==="parts"?["date"]:["year","month","day"]):
+            (value==="signed"?["income","expense"]:["amount","direction"]);
+        for(const field of drop)delete next[field];
+        return next;
+    }
+    function importMapping(preview, mapping, signed=mapping.amount!=null, open=false, parts=hasDateParts(mapping)) {
         if (!preview.headers?.length || (!preview.needs_mapping && preview.mapping_used===null)) return "";
         const choices=[["","未使用"],...preview.headers.map((header,i)=>[i,(i+1)+" · "+header])];
-        const fields=signed ? [...importFields.slice(0,2),["amount","交易金额"],["direction","收支方向"],importFields[4]] : [...importFields];
+        const fields=[...(parts?dateParts:[importFields[0]]),importFields[1],
+            ...(signed?[["amount","交易金额"],["direction","收支方向"]]:importFields.slice(2,4)),importFields[4]];
+        if(mapping.remark!=null || preview.suggested_mapping?.remark!=null)fields.push(["remark","备注"]);
         for (const [key,label] of [["bank_ref","银行流水号"],["currency","币种"],["refs","钉钉单号"]]) {
             if (preview.errors?.some(issue=>issue.field===key)) fields.push([key,label]);
         }
-        return '<details class="bj-import-mapping"'+(open?' open':'')+'><summary>列对应'+(preview.needs_mapping?' · 待设置':'')+'</summary>'+
-            '<div class="bj-import-columns"><label>收支列形式<select data-layout>'+[
-                ["split","收入、支出分列"],["signed","收支同列"]].map(([value,label])=>
-                '<option value="'+value+'"'+((value==="signed")===signed?' selected':'')+'>'+label+'</option>').join("")+
-            '</select></label>'+fields.map(([key,label])=>'<label>'+esc(label)+'<select data-map="'+key+'">'+choices.map(([index,name])=>
+        const layout=(label,attribute,options,current)=>'<label>'+label+'<select '+attribute+'>'+
+            options.map(([value,text])=>'<option value="'+value+'"'+(value===current?' selected':'')+'>'+text+'</option>').join("")+'</select></label>';
+        const source=preview.needs_mapping?' · 待设置':preview.mapping_source==="deepseek"?' · AI 已识别':'';
+        return '<details class="bj-import-mapping"'+(open?' open':'')+'><summary>列对应'+source+'</summary>'+
+            '<div class="bj-import-columns">'+layout("日期列形式","data-date-layout",[["combined","日期同列"],["parts","年、月、日分列"]],parts?"parts":"combined")+
+            layout("收支列形式","data-layout",[["split","收入、支出分列"],["signed","收支同列"]],signed?"signed":"split")+
+            fields.map(([key,label])=>'<label>'+esc(label)+'<select data-map="'+key+'">'+choices.map(([index,name])=>
                 '<option value="'+esc(index)+'"'+(String(mapping[key]??"")===String(index)?' selected':'')+'>'+esc(name)+'</option>').join("")+
             '</select></label>').join("")+'</div></details>';
     }
-    function importTable(rows, errors) {
+    function importReviewArgs(edits, excludedRows) {
+        const includedEdits=Object.fromEntries(Object.entries(edits).filter(([row])=>!excludedRows.has(Number(row))));
+        return {edits:JSON.stringify(includedEdits),excluded_rows:JSON.stringify([...excludedRows].sort((a,b)=>a-b))};
+    }
+    function importTable(rows, errors, currency) {
         const issues=new Map();
         for (const issue of errors || []) {
             if (!issues.has(issue.row)) issues.set(issue.row,[]);
             issues.get(issue.row).push(issue);
         }
-        const head='<th scope="col">原行</th>'+importFields.map(([,label])=>'<th scope="col">'+label+'</th>').join("");
+        const head='<th scope="col">原行</th>'+importFields.map(([key,label])=>
+            '<th scope="col">'+esc(["income","expense","balance"].includes(key)?moneyLabel(label,currency):label)+'</th>').join("");
         const body=rows.map(row=>{
             const problems=issues.get(row.source_row)||[];
             const cells=importFields.map(([key,label])=>{
                 const value=row[key]??"";
                 const issue=problems.find(item=>item.field===key || (["income","expense"].includes(key) && ["amount","direction"].includes(item.field)));
-                const attrs='data-field="'+key+'" aria-label="原表第 '+esc(row.source_row)+' 行 '+label+'" title="'+esc(issue?.message || value)+'"'+
+                const attrs='data-field="'+key+'" aria-label="原表第 '+esc(row.source_row)+' 行 '+label+'" title="'+esc(issue?.message || value)+'"'+(row.excluded?' disabled':'')+
                     (issue?' aria-invalid="true"':'');
-                return '<td>'+(key==="summary"?'<textarea rows="1" maxlength="12000" '+attrs+'>'+esc(value)+'</textarea>':
-                    '<input type="text" maxlength="80" '+(key==="date"?'':'inputmode="decimal" ')+attrs+' value="'+esc(value)+'">')+'</td>';
+                if(key!=="summary")return '<td><input type="text" maxlength="80" '+(key==="date"?'':'inputmode="decimal" ')+attrs+' value="'+esc(value)+'"></td>';
+                const toggle=row.excludable || row.excluded?'<button type="button" class="btn btn-default btn-xs" data-exclude-row="'+esc(row.source_row)+
+                    '" aria-pressed="'+Boolean(row.excluded)+'">'+(row.excluded?'恢复':'排除')+'第 '+esc(row.source_row)+' 行</button>':"";
+                const note=row.remark?'<small class="bj-import-remark">备注 · '+esc(row.remark)+'</small>':"";
+                return '<td><textarea rows="1" maxlength="12000" '+attrs+'>'+esc(value)+'</textarea>'+note+toggle+'</td>';
             }).join("");
             const note=problems.map(issue=>issue.message).join("；");
-            return '<tr data-source-row="'+esc(row.source_row)+'"><th scope="row"'+(note?' class="bj-import-row-issue" title="'+esc(note)+'"':'')+'>'+esc(row.source_row)+'</th>'+cells+'</tr>';
+            return '<tr data-source-row="'+esc(row.source_row)+'"'+(row.excluded?' class="bj-import-excluded"':'')+'><th scope="row"'+(note?' class="bj-import-row-issue" title="'+esc(note)+'"':'')+'>'+esc(row.source_row)+'</th>'+cells+'</tr>';
         }).join("");
         return '<div class="bj-import-grid" tabindex="0" role="region" aria-label="银行流水预览"><table class="bj-preview"><thead><tr>'+head+
             '</tr></thead><tbody>'+body+'</tbody></table></div>';
@@ -274,9 +312,13 @@
             const accounts=scopeBooks(this.books,this.company);
             this.book=accounts.find(b=>b.name===this.book)?.name || (accounts.length===1?accounts[0].name:"");
         }
+        get bookCurrency() {
+            return this.books.find(b=>b.name===this.book)?.currency || this.data?.currency || "";
+        }
         openDialog(title,html,{companyOnly=false}={}){
             const company=this.company,book=this.book,period=this.month;
-            const caption=[company,companyOnly?"":this.books.find(b=>b.name===book)?.account].filter(Boolean).map(esc).join(" · ");
+            const account=this.books.find(b=>b.name===book);
+            const caption=(companyOnly?[company]:[company,account?.account,this.bookCurrency]).filter(Boolean).map(esc).join(" · ");
             const instance=dialog(title,'<p class="text-muted">'+caption+'</p>'+html);
             this.activeDialog=instance.d;
             const check=()=>{
@@ -293,16 +335,16 @@
             this.render(scrollTop);
         }
         render(scrollTop) {
-            const b=this.books.find(x=>x.name===this.book),data=this.data,rows=data?.rows || [];
+            const b=this.books.find(x=>x.name===this.book),data=this.data,rows=data?.rows || [],currency=this.bookCurrency;
             const use=(id,label,disable=false,primary=false)=>'<button data-act="'+id+'" class="btn btn-'+(primary?"primary":"default")+' btn-sm" '+(disable?"disabled":"")+'>'+label+'</button>';
             const editing=this.editing, canEdit=Boolean(this.opts.can_write);
             const accounts=scopeBooks(this.books,this.company);
             const companySelect='<label>公司<select name="company" aria-label="公司" '+(editing?"disabled":"")+'>'+optionsList([["","请选择公司"],...this.companies.map(c=>[c,c])])+'</select></label>';
-            const bookSelect='<label>银行账户<select name="book" aria-label="银行账户" '+(!accounts.length||editing?"disabled":"")+'>'+optionsList([["","请选择银行账户"],...accounts.map(b=>[b.name,b.account])])+'</select></label>';
+            const bookSelect='<label>银行账户<select name="book" aria-label="银行账户" '+(!accounts.length||editing?"disabled":"")+'>'+optionsList([["","请选择银行账户"],...accounts.map(b=>[b.name,moneyLabel(b.account,b.currency)])])+'</select></label>';
             const allowed=this.opts.can_create!==false;
             const summary=[["opening","月初余额"],["income","本月收入"],["expense","本月支出"],["closing","月末余额"]];
             const table='<table class="bj-ledger"><colgroup>'+columns.map(([key])=>'<col class="bj-width-'+key+'">').join("")+'</colgroup><thead><tr>'+
-                columns.map(([key,label])=>'<th scope="col" class="bj-'+key+'">'+esc(label)+'</th>').join("")+'</tr></thead><tbody>'+rows.map(row=>rowMarkup(row,{canEdit,editing:editing?.row.name===row.name,editBusy:Boolean(editing)})).join("")+'</tbody></table>';
+                columns.map(([key,label])=>'<th scope="col" class="bj-'+key+'">'+esc(["income","expense","balance"].includes(key)?moneyLabel(label,currency):label)+'</th>').join("")+'</tr></thead><tbody>'+rows.map(row=>rowMarkup(row,{canEdit,editing:editing?.row.name===row.name,editBusy:Boolean(editing),currency})).join("")+'</tbody></table>';
             const toolbar='<div class="bj-toolbar">'+companySelect+bookSelect+'<label>月份<input name="month" aria-label="月份" type="month" value="'+esc(this.month)+'" '+(editing?"disabled":"")+'></label>'+
                 (allowed&&this.company?use("import-book","导入账簿",Boolean(editing),!this.book)+use("book","新建账簿",Boolean(editing)):"")+'</div>';
             if(!this.book) {
@@ -310,8 +352,8 @@
                     (this.opts.legacy_count?use("classic","查看原有手工流水"):"");
                 this.el.querySelector('[name="company"]').value=this.company;return;
             }
-            this.el.innerHTML=toolbar+'<dl class="bj-totals">'+summary.map(([k,label])=>'<div><dt>'+label+'</dt><dd>'+amountText(data?.[k])+'</dd></div>').join("")+'</dl>'+
-                '<div class="bj-actions">'+(allowed?use("add","新增行",!data||editing,true)+use("import","导入银行流水",!data||editing)+(this.opts.can_sync!==false?use("sync","同步钉钉",!data||editing):""):"")+(this.opts.can_export!==false?use("export","导出",!data||editing):"")+
+            this.el.innerHTML=toolbar+'<dl class="bj-totals">'+summary.map(([k,label])=>'<div><dt>'+esc(moneyLabel(label,currency))+'</dt><dd>'+esc(amountText(data?.[k]))+'</dd></div>').join("")+'</dl>'+
+                '<div class="bj-actions">'+(allowed?use("add","新增行",!data||editing,true)+use("import","导入银行流水",!data||editing)+(this.opts.can_sync!==false&&currency==="CNY"?use("sync","同步钉钉",!data||editing):""):"")+(this.opts.can_export!==false?use("export","导出",!data||editing):"")+
                 (data?.undo_operation?use("undo",data.undo_range?"撤回上次覆盖":"撤回上次操作",Boolean(editing)):"")+'<span class="text-muted">'+(data?esc(this.month)+" · "+rows.length+" 笔":"")+'</span></div>'+
                 (this.failed?'<p class="bj-error">'+esc(this.failed)+'</p>'+use("refresh","重试"):!data?'<p role="status">正在读取本月流水…</p>':
                 '<div class="bj-grid">'+table+(rows.length?"":'<p class="text-muted bj-empty">本月暂无流水。</p>')+'</div>');
@@ -346,7 +388,7 @@
         startEdit(name) {
             const row=this.data?.rows.find(entry=>entry.name===name);
             if (!row || !this.opts.can_write) return;
-            this.editing={row,version:this.data.version,book:this.book,receipt:{},busy:false};
+            this.editing={row,version:this.data.version,book:this.book,currency:this.bookCurrency,receipt:{},busy:false};
             this.render(this.el.querySelector(".bj-grid")?.scrollTop);
             this.el.querySelector(".bj-editing input")?.focus({preventScroll:true});
         }
@@ -367,7 +409,7 @@
                 edit.busy=true;
                 controls.forEach(el=>el.disabled=true);
                 error.hidden=true;
-                await saveMovement(edit.book,edit.version,edit.receipt,values);
+                await saveMovement(edit.book,edit.version,edit.receipt,values,edit.currency);
                 this.editing=null;
                 const nextMonth=values.date.slice(0,7);
                 const scrollTop=nextMonth===this.month?this.el.querySelector(".bj-grid")?.scrollTop:0;
@@ -387,28 +429,31 @@
         bookDialog() {
             const companies=[[this.company,this.company]];
             const {d,el,action}=this.openDialog("新建银行账簿",'<div class="bj-form"><label>公司<select name="company" disabled>'+optionsList(companies)+'</select></label>'+
-                field("account","银行账户名称")+field("opening_date","启用日期",this.month+"-01","date")+field("opening","期初余额","","text",'inputmode="decimal"')+'</div>');
+                field("account","银行账户名称")+currencySelect(this.opts.currencies)+field("opening_date","启用日期",this.month+"-01","date")+openingField+'</div>',{companyOnly:true});
+            el.querySelector('[name="currency"]').addEventListener("change",({target})=>setOpeningUnit(el,target.value));
             action("创建账簿",async()=>{
-                const args=Object.fromEntries(["company","account","opening_date","opening"].map(k=>[k,formValue(el,k)]));
+                const args=Object.fromEntries(["company","account","currency","opening_date","opening"].map(k=>[k,formValue(el,k)]));
+                if(!this.opts.currencies?.includes(args.currency))throw Error("请选择账簿币种。");
                 if(Object.values(args).some(v=>!v))throw Error("请填写公司、账户、启用日期和期初余额。");
                 const r=await call("create_book",args);this.book=r.book || r.name;d.hide();await this.initialize();
             });
         }
         rowDialog(row) {
-            const base=row || {},book=this.book,version=this.data.version,receipt={};
+            const base=row || {},book=this.book,currency=this.bookCurrency,version=this.data.version,receipt={};
             const write=row?this.opts.can_write!==false:this.opts.can_create!==false;
             const today=root.frappe.datetime.get_today();
             const {d,el,action,error,check}=this.openDialog(row?"流水明细":"新增流水",'<div class="bj-form">'+
                 field("date","日期",base.date || (today.startsWith(this.month)?today:this.month+"-01"),"date")+
                 field("category","类别",base.category)+field("level2","二级明细",base.level2)+field("level3","三级明细",base.level3)+
                 field("project","所属项目",base.project)+field("dept","归属部门",base.dept)+multi("summary","摘要",base.summary)+
-                field("income","收入",base.income,"text",'inputmode="decimal"')+field("expense","支出",base.expense,"text",'inputmode="decimal"')+
+                (base.remark?'<div class="bj-wide bj-import-remark">备注 · '+esc(base.remark)+'</div>':"")+
+                field("income",moneyLabel("收入",currency),base.income,"text",'inputmode="decimal"')+field("expense",moneyLabel("支出",currency),base.expense,"text",'inputmode="decimal"')+
                 multi("refs","钉钉单号（多个可分行填写）",(base.refs||[]).join("\n"))+multi("invoice","发票寄送信息",base.invoice)+'</div>'+
                 (row&&this.opts.can_delete!==false?'<button type="button" class="btn btn-danger btn-sm" data-cancel>取消这笔流水</button>':""));
             if(!write){el.querySelectorAll("input,textarea").forEach(x=>x.readOnly=true);d.get_primary_btn().addClass("hide");}
             else action("保存",async()=>{
                 const values=movementValues(el,base);
-                await saveMovement(book,version,receipt,values);d.hide();
+                await saveMovement(book,version,receipt,values,currency);d.hide();
                 this.month=values.date.slice(0,7);await this.load();
             });
             el.querySelector("[data-cancel]")?.addEventListener("click",()=>root.frappe.confirm("取消此笔流水后，余额将重新汇总。确定取消？",async()=>{
@@ -421,7 +466,7 @@
             const args={book:this.book,version:this.data.version,operation:this.data.undo_operation},receipt={};
             const range=this.data.undo_range;
             const detail=range?esc(range.start)+" 至 "+esc(range.end)+" 将恢复覆盖前的 "+esc(range.old_count)+
-                " 笔流水，区间末余额恢复为 "+esc(amountText(range.old_closing))+" 元。":"同批导入或同步的流水将一起撤回。";
+                " 笔流水，区间末余额恢复为 "+esc(amountWithUnit(range.old_closing,this.bookCurrency))+"。":"同批导入或同步的流水将一起撤回。";
             const {d,action}=this.openDialog(range?"撤回上次覆盖":"撤回上次操作","<p>"+detail+"</p>");
             action("确认撤回",async()=>{await call("undo",{...args,request_id:retryKey(receipt,args)});d.hide();await this.load();});
         }
@@ -436,27 +481,31 @@
             });
         }
         importDialog(newBook=false) {
-            const book=newBook?"":this.book,company=this.company,receipt={};
-            const settings=newBook?'<div class="bj-import-book" data-book-settings hidden>'+
-                field("account","银行账户名称","","text",'maxlength="140"')+field("opening_date","启用日期","","date")+
-                field("opening","期初余额（元）","","text",'inputmode="decimal"')+'<div data-book-issues role="status"></div></div>':"";
+            const book=newBook?"":this.book,company=this.company,currency=newBook?"":this.bookCurrency,receipt={};
+            const currencies=this.opts.currencies || [];
+            const settings=newBook?'<div class="bj-import-book" data-book-settings>'+
+                field("account","银行账户名称","","text",'maxlength="140"')+currencySelect(currencies)+
+                field("opening_date","启用日期","","date")+openingField+
+                '<small data-currency-hint role="status" hidden></small><div data-book-issues role="status"></div></div>':"";
             const modes=newBook?"":importModeFields(Boolean(this.opts.can_write && this.opts.can_delete));
-            const {d,el,action,error,check,run}=this.openDialog(newBook?"导入账簿":"导入银行流水",modes+'<div class="bj-import-toolbar">'+
+            const {d,el,action,error,check,run}=this.openDialog(newBook?"导入新账簿":"导入银行流水",settings+modes+'<div class="bj-import-toolbar">'+
                 '<label class="bj-import-file"><input type="file" accept=".csv,.xlsx" name="statement" aria-label="选择 CSV 或 XLSX 文件"></label>'+
-                '<div data-mapping></div></div>'+settings+'<div data-result></div>',{companyOnly:newBook});
+                '<div data-mapping></div></div><div data-result></div>',{companyOnly:newBook});
             el.classList.add("bj-import-dialog");
             el.closest(".modal-dialog")?.classList.add("bj-import-modal");
             const fileInput=el.querySelector("[name=statement]");
             const mappingBox=el.querySelector("[data-mapping]"),resultBox=el.querySelector("[data-result]");
             let preview=null, data="", revision=0, offset=0, selected=null, headerRow=null, edits={};
             const bookFields=el.querySelector("[data-book-settings]");
-            let layoutPreview=null,bookEdits={};
+            const bookEdits={},excludedRows=new Set(),originalRows=new Map();
+            let layoutPreview=null,parts=false,signed=false;
             const validate=()=>read(offset);
             const invalidate=label=>{
                 ++revision;
                 preview=null;
                 error("");
                 resultBox.querySelector("[data-range-notice]")?.remove();
+                resultBox.querySelector("[data-opening-adjustment]")?.remove();
                 const status=resultBox.querySelector("[data-validation]");
                 if(status)status.textContent=label;
                 action("重新校验",validate);
@@ -468,43 +517,76 @@
             });
             const newTarget=el.querySelector("[data-import-new]");
             newTarget?.addEventListener("click",()=>{check();d.hide();this.importDialog(true);});
-            if(bookFields)bookFields.oninput=event=>{
-                if(event.target.matches("input[name]")){
-                    bookEdits[event.target.name]=event.target.value.trim();
-                    invalidate("账簿信息尚未校验");
-                }
-            };
+            function showBookSettings(res={}) {
+                if(!bookFields)return;
+                const issues=res.book_issues||[];
+                bookFields.querySelectorAll("input[name],select[name]").forEach(input=>{
+                    input.value=input.name==="currency"?(bookEdits.currency||""):(bookEdits[input.name]??res.book_settings?.[input.name]??"");
+                    input.setAttribute("aria-invalid",String(issues.some(issue=>issue.field===input.name)));
+                });
+                const hint=bookFields.querySelector("[data-currency-hint]");
+                const suggestion=!bookEdits.currency && currencies.includes(res.suggested_currency)?res.suggested_currency:"";
+                hint.textContent=suggestion?"文件标注 "+suggestion+"，请选择账簿币种确认。":"";
+                hint.hidden=!suggestion;
+                bookFields.querySelector("[data-book-issues]").innerHTML=errorList(issues);
+            }
+            if(bookFields){
+                const editBook=input=>{
+                    bookEdits[input.name]=input.value.trim();
+                    invalidate("账簿信息已修改，请重新校验");
+                };
+                bookFields.oninput=({target})=>{if(target.matches("input[name]"))editBook(target);};
+                bookFields.onchange=({target})=>{
+                    if(!target.matches("select[name]"))return;
+                    editBook(target);
+                    setOpeningUnit(bookFields,target.value);
+                    bookFields.querySelector("[data-currency-hint]").hidden=Boolean(bookEdits.currency);
+                };
+            }
             fileInput.onchange=()=>{
                 ++revision;
                 data=""; preview=null; layoutPreview=null; selected=null; headerRow=null; offset=0; edits={};
+                excludedRows.clear(); originalRows.clear(); parts=false; signed=false;
                 error("");
                 mappingBox.replaceChildren();
                 resultBox.replaceChildren();
-                bookEdits={};
                 if(newTarget)newTarget.hidden=Boolean(fileInput.files.length);
-                if(bookFields)bookFields.hidden=true;
+                showBookSettings();
                 action("预览流水",validate);
             };
             mappingBox.onchange=event=>{
                 const input=event.target;
-                if(input.matches("[data-layout]")){
-                    selected={...selected};
-                    const signed=input.value==="signed";
-                    for(const field of signed?["income","expense"]:["amount","direction"])delete selected[field];
-                    mappingBox.innerHTML=importMapping(layoutPreview,selected,signed,true);
-                    mappingBox.querySelector("[data-layout]").focus();
+                if(input.matches("[data-layout],[data-date-layout]")){
+                    const isDate=input.matches("[data-date-layout]");
+                    selected=switchImportLayout(selected,isDate?"date":"amount",input.value);
+                    if(isDate)parts=input.value==="parts";
+                    else signed=input.value==="signed";
+                    mappingBox.innerHTML=importMapping(layoutPreview,selected,signed,true,parts);
+                    mappingBox.querySelector(isDate?"[data-date-layout]":"[data-layout]").focus();
                 }else if(input.matches("[data-map]")){
                     selected={...selected};
                     if(input.value==="")delete selected[input.dataset.map];
                     else selected[input.dataset.map]=Number(input.value);
                 }else return;
+                // A different set of amount columns can change which original rows may be excluded.
+                const hadExclusions=excludedRows.size>0;
+                if(hadExclusions){
+                    excludedRows.clear();
+                    resultBox.replaceChildren();
+                    offset=0;
+                }
                 invalidate("列对应尚未校验");
+                if(hadExclusions)error("列对应已变更，请重新预览并核对需要排除的原行。");
             };
             resultBox.oninput=event=>{
                 const input=event.target;
                 if(!input.matches("[data-field]"))return;
-                const tr=input.closest("[data-source-row]"),key=input.dataset.field;
-                const edited=edits[tr.dataset.sourceRow] ||= {};
+                const tr=input.closest("[data-source-row]"),key=input.dataset.field,number=Number(tr.dataset.sourceRow);
+                if(!edits[number]){
+                    const source=layoutPreview?.review_rows?.find(row=>row.source_row===number);
+                    if(source?.excludable)originalRows.set(number,source);
+                }
+                const edited=edits[number] ||= {};
                 edited[key]=input.value;
                 if(key==="income" || key==="expense"){
                     const other=key==="income"?"expense":"income";
@@ -514,16 +596,34 @@
                 invalidate("修改尚未校验");
             };
             resultBox.onclick=event=>{
+                const toggle=event.target.closest("[data-exclude-row]");
+                if(toggle){
+                    const number=Number(toggle.dataset.excludeRow),tr=toggle.closest("[data-source-row]");
+                    const exclude=!excludedRows.has(number);
+                    if(exclude)excludedRows.add(number);else excludedRows.delete(number);
+                    tr.classList.toggle("bj-import-excluded",exclude);
+                    tr.querySelectorAll("[data-field]").forEach(input=>{
+                        input.disabled=exclude;
+                        const key=input.dataset.field;
+                        if(edits[number]?.[key]!=null)input.value=exclude?(originalRows.get(number)?.[key]??""):edits[number][key];
+                    });
+                    toggle.setAttribute("aria-pressed",String(exclude));
+                    toggle.textContent=(exclude?"恢复":"排除")+"第 "+number+" 行";
+                    const count=resultBox.querySelector("[data-excluded-count]");
+                    if(count)count.textContent="已排除 "+excludedRows.size+" 行";
+                    invalidate(exclude&&edits[number]?"已排除此行，恢复后可继续使用修改值。请重新校验":"已修改原行选择，请重新校验");
+                    return;
+                }
                 const button=event.target.closest("[data-review-offset]");
                 if(button)run(async()=>{check();await read(Number(button.dataset.reviewOffset));});
             };
-            function fileArgs(file){
-                const target=newBook?{company,...bookEdits}:{book,mode:mode()};
-                return {...target,filename:file.name,content_base64:data,edits:JSON.stringify(edits)};
+            function fileArgs(file,confirmed){
+                const target=newBook?{...confirmed,company,...bookEdits,currency:bookEdits.currency||null}:{book,currency,mode:mode()};
+                return {...target,filename:file.name,content_base64:data,...importReviewArgs(edits,excludedRows)};
             }
             const apply=async()=>{
                 if(!preview?.preview_id)throw Error("请先重新校验流水。");
-                const args={...fileArgs(fileInput.files[0]),mapping:preview.mapping_used,header_row:preview.header_row,
+                const args={...fileArgs(fileInput.files[0],preview.book_settings),mapping:preview.mapping_used,header_row:preview.header_row,
                     preview_id:preview.preview_id,version:preview.version};
                 const controls=Array.from(el.querySelectorAll("input,textarea,select,button")).filter(input=>!input.disabled);
                 controls.forEach(input=>input.disabled=true);
@@ -543,47 +643,52 @@
                 if(!mode())throw Error("请选择新增流水或按文件日期覆盖。");
                 if(!file)throw Error("请先选择银行流水文件。");
                 if(file.size>6*1024*1024)throw Error("请选择 6 MB 以内的银行流水文件。");
-                const v=++revision,bytes=data||await fileData(file);if(v!==revision)return;
-                data=bytes;
-                const res=await call("preview_import",{...fileArgs(file),mapping:selected,header_row:headerRow,
-                    use_ai:layoutPreview===null?1:0,review_offset:nextOffset});
+                if(!newBook&&!currency)throw Error("未取得所选账簿的币种，请重新读取账簿。");
+                const v=++revision;
+                preview=null;
+                action("重新校验",validate);
+                let res;
+                try{
+                    const bytes=data||await fileData(file);
+                    if(v!==revision)return;
+                    data=bytes;
+                    res=await call("preview_import",{...fileArgs(file),mapping:selected,header_row:headerRow,
+                        use_ai:layoutPreview===null?1:0,review_offset:nextOffset});
+                }catch(e){if(v===revision)throw e;return;}
                 if(v!==revision)return;
                 check();
                 headerRow=res.header_row ?? null;
                 selected=res.mapping_used || selected || res.suggested_mapping || null;
                 const mappingOpen=mappingBox.querySelector("details")?.open;
-                const signed=selected?.amount!=null || (res.needs_mapping && mappingBox.querySelector("[data-layout]")?.value==="signed");
-                mappingBox.innerHTML=importMapping(res,selected||{},signed,mappingOpen);
+                signed=selected?.amount!=null || (res.needs_mapping && signed);
+                parts=hasDateParts(selected) || (res.needs_mapping && parts);
+                mappingBox.innerHTML=importMapping(res,selected||{},signed,mappingOpen,parts);
                 layoutPreview=res;
                 preview=res;
-                if(bookFields){
-                    bookFields.hidden=false;
-                    const issues=res.book_issues||[];
-                    bookFields.querySelectorAll("input").forEach(input=>{
-                        input.value=bookEdits[input.name]??res.book_settings?.[input.name]??"";
-                        input.setAttribute("aria-invalid",String(issues.some(issue=>issue.field===input.name)));
-                    });
-                    bookFields.querySelector("[data-book-issues]").innerHTML=errorList(issues);
-                }
+                showBookSettings(res);
                 const grid=resultBox.querySelector(".bj-import-grid");
                 const position=nextOffset===offset?[grid?.scrollTop||0,grid?.scrollLeft||0]:[0,0];
                 const rows=res.review_rows || [], total=res.review_total||0, pageSize=res.review_page_size||100;
                 const problems=res.error_count||0;
+                const unit=newBook?bookEdits.currency:currency;
+                const excludedCount=res.excluded_count??excludedRows.size;
                 const start=nextOffset+1, end=nextOffset+rows.length;
                 const paging=total>pageSize?'<nav aria-label="流水预览分页"><button type="button" class="btn btn-default btn-xs" data-review-offset="'+
                     Math.max(0,nextOffset-pageSize)+'" '+(nextOffset===0?'disabled':'')+'>上一页</button> '+
                     '<span>'+start+'–'+end+' / '+total+'</span> <button type="button" class="btn btn-default btn-xs" data-review-offset="'+
                     (nextOffset+pageSize)+'" '+(end>=total?'disabled':'')+'>下一页</button></nav>':"";
-                resultBox.innerHTML=replacementNotice(res.impact)+(rows.length?importTable(rows,res.review_errors):'<p class="text-muted">'+
+                resultBox.innerHTML=replacementNotice(res.impact,unit)+openingNotice(res.opening_adjustment,unit)+(rows.length?importTable(rows,res.review_errors,unit):'<p class="text-muted">'+
                     esc(res.needs_mapping?"展开列对应，设置日期和收支列。":"没有可预览的流水。")+'</p>')+
                     '<div class="bj-import-footer"><div class="bj-import-stats" role="status">'+
-                    (total?total+' 笔 · 收入 '+esc(amountText(res.income_total))+' · 支出 '+esc(amountText(res.expense_total)):"")+
+                    (total?'待导入 '+esc(res.row_count)+' 笔 · 收入 '+esc(amountWithUnit(res.income_total,unit))+' · 支出 '+esc(amountWithUnit(res.expense_total,unit)):"")+
+                    '<span data-excluded-count>'+(excludedCount || rows.some(row=>row.excludable)?'已排除 '+esc(excludedCount)+' 行':'')+'</span>'+
                     '<span data-validation>'+(rows.length?(problems?"请核对标记行":"可直接编辑单元格"):"")+'</span></div>'+paging+'</div>'+
                     (problems?'<details class="bj-import-issues"><summary>'+problems+' 处需核对</summary>'+errorList(res.errors)+'</details>':"")+
                     (res.needs_mapping&&res.ai_notice?'<p class="text-muted">'+esc(res.ai_notice)+'</p>':"");
                 resultBox.querySelector(".bj-import-grid")?.scrollTo({top:position[0],left:position[1]});
                 offset=nextOffset;
-                if(!res.needs_mapping&&!problems&&res.preview_id&&rows.length)action(newBook?"建账并导入":
+                const confirmedCurrency=unit && unit===res.currency && (!newBook||currencies.includes(unit));
+                if(confirmedCurrency&&!res.needs_mapping&&!problems&&!res.book_issues?.length&&res.preview_id&&res.row_count>0)action(newBook?"建账并导入":
                     res.impact?"确认覆盖这段日期":"确认新增流水",apply);
                 else action("重新校验",validate);
             }
@@ -654,5 +759,5 @@
             else if(wrapper.cashJournal&&nativeShow)nativeShow(wrapper);
         };
     }
-    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,syncPreview,importMapping,importTable,importModeFields,replacementNotice,extractRefs,retryKey,scopeBooks,Workbench,install};
+    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,syncPreview,importMapping,switchImportLayout,importReviewArgs,importTable,importModeFields,replacementNotice,extractRefs,retryKey,scopeBooks,Workbench,install};
 });
