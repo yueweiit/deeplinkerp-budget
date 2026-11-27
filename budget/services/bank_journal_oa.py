@@ -12,6 +12,13 @@ from .bank_journal_contract import as_date, money, month_bounds
 
 CN = ZoneInfo("Asia/Shanghai")
 ARCHIVE_LIMIT = 4000
+CASHIER_NODES = (
+	"cn出纳cajero",
+	"cn出纳",
+	"出纳",
+	"出纳付款及上传明细cajeropagaycargadetalles",
+	"出纳付款及上传明细",
+)
 OFFICIAL = "https://aflow.dingtalk.com/dingtalk/mobile/homepage.htm?showmenu=false&dd_progress=false#/approval?procInstId="
 
 
@@ -90,7 +97,7 @@ def resolve_refs(company, refs):
 	return unique_links(set(requested), matches)
 
 
-def candidate(item, completed_on):
+def candidate(item, completed_on, *, cashier_date=None):
 	if (
 		item.get("kind") not in ("operating", "purchase")
 		or item.get("status") != "approved"
@@ -114,6 +121,7 @@ def candidate(item, completed_on):
 		"expense": None,
 		"application_amount": amount,
 		"application_date": item.get("application_date"),
+		"cashier_date": cashier_date,
 		"approved_date": completed_on,
 		"category": "费用" if item["kind"] == "operating" else "",
 		"level2": path[0] if path else "",
@@ -217,18 +225,46 @@ def month_candidates(doc, month):
 		]
 		if not codes:
 			continue
+		# A cashier approval can precede final approval by a month. Seed from
+		# either time window, then use the last completed cashier step when known.
 		rows = _fetch(
 			"""
-            SELECT corp_id,process_code,process_instance_id,status,result,originator_dept_name,
-                   originator_dept_id,originator_user_name,form_component_values,finish_time,
-                   jsonb_build_object('businessId',raw_payload->>'businessId','finishTime',raw_payload->>'finishTime',
-                                      'processInstanceId',raw_payload->>'processInstanceId') AS raw_payload
-              FROM ding_approval_instance
-             WHERE corp_id=%s AND process_code=ANY(%s) AND deleted_at IS NULL
-               AND finish_time >= %s AND finish_time < %s AND upper(status)='COMPLETED' AND lower(result)='agree'
-             ORDER BY finish_time,process_instance_id LIMIT %s
+            WITH scope AS (
+                SELECT %s::text AS corp_id, %s::text[] AS codes, %s::timestamptz AS start_at, %s::timestamptz AS end_at
+            ), cashier_steps AS NOT MATERIALIZED (
+                SELECT t.process_instance_id, t.end_time
+                  FROM ding_approval_task t JOIN scope ON t.corp_id=scope.corp_id
+                 WHERE upper(t.status)='COMPLETED' AND upper(t.result)='AGREE'
+                   AND regexp_replace(lower(COALESCE(NULLIF(t.node_name,''),t.raw_payload->>'taskGroupName')),
+                                      '[[:space:]]+', '', 'g')=ANY(%s)
+            ), month_instances AS (
+                SELECT a.process_instance_id
+                  FROM ding_approval_instance a JOIN scope ON a.corp_id=scope.corp_id
+                 WHERE a.process_code=ANY(scope.codes) AND a.finish_time >= scope.start_at AND a.finish_time < scope.end_at
+                UNION
+                SELECT t.process_instance_id
+                  FROM cashier_steps t CROSS JOIN scope
+                 WHERE t.end_time >= scope.start_at AND t.end_time < scope.end_at
+            )
+            SELECT a.corp_id,a.process_code,a.process_instance_id,a.status,a.result,a.originator_dept_name,
+                   a.originator_dept_id,a.originator_user_name,a.form_component_values,a.finish_time,cashier.cashier_at,
+                   jsonb_build_object('businessId',a.raw_payload->>'businessId','finishTime',a.raw_payload->>'finishTime',
+                                      'processInstanceId',a.raw_payload->>'processInstanceId') AS raw_payload
+              FROM ding_approval_instance a
+              JOIN scope ON a.corp_id=scope.corp_id
+              JOIN month_instances m ON a.process_instance_id=m.process_instance_id
+              CROSS JOIN LATERAL (
+                  SELECT max(t.end_time) AS cashier_at
+                    FROM cashier_steps t
+                   WHERE t.process_instance_id=a.process_instance_id AND t.end_time <= a.finish_time
+              ) cashier
+             WHERE a.process_code=ANY(scope.codes) AND a.deleted_at IS NULL
+               AND upper(a.status)='COMPLETED' AND lower(a.result)='agree'
+               AND COALESCE(cashier.cashier_at,a.finish_time) >= scope.start_at
+               AND COALESCE(cashier.cashier_at,a.finish_time) < scope.end_at
+             ORDER BY a.finish_time,a.process_instance_id LIMIT %s
         """,
-			(corp, codes, start, end, ARCHIVE_LIMIT + 1),
+			(corp, codes, start, end, list(CASHIER_NODES), ARCHIVE_LIMIT + 1),
 		)
 		if len(rows) > ARCHIVE_LIMIT:
 			frappe.throw("本月钉钉审批超过同步上限，请联系管理员。")
@@ -243,7 +279,12 @@ def month_candidates(doc, month):
 			projected = project(raw, templates[corp, raw["process_code"]])
 			if company_for(projected, context) != doc.company:
 				continue
-			row = candidate(projected, raw["finish_time"].astimezone(CN).date().isoformat())
+			cashier_at = raw["cashier_at"]
+			row = candidate(
+				projected,
+				raw["finish_time"].astimezone(CN).date().isoformat(),
+				cashier_date=cashier_at.astimezone(CN).date().isoformat() if cashier_at else None,
+			)
 			if row is not None:
 				result.append(row)
 				sources[application_id(raw)] = row

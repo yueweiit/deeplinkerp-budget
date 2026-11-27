@@ -30,6 +30,7 @@ class JournalApprovalTest(unittest.TestCase):
 		self.assertEqual(row["application_amount"], "125.50")
 		self.assertIsNone(row["expense"])
 		self.assertIsNone(row["date"])
+		self.assertIsNone(row["cashier_date"])
 		self.assertEqual((row["level2"], row["level3"], row["project"]), ("办公", "租赁", "ABC"))
 
 	def test_unapproved_foreign_budget_ambiguous_amount_are_excluded(self):
@@ -46,8 +47,10 @@ class JournalApprovalTest(unittest.TestCase):
 				self.assertIsNone(oa.candidate(application(**change), "2026-11-02"))
 
 	def test_partial_payment_requires_real_date_and_amount(self):
-		row = oa.candidate(application(), "2026-11-02")
-		self.assertEqual(oa.confirmed_row(row, "2026-11-06", "65.30", "2026-11")["expense"], "65.30")
+		row = oa.candidate(application(), "2026-11-07", cashier_date="2026-11-03")
+		self.assertEqual(row["cashier_date"], "2026-11-03")
+		confirmed = oa.confirmed_row(row, "2026-11-06", "65.30", "2026-11")
+		self.assertEqual((confirmed["date"], confirmed["expense"]), ("2026-11-06", "65.30"))
 		for date, amount in [
 			(None, "125.50"),
 			("2026-11-06", "150"),
