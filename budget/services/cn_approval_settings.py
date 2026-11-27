@@ -178,6 +178,8 @@ def save_once(enabled, templates, company_mappings, expected_config_version, man
 	current = read_saved(lock=True) or defaults(corps)
 	if current["config_version"] != expected_config_version:
 		frappe.throw(_("Settings changed; reload and try again"))
+	from .expense_group_mappings import require_no_conflicts
+	require_no_conflicts([{"match_kind": "organization", **row} for row in values["company_mappings"]])
 	try:
 		values["management_rules"] = management.clean(management_rules if management_rules is not None else current.get("management_rules") or {})
 	except (TypeError, ValueError) as error:

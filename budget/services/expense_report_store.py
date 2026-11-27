@@ -14,7 +14,7 @@ STATE = "Expense Report State"
 LINE = "Expense Report Line"
 CURRENT = "current"
 MAX_LINES = 50000
-GROUP_CONDITION = "(company='' and coalesce(JSON_EXTRACT(detail_json, '$.is_group_expense'),0)=1)"
+GROUP_CONDITION = "(coalesce(JSON_EXTRACT(detail_json, '$.is_group_expense'),0)=1)"
 
 
 def encode(value):
@@ -106,6 +106,8 @@ def where(context, f, *, categories=True):
 	if context["manager"]:
 		owned = f"({owned} or company='')"
 	conditions = [owned, scope]
+	if not context["manager"]:
+		conditions.append("not " + GROUP_CONDITION)
 	if context.get("legacy_keys"):
 		conditions.append("(is_legacy=0 or name in %(legacy_keys)s)")
 		params["legacy_keys"] = sorted(context["legacy_keys"])
@@ -116,6 +118,7 @@ def where(context, f, *, categories=True):
 		conditions.append(GROUP_CONDITION if context["manager"] else "1=0")
 	elif f["company"]:
 		conditions.append("company=%(company)s")
+		conditions.append("not " + GROUP_CONDITION)
 		params["company"] = f["company"]
 	if f.get("region"):
 		names = sorted(name for name, region in context.get("company_regions", {}).items()
@@ -124,6 +127,7 @@ def where(context, f, *, categories=True):
 			else "company in %(region_companies)s" if names else "1=0")
 		if names:
 			params["region_companies"] = names
+			conditions.append("not " + GROUP_CONDITION)
 	if categories:
 		if f["category"]:
 			conditions.append("management_category=%(category)s")

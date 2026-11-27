@@ -4,6 +4,7 @@ from frappe import _
 
 from deeplinkerp_branding.services import mexico_expenses as mx
 from . import cn_approval_settings as cn
+from . import expense_group_mappings as groups
 
 RULES = {"application": ("cn",), "expense": ("mx",), "both": ("cn", "mx")}
 AUTOMATIC_RULES = {"budget": "application", "operating": "both", "purchase": "both", "expense": "expense"}
@@ -163,6 +164,8 @@ def get_settings():
 		for row in mx_doc.company_mappings or []]
 	from .cn_approval_workbench import allowed_companies
 	companies = sorted(allowed_companies())
+	group_mappings = groups.read()
+	mappings = groups.merge(mappings, group_mappings)
 	return {"sync_mode": mode((cn_saved["enabled"], mx_doc.enabled)), "processing_mode": "approval",
 		"versions": {"cn": cn_saved["config_version"], "mx": mx_doc.config_version or ""},
 		"business_timezone": mx_doc.business_timezone or "America/Mexico_City", "corporations": corps,
@@ -171,6 +174,7 @@ def get_settings():
 		"template_defaults_version": mx.digest(stored_defaults),
 		# Keep the old payload key for cached clients; all mapping kinds share Company scope.
 		"companies": companies, "expense_companies": companies,
+		"mapping_targets": [groups.TARGET, *companies], "group_mapping_version": groups.version(group_mappings),
 		"management_rules": cn_saved.get("management_rules") or cn.management.defaults(),
 		"management_categories": cn.management.CATEGORIES}
 
@@ -250,11 +254,23 @@ def split_templates(rows, cn_saved, mx_doc, *, corporations=None, template_defau
 def split_mappings(rows):
 	if not isinstance(rows, list) or len(rows) > 2000:
 		frappe.throw(_("Invalid subsidiary mappings"))
-	result = {"cn": [], "mx": []}
+	result, seen = {"cn": [], "mx": [], "group": []}, set()
 	for row in rows:
 		if not isinstance(row, dict) or row.get("excluded", 0) not in (0, 1, "0", "1"):
 			frappe.throw(_("Invalid subsidiary mappings"))
 		kind, excluded = row.get("match_kind"), int(row.get("excluded") or 0)
+		try:
+			key = groups.identity(row)
+		except ValueError:
+			frappe.throw(_("Invalid subsidiary mappings"))
+		if key in seen:
+			frappe.throw(_("Duplicate source entity mapping"))
+		seen.add(key)
+		if row.get("company") == groups.TARGET:
+			if excluded:
+				frappe.throw(_("Invalid subsidiary mappings"))
+			result["group"].append(dict(zip(("match_kind", "corp_id", "source_name"), key)))
+			continue
 		if kind == "organization":
 			if excluded:
 				frappe.throw(_("Organization mappings require a subsidiary."))
@@ -289,17 +305,38 @@ def save_settings(values):
 			templates = split_templates(values.get("templates"), cn_saved, mx_doc,
 				corporations=corps, template_defaults=defaults, processing_mode=processing_mode)
 			mappings = split_mappings(values.get("company_mappings"))
+			# The existing CN/MX parent locks serialize this site-level setting too.
+			# Older clients cannot erase rules they did not load or understand.
+			group_rows = None
+			if "group_mapping_version" in values or mappings["group"]:
+				current_groups = groups.read(lock=True)
+				if values.get("group_mapping_version") != groups.version(current_groups):
+					frappe.throw(_("Settings changed; reload and try again"))
+				try:
+					group_rows = groups.clean(mappings["group"], corps)
+				except ValueError:
+					frappe.throw(_("Invalid subsidiary mappings"))
+			else:
+				current_groups = groups.read(lock=True)
+				if {groups.identity(row) for row in current_groups} & {
+					groups.identity(row) for row in values["company_mappings"]}:
+					frappe.throw(_("Settings changed; reload and try again"))
 			# Reuse each source's validation and existing storage. CN save_once is
 			# intentional: its outer retry must not discard an already-saved MX half.
-			mx.save_settings(company_mappings=mappings["mx"], business_timezone=values.get("business_timezone"),
-				enabled=enabled(values.get("sync_mode"), mx_doc.enabled),
-				expected_config_version=values["versions"]["mx"], approval_templates=templates["mx"] or None,
-				**({"management": True} if processing_mode == "approval" else {}))
-			cn.save_once(enabled=enabled(values.get("sync_mode"), cn_saved["enabled"]),
-				templates=templates["cn"], company_mappings=mappings["cn"],
-				expected_config_version=values["versions"]["cn"], management_rules=values.get("management_rules"))
+			with groups.command(current_groups if group_rows is None else group_rows):
+				mx.save_settings(company_mappings=mappings["mx"], business_timezone=values.get("business_timezone"),
+					enabled=enabled(values.get("sync_mode"), mx_doc.enabled),
+					expected_config_version=values["versions"]["mx"], approval_templates=templates["mx"] or None,
+					**({"management": True} if processing_mode == "approval" else {}))
+				cn.save_once(enabled=enabled(values.get("sync_mode"), cn_saved["enabled"]),
+					templates=templates["cn"], company_mappings=mappings["cn"],
+					expected_config_version=values["versions"]["cn"], management_rules=values.get("management_rules"))
 			if defaults is not None:
 				save_template_defaults(defaults)
+			if group_rows is not None and group_rows != current_groups:
+				groups.save(group_rows)
+				from .expense_report_refresh import after_source_change
+				after_source_change()
 			return {"ok": True}
 		except Exception as error:
 			frappe.db.rollback()

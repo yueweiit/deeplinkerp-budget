@@ -69,11 +69,12 @@ test("one save submits all templates and mapping domains with both versions", as
   assert.equal(state.savedCount,1);assert.equal(dialog.visible,false);assert.equal(dialog.disabled,false);
 });
 
-test("native mapping Link and unified save use the same company scope for every source type", async()=>{
+test("native mapping Select and unified save use the same company scope for every source type", async()=>{
   const state=runtime(), dialog=await settings.open();
   const field=dialog.fields_dict.company_mappings.df.fields.find(item=>item.fieldname==="company");
   for(const kind of ["organization","entity","department"]){
-    assert.deepEqual(field.get_query({match_kind:kind}).filters.name,["in",state.saved.companies]);
+    assert.equal(field.fieldtype,"Select");
+    assert.deepEqual(field.options.map(option=>option.value),["",...state.saved.companies]);
     state.mappingEditor.model.put({match_kind:kind,corp_id:"corp",source_name:kind,company:"CN"});
   }
   await dialog.config.primary_action();
@@ -160,8 +161,7 @@ test("company options retain source permissions and escape names", async()=>{
   runtime();
   const dialog=await settings.open();
   const field=dialog.fields_dict.company_mappings.df.fields.find(f=>f.fieldname==="company");
-  assert.deepEqual(field.get_query({match_kind:"organization"}).filters.name,["in",["CN","MX"]]);
-  assert.deepEqual(field.get_query({match_kind:"entity"}).filters.name,["in",["CN","MX"]]);
+  assert.deepEqual(field.options.map(option=>option.value),["","CN","MX"]);
   assert.equal(field.formatter("<img src=x>"),"&lt;img src=x&gt;");
 });
 
@@ -254,6 +254,22 @@ test("clearing all mappings sends an explicit empty list when native Table omits
   delete state.values.company_mappings;
   await dialog.config.primary_action();
   assert.deepEqual(state.calls.at(-1).args.values.company_mappings,[]);
+});
+
+
+test("Group target and version survive the unified draft and native Table payload",async()=>{
+  const state=runtime();
+  state.saved.mapping_targets=[...state.saved.companies,"__expense_group__"];
+  state.saved.group_mapping_version="group-v1";
+  const dialog=await settings.open();
+  const field=dialog.fields_dict.company_mappings.df.fields.find(item=>item.fieldname==="company");
+  assert.equal(field.fieldtype,"Select");
+  assert.equal(field.options.at(-1).value,"__expense_group__");
+  state.mappingEditor.model.put({match_kind:"organization",corp_id:"corp",source_name:"CEO",company:"__expense_group__"});
+  await dialog.config.primary_action();
+  const saved=state.calls.at(-1).args.values;
+  assert.equal(saved.group_mapping_version,"group-v1");
+  assert.equal(saved.company_mappings[0].company,"__expense_group__");
 });
 
 test("pasted codes normalize before save and duplicate checks without rewriting historical identities",async()=>{

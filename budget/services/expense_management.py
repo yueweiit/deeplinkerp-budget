@@ -22,6 +22,7 @@ from . import cn_approval_settings as settings
 from . import cn_approval_workbench as approvals
 from .expense_sync import cn_revision
 from . import expense_regions as regions
+from . import expense_group_mappings as group_mappings
 
 CURRENCIES = ("CNY", "MXN")
 BLOCKING = {"amount", "amount_pending", "total", "currency", "structure", "identity",
@@ -64,16 +65,21 @@ def load():
 		frappe.throw(_("Expense allocation storage is not installed. Run the application migration."))
 	context = approvals.access_context()
 	snapshot, rules = read_snapshot(), settings.management_rules()
+	mx_settings = mx._settings()
+	templates = mx._templates(mx_settings)
+	group_sources = group_mappings.lookup(group_mappings.read(), {row.get("corp_id") for row in templates})
 	identities, allocated = regional.management_projection(context, include_legacy=False,
-		submission_fallback=True, management_rules=rules, group_unassigned=True)
+		submission_fallback=True, management_rules=rules, group_unassigned=True, group_sources=group_sources)
 	legacy_ids = automatic.legacy_manual_identities()
 	native = [row for row in snapshot["rows"] if row["kind"] == "budget"
 		or (row["corp_id"], row["process_instance_id"]) not in identities | legacy_ids]
 	rows = management.analytical_lines(native, context, rules) + allocated
-	mx_settings = mx._settings()
-	templates = mx._templates(mx_settings)
+	for row in rows:
+		if row["kind"] != "budget" and not row.get("regional_allocation"):
+			row["_group_mapping"] = group_mappings.matches(group_sources, row.get("corp_id"),
+				row.get("entity_kind") or ("department" if row["kind"] == "operating" and row.get("detail_index", -1) >= 0 else None), row.get("entity"))
 	if legacy_ids - identities:
-		rows += legacy_projection(legacy_ids - identities, context, rules, templates)
+		rows += legacy_projection(legacy_ids - identities, context, rules, templates, group_sources=group_sources)
 	if len(rows) > 50000:
 		frappe.throw(_("Expense analysis exceeds 50000 detail lines. Narrow the configured scope."))
 	management.annotate_budget_completeness(rows)
@@ -88,10 +94,11 @@ def load():
 			"mx": str(min((item.get("last_sync_at") for item in templates if item.get("last_sync_at")), default=""))},
 		"missing_history": snapshot.get("missing_history_templates", 0),
 		"sync_revision": {"cn": cn_revision(sync), "mx": mx.sync_revision(mx_settings)}}
-	return [normalize(row) for row in rows], context, rules, metadata
+	normalized = [normalize(row) for row in rows]
+	return [row for row in normalized if context.get("manager") or not row["is_group_expense"]], context, rules, metadata
 
 
-def legacy_projection(legacy_ids, context, rules, templates=()):
+def legacy_projection(legacy_ids, context, rules, templates=(), *, group_sources=()):
 	"""Honor existing MX manual decisions without rewriting their source data."""
 	from deeplinkerp_branding.services import mexico_expenses as mx
 	if not legacy_ids:
@@ -102,15 +109,15 @@ def legacy_projection(legacy_ids, context, rules, templates=()):
 	source_names = sorted(regional.digest([corp, instance]) for corp, instance in legacy_ids)
 	lines = mx._get_management_lines(filters={"is_active": 1, "source": ["in", source_names]},
 		fields=["name", "source", "source_version", "company", "regional_company", "approval_no", "approval_status",
-			"amount", "currency", "description", "approval_type", "review_state", "issues", "classification_path", "source_entity", "company_basis"],
+			"amount", "currency", "description", "approval_type", "review_state", "issues", "classification_path", "source_entity", "entity_kind", "company_basis"],
 		limit_page_length=50001)
 	if len(lines) > 50000:
 		frappe.throw(_("Expense analysis exceeds 50000 detail lines. Narrow the configured scope."))
 	# Keep authorized companies and manager-visible unnamed Group expenses.
 	# Named unassigned legacy exceptions remain in the MX review workbench.
 	lines = [line for line in lines if (line.company in context["companies"] or context.get("manager")
-		and not line.company and not str(getattr(line, "source_entity", "") or "").strip()
-		and not line.regional_company and getattr(line, "company_basis", "") != "manual")
+		and not line.company and (group_sources or not str(getattr(line, "source_entity", "") or "").strip())
+		and getattr(line, "company_basis", "") != "manual")
 		and (not line.regional_company or line.regional_company in context["companies"])]
 	if not lines:
 		return []
@@ -125,6 +132,10 @@ def legacy_projection(legacy_ids, context, rules, templates=()):
 		if line.source not in dates or line.review_state == "excluded":
 			continue
 		source = sources[line.source]
+		explicit_group = getattr(line, "company_basis", "") != "manual" and group_mappings.matches(
+			group_sources, source.corp_id, getattr(line, "entity_kind", "entity"), getattr(line, "source_entity", ""))
+		if not line.company and not explicit_group and (line.regional_company or str(getattr(line, "source_entity", "") or "").strip()):
+			continue
 		issues = set(regional.decode(line.issues) or []) - {"period", "finance"}
 		if line.source_version != source.source_version:
 			issues.add("regional_allocation")
@@ -139,6 +150,7 @@ def legacy_projection(legacy_ids, context, rules, templates=()):
 			issues.add("management_category")
 		output.append({"key": line.name, "source_key": line.source, "company": line.company,
 			"is_legacy": True,
+			"_group_mapping": explicit_group,
 			"is_group_expense": int(not line.company and not str(getattr(line, "source_entity", "") or "").strip()
 				and not line.regional_company and getattr(line, "company_basis", "") != "manual"),
 			"scope_company": line.regional_company or "",
@@ -161,11 +173,11 @@ def normalize(row):
 	# projections and all amount/company/date validation unchanged.
 	row = {**row, "issues": sorted(set(row.get("issues") or []) - {"management_category"}),
 		"date_basis": row.get("date_basis") or ("budget" if row.get("kind") == "budget" else "application")}
-	# Group is a reporting scope. Keep the original empty Company identity so
+	# Group is a reporting scope. Keep the original Company identity so
 	# source permissions and on-demand original-approval checks remain intact.
-	group = not row.get("company") and not row.get("scope_company") and row.get("kind") != "budget" and (
+	group = row.get("kind") != "budget" and (row.get("_group_mapping") or not row.get("company") and not row.get("scope_company") and (
 		row.get("is_group_expense") or "entity" in row and not str(row.get("entity") or "").strip()
-		and not row.get("regional_allocation") and not row.get("is_legacy"))
+		and not row.get("regional_allocation") and not row.get("is_legacy")))
 	row["is_group_expense"] = int(bool(group))
 	if group:
 		row["issues"] = sorted(set(row["issues"]) - {"organization", "company"})
@@ -278,6 +290,8 @@ def scope(rows, f):
 def prepare(values=None):
 	f = filters(values)
 	rows, context, rules, metadata = load()
+	if not context["manager"]:
+		rows = [row for row in rows if not row.get("is_group_expense")]
 	if f["company"] and not regions.allowed_company(f["company"], context):
 		frappe.throw(_("You do not have permission to view this subsidiary."), frappe.PermissionError)
 	mapping = regions.reporting_regions(context)

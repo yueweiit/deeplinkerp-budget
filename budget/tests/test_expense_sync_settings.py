@@ -8,6 +8,11 @@ import pytest
 from budget.services import expense_sync_settings as s, expense_sync
 
 
+@pytest.fixture(autouse=True)
+def translations(monkeypatch):
+	monkeypatch.setattr(s, "_", lambda text: text)
+
+
 def template(**values):
 	return frappe._dict(corp_id="corp", process_code="PROC-test", approval_type="operating",
 		template_name="Application", enabled=1, field_mapping='{"company":["CNField"]}', classification_fields="", **values)
@@ -68,7 +73,8 @@ def test_mappings_preserve_matching_domain_and_legacy_exclusion():
 @pytest.fixture
 def runtime(monkeypatch):
 	cn, mx = configuration()
-	env = SimpleNamespace(cn=cn, mx=mx, staged=[], published=[], rollbacks=0)
+	env = SimpleNamespace(cn=cn, mx=mx, staged=[], published=[], rollbacks=0, group_rows=[])
+	monkeypatch.setattr(s.groups, "read", lambda **kwargs: deepcopy(env.group_rows))
 	monkeypatch.setattr(s, "read", lambda **kw: (cn, mx, ["corp"]))
 	monkeypatch.setattr(s, "_", lambda text: text)
 	monkeypatch.setattr(frappe, "throw", lambda *args: (_ for _ in ()).throw(frappe.ValidationError()))
@@ -86,6 +92,91 @@ def test_versions_checked_before_either_source_writes(runtime):
 	data["versions"]["cn"] = "obsolete"
 	with pytest.raises(frappe.ValidationError): s.save_settings(data)
 	assert runtime.staged == [] and runtime.rollbacks == 1
+
+
+def test_group_rules_round_trip_without_entering_either_company_link_table(runtime, monkeypatch):
+	from budget.services import cn_approval_workbench, expense_report_refresh
+	monkeypatch.setattr(cn_approval_workbench, "allowed_companies", lambda: {"A", "B"})
+	monkeypatch.setattr(s, "read_template_defaults", lambda **kwargs: {})
+	writes, queued = [], []
+	monkeypatch.setattr(s.groups, "save", lambda rows: writes.append(deepcopy(rows)))
+	monkeypatch.setattr(expense_report_refresh, "after_source_change", lambda: queued.append(True))
+	data = values(runtime.cn, runtime.mx)
+	data["group_mapping_version"] = s.groups.version([])
+	data["company_mappings"] = [{"match_kind": kind, "corp_id": "corp", "source_name": kind, "company": s.groups.TARGET}
+		for kind in ("organization", "entity", "department")]
+	assert s.save_settings(data) == {"ok": True}
+	assert all(not command[1]["company_mappings"] for command in runtime.staged)
+	assert len(writes[0]) == 3 and queued == [True]
+	runtime.group_rows = writes[0]
+	saved = s.get_settings()
+	assert saved["mapping_targets"] == [s.groups.TARGET, "A", "B"]
+	assert saved["companies"] == ["A", "B"]
+	assert saved["group_mapping_version"] == s.groups.version(writes[0])
+	assert all(row["company"] == s.groups.TARGET for row in saved["company_mappings"])
+
+
+def test_stale_group_version_cannot_publish_either_source(runtime):
+	data = values(runtime.cn, runtime.mx)
+	data["group_mapping_version"] = "obsolete"
+	with pytest.raises(frappe.ValidationError): s.save_settings(data)
+	assert runtime.staged == []
+
+
+def test_existing_native_shadow_alias_can_be_repaired_by_an_unchanged_unified_save(runtime, monkeypatch):
+	from budget.services import cn_approval_workbench
+	monkeypatch.setattr(cn_approval_workbench, "allowed_companies", lambda: {"A"})
+	monkeypatch.setattr(s, "read_template_defaults", lambda **kwargs: {})
+	runtime.cn["company_mappings"] = [{"corp_id": "corp", "source_name": "CEO", "company": "A"}]
+	runtime.group_rows = [{"match_kind": "organization", "corp_id": "corp", "source_name": "CEO"}]
+	saved = s.get_settings()
+	assert len(saved["company_mappings"]) == 1
+	assert saved["company_mappings"][0]["company"] == s.groups.TARGET
+	data = values(runtime.cn, runtime.mx)
+	data.update(company_mappings=saved["company_mappings"], group_mapping_version=saved["group_mapping_version"])
+	s.save_settings(data)
+	assert next(kwargs for source, kwargs in runtime.staged if source == "cn")["company_mappings"] == []
+	assert runtime.cn["company_mappings"][0]["company"] == "A"  # Read did not edit the underlying doc.
+
+
+def test_unified_group_to_company_replacement_uses_prospective_rules_and_resets_after_failure(runtime, monkeypatch):
+	runtime.group_rows = [{"match_kind": "organization", "corp_id": "corp", "source_name": "CEO"}]
+	data = values(runtime.cn, runtime.mx)
+	data.update(group_mapping_version=s.groups.version(runtime.group_rows),
+		company_mappings=[{"match_kind": "organization", "corp_id": "corp", "source_name": "CEO", "company": "A"}])
+	def native_cn(**kwargs):
+		s.groups.require_no_conflicts([{"match_kind": "organization", **row} for row in kwargs["company_mappings"]])
+		raise RuntimeError("native save failed")
+	monkeypatch.setattr(s.cn, "save_once", native_cn)
+	with pytest.raises(RuntimeError, match="native save failed"):
+		s.save_settings(data)
+	assert not runtime.staged and runtime.rollbacks == 1
+	monkeypatch.setattr(s.groups, "_", lambda text: text)
+	with pytest.raises(frappe.ValidationError):
+		s.groups.require_no_conflicts(data["company_mappings"])
+
+
+def test_old_client_preserves_group_rules_and_cannot_overwrite_their_source(runtime, monkeypatch):
+	runtime.group_rows = [{"match_kind": "organization", "corp_id": "corp", "source_name": "CEO"}]
+	monkeypatch.setattr(s.groups, "save", lambda rows: pytest.fail("Old client cannot replace Group rules"))
+	data = values(runtime.cn, runtime.mx)
+	s.save_settings(data)
+	runtime.staged.clear()
+	data["company_mappings"] = [{"match_kind": "organization", "corp_id": "corp", "source_name": "CEO", "company": "A"}]
+	with pytest.raises(frappe.ValidationError): s.save_settings(data)
+	assert not runtime.staged
+
+
+@pytest.mark.parametrize("change", ["duplicate", "excluded", "corporation"])
+def test_invalid_group_rules_cannot_write_either_source(runtime, change):
+	row = {"match_kind": "organization", "corp_id": "corp", "source_name": "CEO", "company": s.groups.TARGET}
+	data = values(runtime.cn, runtime.mx)
+	data.update(group_mapping_version=s.groups.version([]), company_mappings=[row])
+	if change == "duplicate": data["company_mappings"].append({**row, "company": "A"})
+	if change == "excluded": row["excluded"] = 1
+	if change == "corporation": row["corp_id"] = "forbidden"
+	with pytest.raises(frappe.ValidationError): s.save_settings(data)
+	assert not runtime.staged
 
 
 def test_second_source_failure_rolls_back_first_source(runtime, monkeypatch):

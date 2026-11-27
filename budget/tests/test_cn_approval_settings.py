@@ -8,11 +8,14 @@ import pytest
 
 from budget.integrations import cn_approval_source as source, shared_operating_oa
 from budget.services import cn_approval_settings as settings, cn_approval_workbench as workbench
+from budget.services import expense_group_mappings as groups
 
 
 @pytest.fixture
 def runtime(monkeypatch):
 	state = SimpleNamespace(saved=None)
+	monkeypatch.setattr(groups, "read", lambda **kwargs: [])
+	monkeypatch.setattr(groups, "_", lambda text: text)
 	http = SimpleNamespace(configuration=lambda: ("https://oa.invalid", ["corp-A", "corp-B"]),
 		read_template_page=Mock(side_effect=AssertionError("save must not call OA")))
 	monkeypatch.setattr(shared_operating_oa, "client", lambda: http)
@@ -50,6 +53,19 @@ def test_unconfigured_settings_start_empty_and_disabled(runtime, monkeypatch):
 	assert settings.get_settings() == values
 	assert source.configuration() == ("https://oa.invalid", [])
 	runtime.http.read_template_page.assert_not_called()
+
+
+def test_native_cn_writer_cannot_add_a_company_alias_for_an_existing_group_source(runtime, monkeypatch):
+	monkeypatch.setattr(groups, "read", lambda **kwargs: [{"match_kind": "organization", "corp_id": "corp-A", "source_name": "CEO"}])
+	values = settings.get_settings()
+	with pytest.raises(ValueError, match="assigned to Group"):
+		save(values, company_mappings=[{"corp_id": "corp-A", "source_name": "CEO", "company": "Allowed Co"}])
+	assert runtime.saved is None
+	# The unified command may deliberately replace Group, but only after its
+	# separate Group version was checked by expense_sync_settings.save_settings.
+	with groups.command([]):
+		save(values, company_mappings=[{"corp_id": "corp-A", "source_name": "CEO", "company": "Allowed Co"}])
+	assert runtime.saved["company_mappings"][0]["company"] == "Allowed Co"
 
 
 def test_first_template_is_added_and_enabled_explicitly(runtime, monkeypatch):

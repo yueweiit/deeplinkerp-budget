@@ -99,6 +99,7 @@
       sync_mode: values.sync_mode, business_timezone: values.business_timezone, processing_mode: "approval",
       versions: saved.versions, templates: values.templates.map(row => normalizeTemplate(inheritDefaults(row, defaults))),
       template_defaults: defaults, template_defaults_version: saved.template_defaults_version,
+      ...(saved.group_mapping_version !== undefined ? {group_mapping_version: saved.group_mapping_version} : {}),
       // Native Table omits an empty value; clearing all mappings is still an
       // explicit empty replacement in the versioned save command.
       company_mappings: values.company_mappings || [],
@@ -252,9 +253,9 @@
           select("match_kind", "Match by", MATCHES, {reqd: 1, in_list_view: 1, columns: 2}),
           {fieldname: "corp_id", label: t("Corporation ID"), fieldtype: "Select", options: helpers.textOptions(saved.corporations), depends_on: doc => doc.match_kind === "organization"},
           {fieldname: "source_name", label: t("Source name"), fieldtype: "Small Text", reqd: 1, in_list_view: 1, columns: 4, max_height: 64},
-          {fieldname: "company", label: t("Subsidiary"), fieldtype: "Link", options: "Company", in_list_view: 1, columns: 4,
-            formatter: esc,
-            get_query: () => ({filters: {name: ["in", saved.companies]}})},
+          {fieldname: "company", label: t("Subsidiary"), fieldtype: "Select", in_list_view: 1, columns: 4,
+            formatter: value => esc(value === "__expense_group__" ? t("Group") : value),
+            options: [{value: "", label: ""}, ...(saved.mapping_targets || saved.companies).map(value => ({value, label: esc(value === "__expense_group__" ? t("Group") : value)}))]},
           {fieldname: "excluded", label: t("Keep outside legacy expense scope"), fieldtype: "Check", depends_on: doc => doc.match_kind !== "organization"},
           {fieldname: "reason", label: t("Reason"), fieldtype: "Small Text", depends_on: "eval:doc.excluded"},
         ])},

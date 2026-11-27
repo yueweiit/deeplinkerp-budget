@@ -107,7 +107,7 @@ def query(values=None, start=0):
 	for region in service.regions.descriptors({name: metadata["company_regions"][name] for name in names}, f):
 		regional_params = {**params, "regional_companies": region.pop("companies")}
 		regional_condition = condition + " and " + (store.GROUP_CONDITION if region["region"] == "group"
-			else "company in %(regional_companies)s")
+			else "company in %(regional_companies)s and not " + store.GROUP_CONDITION)
 		regional_current = regional_condition + " and " + store.period(f)
 		region["summary"] = store.summaries(regional_current, regional_params)[0]
 		if f["view"] in ("overview", "analysis"):
