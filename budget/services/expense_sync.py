@@ -38,7 +38,7 @@ def get_status():
 	mx_state["can_sync"] = bool(mx_state["can_manage"] and mx_state["configured"])
 	sources = {"cn": cn_state, "mx": mx_state}
 	progress = template_progress(sources)
-	return {"interval_minutes": 5, "scheduler_enabled": not is_scheduler_inactive(verbose=False),
+	return {"interval_minutes": cn.SYNC_INTERVAL // 60, "scheduler_enabled": not is_scheduler_inactive(verbose=False),
 		"sources": sources, "templates": progress, "overall": overall(sources, progress),
 		"can_manage": bool(can_manage and mx_state["can_manage"])}
 

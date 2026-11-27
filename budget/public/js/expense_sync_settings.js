@@ -165,7 +165,7 @@
     }
     const fields = [
       select("sync_mode", "Automatic synchronization", MODES, {default: saved.sync_mode, reqd: 1}),
-      {fieldname: "interval", fieldtype: "HTML", options: `<p class="text-muted">${esc(t("The first synchronization reads all approvals. Changes synchronize every 5 minutes; a full reconciliation runs every 24 hours. Failed synchronization keeps existing data."))}</p>`},
+      {fieldname: "interval", fieldtype: "HTML", options: `<p class="text-muted">${esc(t("The first synchronization reads all approvals. Changes synchronize every 30 minutes; a full reconciliation runs every 24 hours. Failed synchronization keeps existing data."))}</p>`},
       {fieldname: "common_section", fieldtype: "Section Break", label: t("Common template settings")},
       {fieldname: "common_corp_id", label: t("Corporation ID"), fieldtype: "Select",
         options: helpers.textOptions(saved.corporations), default: defaults.corp_id || (saved.corporations.length === 1 ? saved.corporations[0] : ""),

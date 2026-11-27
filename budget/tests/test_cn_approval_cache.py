@@ -125,14 +125,13 @@ def test_failed_incremental_allocation_retains_completed_watermark(runtime, monk
 	assert json.loads(record['snapshot_json']) == baseline
 
 
-@pytest.mark.parametrize('seconds, due', [(299, False), (300, True), (301, True)])
-def test_auto_sync_becomes_due_after_five_minutes_without_shortening_worker_lease(runtime, seconds, due):
+@pytest.mark.parametrize('seconds, due', [(299, False), (300, False), (1799, False), (1800, True), (1801, True)])
+def test_auto_sync_becomes_due_after_thirty_minutes_and_reuses_active_jobs(runtime, seconds, due):
 	record = runtime.records[runtime.key]
 	record.update(last_success_at=runtime.now - timedelta(seconds=seconds),
 		queued_at=runtime.now - timedelta(seconds=seconds))
 	assert sync.get_status()['auto_sync_due'] is due
-	record.update(sync_status='running', started_at=runtime.now - timedelta(seconds=seconds),
-		heartbeat_at=runtime.now - timedelta(seconds=seconds))
+	record.update(sync_status='running', started_at=runtime.now - timedelta(minutes=1), heartbeat_at=runtime.now)
 	assert sync.get_status()['active']
 	assert not sync.get_status()['auto_sync_due']
 
@@ -143,11 +142,11 @@ def scheduled_runtime(runtime, monkeypatch):
 	return runtime.records[runtime.key]
 
 
-def test_cron_runs_next_five_minute_tick_even_when_previous_scan_finished_later(runtime, monkeypatch):
+def test_cron_runs_next_thirty_minute_tick_even_when_previous_scan_finished_later(runtime, monkeypatch):
 	record = scheduled_runtime(runtime, monkeypatch)
 	started = runtime.now
 	record.update(queued_at=started, last_success_at=started + timedelta(seconds=20))
-	runtime.now = started + timedelta(minutes=5)
+	runtime.now = started + timedelta(minutes=30)
 	assert not sync.get_status()['auto_sync_due'], 'page freshness backoff is unchanged'
 	sync.scheduled_sync()
 	assert record['sync_status'] == 'queued'

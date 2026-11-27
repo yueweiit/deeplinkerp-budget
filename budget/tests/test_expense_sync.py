@@ -29,7 +29,7 @@ def runtime(monkeypatch):
 
 def test_status_preserves_settings_permissions_and_warns_about_disabled_scheduler(runtime):
 	result = s.get_status()
-	assert result["interval_minutes"] == 5 and not result["scheduler_enabled"]
+	assert result["interval_minutes"] == 30 and not result["scheduler_enabled"]
 	assert result["sources"]["cn"]["can_sync"]
 	assert not result["sources"]["cn"]["can_manage"]
 	assert not result["sources"]["mx"]["can_sync"]
@@ -92,9 +92,9 @@ def test_mx_status_serializes_dates_without_exposing_templates_or_error_text(mon
 	assert "private" not in str(result)
 
 
-def test_only_expense_schedules_change_to_five_minutes():
+def test_only_expense_schedules_change_to_thirty_minutes():
 	from budget import hooks as budget_hooks
 	from deeplinkerp_branding import hooks as branding_hooks
-	assert budget_hooks.scheduler_events["cron"]["*/5 * * * *"] == ["budget.services.cn_approval_sync.scheduled_sync"]
-	assert branding_hooks.scheduler_events["cron"]["*/5 * * * *"] == ["deeplinkerp_branding.services.mexico_expenses.scheduled_sync"]
+	assert budget_hooks.scheduler_events["cron"]["*/30 * * * *"] == ["budget.services.cn_approval_sync.scheduled_sync"]
+	assert branding_hooks.scheduler_events["cron"]["*/30 * * * *"] == ["deeplinkerp_branding.services.mexico_expenses.scheduled_sync"]
 	assert "deeplinkerp_branding.services.purchase_source_service.scheduled_sync" in branding_hooks.scheduler_events["cron"]["*/15 * * * *"]

@@ -226,7 +226,7 @@
       const wrapper = this.dialog.fields_dict.content.$wrapper;
       const expanded = wrapper.find?.(".em-sync-details")?.prop("open");
       if (expanded !== undefined) this.detailsOpen = expanded;
-      let html = `<p class="text-muted">${esc(t("The first synchronization reads all approvals. Changes synchronize every 5 minutes; a full reconciliation runs every 24 hours. Failed synchronization keeps existing data."))}</p>`;
+      let html = `<p class="text-muted">${esc(t("The first synchronization reads all approvals. Changes synchronize every 30 minutes; a full reconciliation runs every 24 hours. Failed synchronization keeps existing data."))}</p>`;
       if (state?.scheduler_enabled === false)
         html += `<div class="alert alert-warning">${esc(t("Site scheduler is disabled. Automatic synchronization will not run until an administrator enables it."))}</div>`;
       if (this.error || this.settingsError)
