@@ -54,6 +54,8 @@ def test_stale_changed_company_or_duplicated_reference_blocks(action):
 		apply()
 	doc.company = "company-a"
 	existing.return_value = [{"refs": row["refs"]}]
+	recorded = api.preview_sync(doc.name)["rows"][0]
+	assert recorded["already_recorded"] and not recorded["selectable"]
 	with pytest.raises(ValueError):
 		apply()
 	existing.return_value = []

@@ -63,3 +63,24 @@ test("the Desk asset loader receives a CSS path and manages its own version para
         globalThis.location=savedLocation;
     }
 });
+test("DingTalk preview starts with importable rows and keeps read-only groups separate", () => {
+    const {syncPreview}=require("../public/js/bank_journal.js");
+    const markup=syncPreview([
+        {source_key:"recorded",selectable:false,already_recorded:true,summary:"已有项目",application_amount:"15.50",reason:"重复说明"},
+        {source_key:"ready",selectable:true,summary:"可导入项目",application_date:"2026-11-10",application_amount:"23.45",reason:"请核实本账户",date:"2026-11-11",expense:"22.00"},
+        {source_key:"review",selectable:false,summary:"单号异常项目",reason:"原单编号对应多个审批实例。"},
+    ],"2026-11");
+    assert.match(markup, /data-sync-tab="ready" aria-pressed="true"/);
+    const [ready, existing, review]=markup.split(/<section data-sync-panel="[^"]+"[^>]*>/).slice(1);
+    assert.match(ready,/可导入项目/);
+    assert.match(ready,/data-pick="1"/);
+    assert.match(ready,/name="date-1"[^>]*value="2026-11-11"/);
+    assert.match(ready,/name="expense-1"[^>]*value="22.00"/);
+    assert.doesNotMatch(ready,/已有项目|单号异常项目|请核实本账户/);
+    assert.match(existing,/已有项目/);
+    assert.doesNotMatch(existing,/<input|重复说明/);
+    assert.match(review,/单号异常项目.*原单编号对应多个审批实例。/);
+    assert.doesNotMatch(review,/<input/);
+    assert.match(markup, /data-sync-panel="existing" hidden/);
+    assert.doesNotMatch(syncPreview([],"2026-11"),/data-sync-tab="review"/);
+});
