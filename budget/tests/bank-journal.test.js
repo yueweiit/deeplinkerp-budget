@@ -117,3 +117,23 @@ test("DingTalk inputs default to the cashier date and application amount", () =>
     assert.match(markup,/name="expense-2"[^>]*value="35.00"/);
     assert.doesNotMatch(markup,/\bchecked\b/);
 });
+
+test("a company without a bank book can open the common import preview", () => {
+    const {Workbench}=require("../public/js/bank_journal.js");
+    const app=Object.create(Workbench.prototype);
+    Object.assign(app,{el:{innerHTML:"",querySelector:()=>({})},opts:{can_create:true},
+        books:[],companies:["示例公司"],company:"示例公司",month:"2026-11",book:"",data:null});
+    app.render();
+    assert.match(app.el.innerHTML,/data-act="import-book"[^>]*>导入账簿/);
+    let opened=0;
+    app.importDialog=()=>{opened++;};
+    app.click({target:{closest:selector=>selector==="[data-act]"?{dataset:{act:"import-book"}}:null}});
+    assert.equal(opened,1);
+    app.opts.can_create=false;
+    app.render();
+    assert.doesNotMatch(app.el.innerHTML,/data-act="import-book"/);
+    app.opts.can_create=true;
+    app.company="";
+    app.render();
+    assert.doesNotMatch(app.el.innerHTML,/data-act="import-book"/);
+});

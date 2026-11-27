@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "DeepLinkERP 银行日记账导入",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "人民币银行日记账。先查询公司及账户，可为获授权的公司创建缺少的账簿，再预览和提交。读操作要求 CN Cash Journal Entry 读取权限和公司权限；提交还要求创建权限，匹配已有流水时需要修改权限。示例使用虚构数据。"
   },
   "servers": [{"url": "https://deeplinkerp.com", "description": "DeepLinkERP"}],
@@ -12,7 +12,7 @@
       "get": {
         "operationId": "getJournalOptions",
         "summary": "列出可访问的公司和银行账簿",
-        "description": "先从 companies 选择公司，再从该公司的 books 选择账户和账簿 ID。目标账户缺少账簿时，收集明确的期初资料后调用 createJournalBook。",
+        "description": "先从 companies 选择公司，再从该公司的 books 选择账户和账簿 ID。原始文件可使用 company 直接预览新账簿，用户确认后建账并导入。",
         "x-openai-isConsequential": false,
         "responses": {
           "200": {
@@ -394,6 +394,12 @@
         "type": "object",
         "properties": {
           "book": {"$ref": "#/components/schemas/BookId"},
+          "company": {"$ref": "#/components/schemas/CreateBookRequest/properties/company"},
+          "account": {"$ref": "#/components/schemas/CreateBookRequest/properties/account"},
+          "opening_date": {"$ref": "#/components/schemas/CreateBookRequest/properties/opening_date"},
+          "opening": {"$ref": "#/components/schemas/CreateBookRequest/properties/opening"},
+          "header_row": {"type": ["integer", "null"], "minimum": 1},
+          "edits": {"type": "object", "description": "键为原表行号。修改收支时同时传 income 与 expense。", "additionalProperties": {"type": "object", "propertyNames": {"enum": ["date","summary","income","expense","balance"]}, "additionalProperties": {"type":"string"}}},
           "filename": {
             "type": "string",
             "maxLength": 255,
@@ -407,15 +413,24 @@
             "contentEncoding": "base64",
             "description": "对原文件二进制做标准 Base64 编码。文件最大 6 MiB。"
           },
+          "review_offset": {"type":"integer", "minimum":0, "maximum":9999},
+          "use_ai": {"type":"integer", "enum":[0,1]},
           "mapping": {"anyOf": [{"$ref": "#/components/schemas/ColumnMapping"}, {"type": "null"}]}
         },
-        "required": ["book", "filename", "content_base64"],
+        "oneOf": [{"required":["book"]},{"required":["company"]}],
+        "required": ["filename", "content_base64"],
         "additionalProperties": false
       },
       "FileApplyRequest": {
         "type": "object",
         "properties": {
           "book": {"$ref": "#/components/schemas/BookId"},
+          "company": {"$ref": "#/components/schemas/CreateBookRequest/properties/company"},
+          "account": {"$ref": "#/components/schemas/CreateBookRequest/properties/account"},
+          "opening_date": {"$ref": "#/components/schemas/CreateBookRequest/properties/opening_date"},
+          "opening": {"$ref": "#/components/schemas/CreateBookRequest/properties/opening"},
+          "header_row": {"type": ["integer", "null"], "minimum": 1},
+          "edits": {"type": "object", "description": "键为原表行号。修改收支时同时传 income 与 expense。", "additionalProperties": {"type": "object", "propertyNames": {"enum": ["date","summary","income","expense","balance"]}, "additionalProperties": {"type":"string"}}},
           "filename": {
             "type": "string",
             "maxLength": 255,
@@ -438,7 +453,8 @@
             "description": "本次确认的唯一持久化标识。网络超时后使用相同身份原样重发本次请求。"
           }
         },
-        "required": ["book", "filename", "content_base64", "preview_id", "version", "request_id"],
+        "oneOf": [{"required":["book"]},{"required":["company"]}],
+        "required": ["filename", "content_base64", "preview_id", "version", "request_id"],
         "additionalProperties": false
       },
       "Options": {
@@ -517,6 +533,10 @@
             "anyOf": [{"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}, {"type": "null"}]
           },
           "preview_id": {"type": "string", "pattern": "^(|[a-f0-9]{64})$", "description": "能提交时为签名，有错误或待映射时为空串。"},
+          "book_settings": {"type":"object","properties":{"account":{"type":"string"},"opening":{"type":["string","null"]},"opening_date":{"type":["string","null"]}},"required":["account","opening","opening_date"]},
+          "book_issues": {"type":"array","items":{"type":"object","properties":{"field":{"type":"string"},"message":{"type":"string"}},"required":["field","message"]}},
+          "header_row": {"type":["integer","null"]},
+          "mapping_used": {"anyOf":[{"$ref":"#/components/schemas/ColumnMapping"},{"type":"null"}]},
           "account_label": {"type": "string"},
           "headers": {"type": "array", "items": {"type": "string"}},
           "suggested_mapping": {"$ref": "#/components/schemas/ColumnMapping"},
@@ -632,6 +652,7 @@
       "Receipt": {
         "type": "object",
         "properties": {
+          "book": {"$ref":"#/components/schemas/BookId","description":"建账并导入时返回的新账簿。"},
           "operation": {"type": "string"},
           "version": {"type": "integer", "minimum": 0},
           "created": {"type": "integer", "minimum": 0},

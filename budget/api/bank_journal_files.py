@@ -130,10 +130,45 @@ def _ready(parsed):
 
 def _check_opening_date(doc, parsed):
 	for row in parsed["rows"]:
-		if row["date"] < str(doc.opening_date):
+		if doc.opening_date and row["date"] < str(doc.opening_date):
 			parsed["errors"].append(
 				{"row": row["source_row"], "field": "date", "message": "流水日期早于账簿启用日"}
 			)
+
+
+def _file_target(book, company, permission, settings):
+	if not book:
+		_store().authorize_book_creation(company)
+		return None
+	if company is not None or any(value is not None for value in settings):
+		frappe.throw("请选择已有账簿，或指定公司导入新账簿。")
+	return _store().authorize_book(book, permission)
+
+
+def _new_file_book(company, parsed, account, opening, opening_date):
+	statement_opening = parsed["opening"]
+	if statement_opening is None and not parsed["errors"]:
+		movement = Decimal(0)
+		for row in parsed["rows"]:
+			movement += Decimal(row["income"] or 0) - Decimal(row["expense"] or 0)
+			if row["balance"] is not None:
+				statement_opening = format(Decimal(row["balance"]) - movement, ".2f")
+				break
+	doc, issues = _store().book_settings(
+		company,
+		parsed["account_label"] if account is None else account,
+		statement_opening if opening is None else opening,
+		parsed["opening_date"] if opening_date is None else opening_date,
+	)
+	if doc.opening is not None and statement_opening is not None and Decimal(doc.opening) != Decimal(statement_opening):
+		issues.append({"field": "opening", "message": "期初余额与文件流水不符，请核对流水或期初余额。"})
+	return doc, issues
+
+
+def _file_scope(filename, mapping, new_book):
+	if new_book is None:
+		return Path(filename).suffix.lower(), mapping
+	return "new-book:" + Path(filename).suffix.lower(), [mapping, new_book.opening, new_book.opening_date]
 
 
 def _preview(parsed, version, token):
@@ -155,7 +190,8 @@ def _preview(parsed, version, token):
 
 @frappe.whitelist(methods=["POST"])
 def preview_import(
-	book, filename, content_base64, mapping=None, header_row=None, use_ai=None, edits=None, review_offset=None
+	book=None, filename=None, content_base64=None, mapping=None, header_row=None, use_ai=None, edits=None,
+	review_offset=None, company=None, account=None, opening=None, opening_date=None,
 ):
 	ai_requested = use_ai in (1, "1")
 	if review_offset is not None:
@@ -165,7 +201,8 @@ def preview_import(
 		):
 			frappe.throw("预览行范围无效")
 		review_offset = int(review_offset)
-	doc = _store().authorize_book(book, "create" if ai_requested or edits or review_offset is not None else "read")
+	permission = "create" if ai_requested or edits or review_offset is not None else "read"
+	doc = _file_target(book, company, permission, (account, opening, opening_date))
 	suggest_layout = None
 	if ai_requested:
 		from budget.services.bank_journal_ai import infer_layout
@@ -180,6 +217,12 @@ def preview_import(
 		edits=edits,
 		review_offset=review_offset,
 	)
+	book_issues, target = [], {}
+	if doc is None:
+		doc, book_issues = _new_file_book(company, parsed, account, opening, opening_date)
+		if doc.account and _store().book_exists(doc.name):
+			book_issues.append({"field": "account", "message": "该账户已有账簿，请选择该账户后导入银行流水。"})
+		target = {"book_settings": {k: doc[k] for k in ("account", "opening", "opening_date")}, "book_issues": book_issues}
 	_check_opening_date(doc, parsed)
 	review = {}
 	if review_offset is not None:
@@ -191,7 +234,8 @@ def preview_import(
 			"review_errors": [issue for issue in parsed["errors"] if issue.get("row") in visible],
 		}
 	version = doc.revision
-	token = _sign(doc, Path(filename).suffix.lower(), file_hash, mapping, version) if _ready(parsed) else ""
+	scope, binding = _file_scope(filename, mapping, None if book else doc)
+	token = _sign(doc, scope, file_hash, binding, version) if _ready(parsed) and not book_issues else ""
 	return {
 		**{
 			k: parsed[k]
@@ -210,30 +254,38 @@ def preview_import(
 		},
 		**_preview(parsed, version, token),
 		**review,
+		**target,
 	}
 
 
 @frappe.whitelist(methods=["POST"])
 def apply_import(
-	book, filename, content_base64, mapping=None, preview_id=None, version=None, request_id=None, header_row=None, edits=None
+	book=None, filename=None, content_base64=None, mapping=None, preview_id=None, version=None,
+	request_id=None, header_row=None, edits=None, company=None, account=None, opening=None, opening_date=None,
 ):
-	doc = _store().authorize_book(book)
+	doc = _file_target(book, company, "create", (account, opening, opening_date))
 	file_hash, mapping, parsed = _read(filename, content_base64, mapping, header_row=header_row, edits=edits)
+	issues = []
+	if doc is None:
+		doc, issues = _new_file_book(company, parsed, account, opening, opening_date)
 	_check_opening_date(doc, parsed)
+	scope, binding = _file_scope(filename, mapping, None if book else doc)
 	if (
 		not _ready(parsed)
+		or issues
 		or version is None
 		or not isinstance(preview_id, str)
 		or not re.fullmatch(r"[0-9a-f]{64}", preview_id)
 		or not hmac.compare_digest(
-			_sign(doc, Path(filename).suffix.lower(), file_hash, mapping, version), preview_id
+			_sign(doc, scope, file_hash, binding, version), preview_id
 		)
 	):
 		frappe.throw("流水文件、列对应、修改值或账簿预览已变化，请重新校验后导入")
 	if not isinstance(request_id, str) or not request_id.strip():
 		frappe.throw("导入请求缺少操作编号")
-	return _store().apply_batch(
-		book,
+	options = {} if book else {"new_book": doc, "request_facts": [scope, preview_id]}
+	result = _store().apply_batch(
+		doc.name,
 		parsed["rows"],
 		"Import",
 		version,
@@ -241,7 +293,9 @@ def apply_import(
 		opening=parsed["opening"],
 		opening_date=parsed["opening_date"],
 		template=parsed["template"],
+		**options,
 	)
+	return result if book else {**result, "book": doc.name}
 
 
 def _read_rows(book, company, account, currency, rows, extra):

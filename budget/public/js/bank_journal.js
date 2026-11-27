@@ -260,9 +260,9 @@
             const accounts=scopeBooks(this.books,this.company);
             this.book=accounts.find(b=>b.name===this.book)?.name || (accounts.length===1?accounts[0].name:"");
         }
-        openDialog(title,html){
+        openDialog(title,html,{companyOnly=false}={}){
             const company=this.company,book=this.book,period=this.month;
-            const caption=[company,this.books.find(b=>b.name===book)?.account].filter(Boolean).map(esc).join(" · ");
+            const caption=[company,companyOnly?"":this.books.find(b=>b.name===book)?.account].filter(Boolean).map(esc).join(" · ");
             const instance=dialog(title,'<p class="text-muted">'+caption+'</p>'+html);
             this.activeDialog=instance.d;
             const check=()=>{
@@ -290,7 +290,7 @@
             const table='<table class="bj-ledger"><colgroup>'+columns.map(([key])=>'<col class="bj-width-'+key+'">').join("")+'</colgroup><thead><tr>'+
                 columns.map(([key,label])=>'<th scope="col" class="bj-'+key+'">'+esc(label)+'</th>').join("")+'</tr></thead><tbody>'+rows.map(row=>rowMarkup(row,{canEdit,editing:editing?.row.name===row.name,editBusy:Boolean(editing)})).join("")+'</tbody></table>';
             const toolbar='<div class="bj-toolbar">'+companySelect+bookSelect+'<label>月份<input name="month" aria-label="月份" type="month" value="'+esc(this.month)+'" '+(editing?"disabled":"")+'></label>'+
-                (allowed&&this.company?use("book","新建账簿",Boolean(editing)):"")+'</div>';
+                (allowed&&this.company?use("import-book","导入账簿",Boolean(editing),!this.book)+use("book","新建账簿",Boolean(editing)):"")+'</div>';
             if(!this.book) {
                 this.el.innerHTML=toolbar+'<p class="text-muted">'+(!this.company?'请选择流水所属公司。':accounts.length?'请选择本次操作的银行账户。':'该公司还没有银行账簿。')+'</p>'+
                     (this.opts.legacy_count?use("classic","查看原有手工流水"):"");
@@ -324,6 +324,7 @@
             if(row){const r=this.data?.rows.find(x=>x.name===row.dataset.row);if(r)this.rowDialog(r);return;}
             if(key==="initialize")this.initialize();if(key==="refresh")this.load();
             if(key==="book")this.bookDialog();if(key==="classic")switchClassic(true);
+            if(key==="import-book" && this.company && this.opts.can_create!==false){this.importDialog(true);return;}
             if(!this.data)return;
             if(key==="add")this.rowDialog(null);if(key==="export")this.exportDialog();
             if(key==="import")this.importDialog();if(key==="sync")this.syncDialog();if(key==="undo")this.undoDialog();
@@ -417,17 +418,21 @@
                 const a=document.createElement("a");a.href=href;a.download=file.filename;a.click();setTimeout(()=>URL.revokeObjectURL(href),15000);d.hide();
             });
         }
-        importDialog() {
-            const book=this.book,receipt={};
-            const {d,el,action,error,check,run}=this.openDialog("导入银行流水",'<div class="bj-import-toolbar">'+
+        importDialog(newBook=false) {
+            const book=newBook?"":this.book,company=this.company,receipt={};
+            const settings=newBook?'<div class="bj-import-book" data-book-settings hidden>'+
+                field("account","银行账户名称","","text",'maxlength="140"')+field("opening_date","启用日期","","date")+
+                field("opening","期初余额（元）","","text",'inputmode="decimal"')+'<div data-book-issues role="status"></div></div>':"";
+            const {d,el,action,error,check,run}=this.openDialog(newBook?"导入账簿":"导入银行流水",'<div class="bj-import-toolbar">'+
                 '<label class="bj-import-file"><input type="file" accept=".csv,.xlsx" name="statement" aria-label="选择 CSV 或 XLSX 文件"></label>'+
-                '<div data-mapping></div></div><div data-result></div>');
+                '<div data-mapping></div></div>'+settings+'<div data-result></div>',{companyOnly:newBook});
             el.classList.add("bj-import-dialog");
             el.closest(".modal-dialog")?.classList.add("bj-import-modal");
             const fileInput=el.querySelector("[name=statement]");
             const mappingBox=el.querySelector("[data-mapping]"),resultBox=el.querySelector("[data-result]");
             let preview=null, data="", revision=0, offset=0, selected=null, headerRow=null, edits={};
-            let layoutPreview=null;
+            const bookFields=el.querySelector("[data-book-settings]");
+            let layoutPreview=null,bookEdits={};
             const validate=()=>read(offset);
             const invalidate=label=>{
                 ++revision;
@@ -437,12 +442,20 @@
                 if(status)status.textContent=label;
                 action("重新校验",validate);
             };
+            if(bookFields)bookFields.oninput=event=>{
+                if(event.target.matches("input[name]")){
+                    bookEdits[event.target.name]=event.target.value.trim();
+                    invalidate("账簿信息尚未校验");
+                }
+            };
             fileInput.onchange=()=>{
                 ++revision;
                 data=""; preview=null; layoutPreview=null; selected=null; headerRow=null; offset=0; edits={};
                 error("");
                 mappingBox.replaceChildren();
                 resultBox.replaceChildren();
+                bookEdits={};
+                if(bookFields)bookFields.hidden=true;
                 action("预览流水",validate);
             };
             mappingBox.onchange=event=>{
@@ -478,7 +491,8 @@
                 if(button)run(async()=>{check();await read(Number(button.dataset.reviewOffset));});
             };
             function fileArgs(file){
-                return {book,filename:file.name,content_base64:data,edits:JSON.stringify(edits)};
+                const target=newBook?{company,...bookEdits}:{book};
+                return {...target,filename:file.name,content_base64:data,edits:JSON.stringify(edits)};
             }
             const apply=async()=>{
                 if(!preview?.preview_id)throw Error("请先重新校验流水。");
@@ -486,10 +500,14 @@
                     preview_id:preview.preview_id,version:preview.version};
                 const controls=Array.from(el.querySelectorAll("input,textarea,select,button")).filter(input=>!input.disabled);
                 controls.forEach(input=>input.disabled=true);
+                let result;
                 try{
-                    await call("apply_import",{...args,request_id:retryKey(receipt,{book,preview_id:preview.preview_id,version:preview.version})});
+                    result=await call("apply_import",{...args,request_id:retryKey(receipt,{book,preview_id:preview.preview_id,version:preview.version})});
                 }finally{controls.forEach(input=>input.disabled=false);}
-                d.hide();await this.load();root.frappe.show_alert({message:"流水已导入",indicator:"green"});
+                check();
+                d.hide();
+                if(newBook){this.book=result.book;await this.initialize();}else await this.load();
+                root.frappe.show_alert({message:newBook?"已建账并导入 "+result.created+" 笔流水":"流水已导入",indicator:"green"});
             };
             async function read(nextOffset){
                 const file=fileInput.files[0];
@@ -500,6 +518,7 @@
                 const res=await call("preview_import",{...fileArgs(file),mapping:selected,header_row:headerRow,
                     use_ai:layoutPreview===null?1:0,review_offset:nextOffset});
                 if(v!==revision)return;
+                check();
                 headerRow=res.header_row ?? null;
                 selected=res.mapping_used || selected || res.suggested_mapping || null;
                 const mappingOpen=mappingBox.querySelector("details")?.open;
@@ -507,6 +526,15 @@
                 mappingBox.innerHTML=importMapping(res,selected||{},signed,mappingOpen);
                 layoutPreview=res;
                 preview=res;
+                if(bookFields){
+                    bookFields.hidden=false;
+                    const issues=res.book_issues||[];
+                    bookFields.querySelectorAll("input").forEach(input=>{
+                        input.value=bookEdits[input.name]??res.book_settings?.[input.name]??"";
+                        input.setAttribute("aria-invalid",String(issues.some(issue=>issue.field===input.name)));
+                    });
+                    bookFields.querySelector("[data-book-issues]").innerHTML=errorList(issues);
+                }
                 const grid=resultBox.querySelector(".bj-import-grid");
                 const position=nextOffset===offset?[grid?.scrollTop||0,grid?.scrollLeft||0]:[0,0];
                 const rows=res.review_rows || [], total=res.review_total||0, pageSize=res.review_page_size||100;
@@ -525,7 +553,7 @@
                     (res.needs_mapping&&res.ai_notice?'<p class="text-muted">'+esc(res.ai_notice)+'</p>':"");
                 resultBox.querySelector(".bj-import-grid")?.scrollTo({top:position[0],left:position[1]});
                 offset=nextOffset;
-                if(!res.needs_mapping&&!problems&&res.preview_id&&rows.length)action("确认导入",apply);
+                if(!res.needs_mapping&&!problems&&res.preview_id&&rows.length)action(newBook?"建账并导入":"确认导入",apply);
                 else action("重新校验",validate);
             }
             action("预览流水",validate);
