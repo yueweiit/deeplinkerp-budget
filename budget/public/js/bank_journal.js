@@ -81,6 +81,47 @@
             return {source_key,date,expense:String(expense)};
         });
     }
+    function syncPreview(rows, month) {
+        const groups = {ready:[], existing:[], review:[]};
+        rows.forEach((row, index)=>{
+            const group = row.already_recorded ? "existing" : row.selectable === true && row.source_key ? "ready" : "review";
+            groups[group].push({row, index});
+        });
+        const tabs = [["ready","可导入"],["existing","已存在"]];
+        if (groups.review.length) tabs.push(["review","需核对"]);
+        const section = (group, label) => {
+            const editable = group === "ready";
+            const entries = groups[group];
+            const rowHTML = entries.map(({row, index})=>{
+                const refs = row.refs?.join?.(" / ") || row.number || "";
+                const summary = row.summary || row.title || refs || "支出申请";
+                const metadata = [refs===summary?"":refs, row.application_date].filter(Boolean).join(" · ");
+                const title = '<span class="bj-sync-title" title="'+esc(summary)+'">'+esc(summary)+'</span>';
+                const identity = editable
+                    ? '<label class="bj-sync-pick"><input type="checkbox" data-pick="'+index+'">'+title+'</label>'
+                    : title;
+                const note = group === "review" && row.reason
+                    ? '<span class="bj-sync-meta">'+esc(row.reason)+'</span>' : "";
+                return '<tr><td>'+identity+'<span class="bj-sync-meta">'+esc(metadata)+'</span>'+note+'</td>'+
+                    '<td class="bj-sync-money" data-label="申请金额">'+esc(amountText(row.application_amount))+'</td>'+
+                    (editable?
+                        '<td data-label="实付日期"><input type="date" name="date-'+index+'" aria-label="实付日期" value="'+esc(row.date)+'"></td>'+
+                        '<td data-label="实付金额"><input type="text" inputmode="decimal" name="expense-'+index+
+                            '" aria-label="实付金额" value="'+esc(row.expense)+'"></td>':"")+'</tr>';
+            }).join("");
+            const table = '<table class="bj-sync-table'+(editable?' bj-sync-ready':'')+'"><thead><tr>'+
+                '<th scope="col">支出</th><th scope="col" class="bj-sync-money">申请金额</th>'+
+                (editable?'<th scope="col">实付日期</th><th scope="col">实付金额</th>':"")+'</tr></thead>'+
+                '<tbody>'+rowHTML+'</tbody></table>';
+            const empty = '<p class="text-muted bj-sync-empty">本月没有'+(editable?"可导入":"已录入")+'的支出。</p>';
+            return '<section data-sync-panel="'+group+'" '+(editable?"":"hidden ")+'aria-label="'+label+'">'+
+                (entries.length?table:empty)+'</section>';
+        };
+        const buttons = tabs.map(([group,label])=>'<button type="button" class="btn btn-default btn-sm" '+
+            'data-sync-tab="'+group+'" aria-pressed="'+(group==="ready")+'">'+label+' '+groups[group].length+'</button>').join("");
+        return '<div class="bj-sync-heading"><nav aria-label="支出状态">'+buttons+'</nav><time>'+esc(month)+'</time></div>'+
+            tabs.map(([group,label])=>section(group,label)).join("");
+    }
     function retryKey(state, args) {
         const signature=JSON.stringify(args);
         if (state.signature!==signature) Object.assign(state,{signature,id:root.crypto.randomUUID()});
@@ -126,7 +167,8 @@
         const d = new root.frappe.ui.Dialog({title, size:"large", fields:[{fieldname:"body",fieldtype:"HTML"}]});
         const el=d.fields_dict.body.$wrapper[0];
         el.classList.add("bj-dialog"); el.innerHTML=html+'<p class="bj-error" role="alert"></p>';
-        const error = text => {el.querySelector(".bj-error").textContent=text};
+        const message=el.lastElementChild;
+        const error=text=>{message.textContent=text};
         function action(label, fn) {
             d.set_primary_action(label, async()=>{
                 if (d.__busy) return;
@@ -392,26 +434,37 @@
         }
         async syncDialog(){
             const {book,month}=this,receipt={};
-            const {d,el,action,error}=this.openDialog("同步钉钉支出",'<div data-result><p role="status">正在读取可同步的支出…</p></div>');
+            const {d,el,action,error}=this.openDialog("同步钉钉支出",'<div data-result><p role="status">正在读取钉钉支出…</p></div>');
+            el.classList.add("bj-sync-dialog");
             const panel=el.querySelector("[data-result]");
-            d.get_primary_btn().addClass("hide");
+            const primary=d.get_primary_btn();
+            primary.addClass("hide");
             const read=async()=>{
                 const p=await call("preview_sync",{book,month});
                 const rows=p.rows || [];
-                const selectable=rows.filter(r=>r.selectable!==false&&r.source_key);
-                panel.innerHTML='<p>'+esc(month)+' 审批通过的支出 · '+esc(rows.length)+' 笔。勾选本账户已付款的支出，核实实付日期和金额后再录入。</p>'+
-                    errorList(p.errors)+(rows.length?rows.map((r,i)=>{
-                        const disabled=r.selectable===false||!r.source_key;
-                        const refs=r.refs?.join?.(" / ")||r.number||r.approval_no||"";
-                        return '<div class="bj-candidate"><label><input type="checkbox" data-pick="'+i+'" '+(disabled?"disabled":"")+'> '+esc(r.summary||r.title||refs||"支出申请")+
-                            '</label><p>'+esc(refs)+'　'+(r.application_date?esc(r.application_date)+"　":"")+(r.application_amount!=null?"申请金额 "+esc(amountText(r.application_amount)):"")+
-                            (r.reason?"　"+esc(r.reason):"")+'</p>'+(disabled?"":'<div class="bj-form">'+
-                            field("date-"+i,"实际付款日期",r.date||"","date")+
-                            field("expense-"+i,"实际付款金额",r.expense??"","text",'inputmode="decimal"')+'</div>')+'</div>';
-                    }).join(""):'<p class="text-muted">本月没有可新增的钉钉支出。</p>');
-                if(!selectable.length||!p.preview_id){d.get_primary_btn().addClass("hide");return;}
-                action("录入所选支出",async()=>{
-                    const selection=syncSelection([...panel.querySelectorAll("[data-pick]:checked")].map(input=>{
+                panel.innerHTML=errorList(p.errors)+syncPreview(rows,month);
+                const picks=[...panel.querySelectorAll("[data-pick]")];
+                const canApply=Boolean(p.preview_id && picks.length);
+                let viewed="ready";
+                const updateAction=()=>{
+                    primary.toggleClass("hide",!canApply || viewed!=="ready");
+                    primary.prop("disabled",d.__busy || !picks.some(input=>input.checked));
+                };
+                panel.onclick=e=>{
+                    const tab=e.target.closest("[data-sync-tab]");
+                    if (!tab || d.__busy) return;
+                    viewed=tab.dataset.syncTab;
+                    panel.querySelectorAll("[data-sync-tab]").forEach(button=>{
+                        button.setAttribute("aria-pressed",String(button===tab));
+                    });
+                    panel.querySelectorAll("[data-sync-panel]").forEach(group=>{
+                        group.hidden=group.dataset.syncPanel!==viewed;
+                    });
+                    updateAction();
+                };
+                panel.onchange=e=>{if (e.target.matches("[data-pick]")) updateAction();};
+                if (canApply) action("导入所选",async()=>{
+                    const selection=syncSelection(picks.filter(input=>input.checked).map(input=>{
                         const i=Number(input.dataset.pick);
                         return {source_key:rows[i].source_key,date:formValue(el,"date-"+i),expense:formValue(el,"expense-"+i)};
                     }),month);
@@ -419,6 +472,7 @@
                     await call("apply_sync",{...args,request_id:retryKey(receipt,args)});d.hide();
                     await this.load();root.frappe.show_alert({message:"钉钉支出已录入",indicator:"green"});
                 });
+                updateAction();
             };
             try{await read();}catch(e){panel.replaceChildren();error(reason(e));action("重试",read);}
         }
@@ -443,5 +497,5 @@
             else if(wrapper.cashJournal&&nativeShow)nativeShow(wrapper);
         };
     }
-    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,extractRefs,retryKey,scopeBooks,Workbench,install};
+    return {columns,monthArgs,clientLink,rowMarkup,syncSelection,syncPreview,extractRefs,retryKey,scopeBooks,Workbench,install};
 });

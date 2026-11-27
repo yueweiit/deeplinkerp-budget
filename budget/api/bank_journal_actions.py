@@ -33,7 +33,9 @@ def _preview(doc, month, version):
 	for row in raw:
 		if row["number"] in used or row["source_key"] in prior:
 			row.update(
-				selectable=False, reason="账簿已有该单号或同步记录。分次付款可在新增行中填写同一单号。"
+				selectable=False,
+				already_recorded=True,
+				reason="账簿已有该单号或同步记录。分次付款可在新增行中填写同一单号。",
 			)
 	return raw, token
 
